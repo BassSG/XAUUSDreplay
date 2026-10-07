@@ -2,8 +2,9 @@
 import {useEffect,useRef,useState} from 'react';
 import type {Bar} from './engine';
 import type {PinePlot} from '../components/replay-chart';
-type Job={id:number;source:string;bars:Bar[];seconds:number};
-export function usePine(source:string|undefined,enabled:boolean|undefined,bars:Bar[],seconds:number,sessionId:string|undefined){
+type ScriptJob={id:string;name:string;source:string};
+type Job={id:number;source:string;bars:Bar[];seconds:number;scripts?:ScriptJob[]};
+export function usePine(source:string|undefined,enabled:boolean|undefined,bars:Bar[],seconds:number,sessionId:string|undefined,scripts?:ScriptJob[]){
  const [plots,setPlots]=useState<PinePlot[]>([]);const [status,setStatus]=useState('');const [error,setError]=useState('');
  const latest=useRef<Job|null>(null);const counter=useRef(0);const dispatch=useRef<(()=>void)|null>(null);const lastTime=useRef(0);
  useEffect(()=>{
@@ -29,11 +30,11 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
   worker.onerror=e=>{dead=true;clearTimeout(deadline);setError(e.message||'Pine runtime ไม่พร้อม');setStatus('');worker.terminate();};
   send();
   return()=>{dead=true;dispatch.current=null;clearTimeout(deadline);worker.terminate()};
- },[source,enabled,seconds,sessionId]);
+ },[source,enabled,seconds,sessionId,JSON.stringify(scripts?.map(s=>[s.id,s.name,s.source]))]);
  useEffect(()=>{
   if(!enabled||!source||!bars.length){latest.current=null;setPlots([]);return;}
-  const time=bars.at(-1)!.time;if(time<=lastTime.current)setPlots([]);lastTime.current=time;
-  latest.current={id:++counter.current,source,bars,seconds};dispatch.current?.();
- },[bars,source,enabled,seconds,sessionId]);
+  const time=bars.at(-1)!.time;lastTime.current=time;
+  latest.current={id:++counter.current,source,bars,seconds,scripts};dispatch.current?.();
+ },[bars,source,enabled,seconds,sessionId,JSON.stringify(scripts?.map(s=>[s.id,s.source]))]);
  return {plots,status,error};
 }
