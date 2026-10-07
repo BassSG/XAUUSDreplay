@@ -42,7 +42,7 @@ const commandSchema = z.object({
  if (v.type === 'open' && (v.orderType === 'limit' || v.orderType === 'stop') && !v.entry) ctx.addIssue({ code: 'custom', message: 'Pending order ต้องมี Entry' });
 });
 const indicatorSchema=z.object({id:uuid,name:z.string().trim().min(1).max(120),source:z.string().max(250000),enabled:z.boolean()});
-const drawingSchema=z.object({id:uuid,kind:z.enum(['hline','trend','rect','fib']),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(2),locked:z.boolean().optional()});
+const drawingSchema=z.object({id:uuid,kind:z.enum(['hline','vline','trend','ray','arrow','rect','fib','measure']),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(2),locked:z.boolean().optional(),text:z.string().max(500).optional()});
 const sessionSchema = z.object({
  id: uuid, name: z.string().trim().min(1).max(120), dataset: safeId, from: z.number().int().positive(),
  cursor: z.number().int().min(0).max(999999), furthest: z.number().int().min(0).max(999999),
