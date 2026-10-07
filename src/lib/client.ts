@@ -63,5 +63,7 @@ export async function importFile(file: File, tf: number, progress: (s: string) =
 }
 export function download(name: string, content: string, type = 'application/json') {
  const url = URL.createObjectURL(new Blob([content], { type })); const a = document.createElement('a');
- a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+ a.href = url; a.download = name; a.style.display = 'none'; document.body.append(a); a.click(); a.remove();
+ // Give Safari and slower mobile downloads time to read the Blob.
+ setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
