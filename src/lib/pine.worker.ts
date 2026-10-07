@@ -1,6 +1,6 @@
 import {PineTS,Indicator} from 'pinets';
 import type {Bar,CandleCalendar} from './engine.ts';
-import {brokerTimeToUtc,utcToBrokerTime} from './engine';
+import {brokerTimeToUtc,utcToBrokerTime} from './engine.ts';
 
 const context=self as unknown as Worker;
 type ScriptJob={id:string;name:string;source:string};
