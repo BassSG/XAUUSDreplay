@@ -31,20 +31,24 @@ const settingsSchema = z.object({
  spread: z.number().nonnegative().max(1000), commission: z.number().nonnegative().max(10000), slippage: z.number().nonnegative().max(1000),
 });
 const commandSchema = z.object({
- id: uuid, at: z.number().int().positive(), type: z.enum(['open', 'close', 'stop']), side: z.enum(['long', 'short']).optional(),
+ id: uuid, at: z.number().int().positive(), type: z.enum(['open', 'close', 'stop', 'protect', 'cancel', 'modify']), side: z.enum(['long', 'short']).optional(),
  lots: z.number().positive().max(10000).optional(), sl: z.number().positive().optional(), tp: z.number().positive().optional(),
- tradeId: uuid.optional(), fraction: z.number().positive().max(1).optional(),
+ tradeId: uuid.optional(), orderId: uuid.optional(), fraction: z.number().positive().max(1).optional(), orderType: z.enum(['market','limit','stop']).optional(), entry: z.number().positive().optional(),
 }).superRefine((v, ctx) => {
  if (v.type === 'open' && (!v.side || !v.lots || !v.sl || !v.tp)) ctx.addIssue({ code: 'custom', message: 'ออเดอร์ไม่สมบูรณ์' });
- if (v.type !== 'open' && !v.tradeId) ctx.addIssue({ code: 'custom', message: 'ไม่พบออเดอร์' });
- if (v.type === 'stop' && !v.sl) ctx.addIssue({ code: 'custom', message: 'ไม่พบ SL' });
+ if (v.type === 'close' && !v.tradeId) ctx.addIssue({ code: 'custom', message: 'ไม่พบ Position' });
+ if ((v.type === 'stop' || v.type === 'protect') && (!v.tradeId || (!v.sl && !v.tp))) ctx.addIssue({ code: 'custom', message: 'ไม่พบ Position หรือ SL/TP' });
+ if ((v.type === 'cancel' || v.type === 'modify') && !v.orderId) ctx.addIssue({ code: 'custom', message: 'ไม่พบ Pending order' });
+ if (v.type === 'open' && (v.orderType === 'limit' || v.orderType === 'stop') && !v.entry) ctx.addIssue({ code: 'custom', message: 'Pending order ต้องมี Entry' });
 });
+const indicatorSchema=z.object({id:uuid,name:z.string().trim().min(1).max(120),source:z.string().max(30000),enabled:z.boolean()});
+const drawingSchema=z.object({id:uuid,kind:z.enum(['hline','trend','rect','fib']),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(2),locked:z.boolean().optional()});
 const sessionSchema = z.object({
  id: uuid, name: z.string().trim().min(1).max(120), dataset: safeId, from: z.number().int().positive(),
  cursor: z.number().int().min(0).max(999999), furthest: z.number().int().min(0).max(999999),
  commands: z.array(commandSchema).max(10000), settings: settingsSchema, parent: uuid.optional(),
  notes: z.record(z.string().max(5000)).refine(v => Object.keys(v).length <= 10000), pine: z.string().max(30000),
- indicatorEnabled: z.boolean(), timeframe: z.number().int().min(60).max(86400), revision: z.number().int().min(0), engineVersion: z.literal(1),
+ indicatorEnabled: z.boolean(), timeframe: z.number().int().min(60).max(86400), revision: z.number().int().min(0), engineVersion: z.literal(1), indicators:z.array(indicatorSchema).max(24).optional(), drawings:z.array(drawingSchema).max(500).optional(),
 }).refine(s => s.cursor <= s.furthest, 'ตำแหน่ง Replay ไม่ถูกต้อง')
  .refine(s => new Set(s.commands.map(c => c.id)).size === s.commands.length, 'คำสั่งซ้ำ');
 type BundledDataset = z.infer<typeof bundledSchema>;
