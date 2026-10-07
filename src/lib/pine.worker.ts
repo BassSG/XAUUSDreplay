@@ -27,7 +27,7 @@ context.onmessage=async(event:MessageEvent)=>{
  const realNow=Date.now;Date.now=()=>asOf*1000;
  try{for(const job of jobs){
   setPineMainTimeframe(String(seconds/60));
-  const study={id:job.id,name:job.name,inputs:[] as any[],error:'',bridge:false,ms:0};const started=performance.now();
+  const study={id:job.id,name:job.name,inputs:[] as any[],error:'',bridge:false,ms:0,mode:'initial'};const started=performance.now();
   context.postMessage({id,progress:job.name});
   try{
    const src=job.source;const executable=src.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,m=>' '.repeat(m.length));if(/\bstrategy\s*\(/.test(executable))throw Error('หน้านี้ใช้ indicator() · strategy() ยังไม่เชื่อมกับสมุดออเดอร์จำลอง');if(src.length>250000)throw Error('Pine Script ยาวเกิน 250,000 ตัวอักษร');
@@ -53,6 +53,7 @@ context.onmessage=async(event:MessageEvent)=>{
    const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>JSON.stringify(b)===JSON.stringify(next[i]));
    let raw:any;
    if(prior&&prior.settings===settings&&prefix(prior.bars,bars)&&prefix(prior.baseBars,baseBars)){
+    study.mode='incremental';
     prior.provider.current=dataSource;prior.pine.eDate=asOf*1000;prior.raw.eDate=asOf*1000;
     await prior.pine.updateTail(prior.raw);raw=prior.raw;prior.bars=bars;prior.baseBars=baseBars;
    }else{

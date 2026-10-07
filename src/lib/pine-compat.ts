@@ -39,15 +39,39 @@ export function wrapPineContext(fn:Function,owner?:any):Function {
      return obj;
     };return factory;
    };
-   const security=ctx.pine.request.security;
-   ctx.pine.request.security=async(...args:any[])=>{
+   const dynamicBodies=new Map<string,{code:string;at:number;match:RegExpMatchArray|null;variants:Map<string,Function>}>();
+   for(const method of ['security','security_lower_tf']){const security=ctx.pine.request[method];
+   ctx.pine.request[method]=async(...args:any[])=>{
     const unwrap=(v:any)=>{v=Array.isArray(v)&&typeof v[1]==='string'?v[0]:v;return typeof v?.get==='function'?v.get(0):v};
     const symbol=unwrap(args[0])||ctx.tickerId;const tf=String(unwrap(args[1])||ctx.timeframe);
     const expression=Array.isArray(args[2])?args[2][1]:undefined;
-    const key=`${symbol}_${tf}_${expression}`;
+    const suffix=typeof expression==='string'?expression.match(/p\d+$/)?.[0]:undefined;
+    const key=`${symbol}_${tf}_${expression}${method==='security_lower_tf'?'_lower':''}`;
+    // PineTS slices a dynamic request at its FIRST top-level invocation.
+    // EBW's first Hero call uses 10m, so its 30m closed-feed request otherwise
+    // runs the wrong branch on a 15m chart. Bind that slice's entry call to
+    // this request's TF and call scope; keep all function calculations intact.
+    const body=suffix&&ctx._ltfTruncatedBodies?.[suffix];
+    if(!ctx.isSecondaryContext&&body&&!ctx.cache[key]){
+     let entry=dynamicBodies.get(suffix!);if(!entry){const code=body.toString(),at=code.lastIndexOf('$.call(f_heroFetch,');const match=at>=0?code.slice(at).match(/^\$\.call\(f_heroFetch,\s*"[^"]+",\s*(\$\.param\((?:'[^']*'|"[^"]*")|p\d+)/):null;entry={code,at,match,variants:new Map()};dynamicBodies.set(suffix!,entry);}
+     const {code,at,match}=entry;
+     const callScope=expression.slice(0,-suffix!.length);
+     const literal=match?.[1]?.startsWith('$.param(')?match[1]:match?code.slice(0,at).match(new RegExp('\\bconst '+match[1]+'\\s*=\\s*\\$\\.param\\((?:\'[^\']*\'|"[^"]*")'))?.[0]:undefined;
+     const initialTF=literal?.match(/'([^']*)'|"([^"]*)"/);const firstMinutes=Number(initialTF?.[1]??initialTF?.[2]);const requestedMinutes=Number(tf)||({D:1440,W:10080,M:43200} as Record<string,number>)[tf];
+     // The existing shared slice is sufficient when both calls use the closed
+     // branch. Keep it to avoid compiling separate bodies on 1m/5m charts.
+     const sameClosedBranch=method==='security'&&firstMinutes>=Number(mainTimeframe)&&requestedMinutes>=Number(mainTimeframe);
+     if(match&&callScope&&!sameClosedBranch){const variantKey=tf+'|'+callScope;let fn=entry.variants.get(variantKey);
+      if(!fn){let head=code.slice(0,at);const arg=match[1];let boundArg=arg;
+       if(arg.startsWith('$.param('))boundArg='$.param('+JSON.stringify(tf);
+       else{const declaration=new RegExp('\\bconst '+arg+'\\s*=\\s*\\$\\.param\\((?:\'[^\']*\'|"[^"]*")');if(!declaration.test(head))return security(...args);head=head.replace(declaration,'const '+arg+' = $.param('+JSON.stringify(tf));}
+       const replacement=`$.call(f_heroFetch, ${JSON.stringify(callScope)}, ${boundArg}`;fn=optimizePrepared(new Function('return ('+head+replacement+code.slice(at+match[0].length)+')')());entry.variants.set(variantKey,fn!);}
+      ctx._ltfTruncatedBodies[suffix!]=fn;
+     }
+    }
     if(!ctx.cache[key]&&expression){
      const prefix=`${symbol}_${tf}_`;
-     const existing=Object.entries(ctx.cache).find(([k,v]:any)=>k.startsWith(prefix)&&v.context?.params?.[expression]);
+     const existing=Object.entries(ctx.cache).find(([k,v]:any)=>k.startsWith(prefix)&&k.endsWith('_lower')===(method==='security_lower_tf')&&v.context?.params?.[expression]);
      if(existing)ctx.cache[key]=existing[1];
     }
     try{return await security(...args)}catch(e){
@@ -66,6 +90,7 @@ export function wrapPineContext(fn:Function,owner?:any):Function {
      throw e;
     }
    };
+   }
   }
   return fn(ctx);
  };
