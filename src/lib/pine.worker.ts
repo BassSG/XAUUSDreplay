@@ -93,7 +93,7 @@ context.onmessage=async(event:MessageEvent)=>{
    for(const [kind,items,overlay] of groups)for(const item of items??[])if(item&&!item._deleted)drawings.push({...item,kind,overlay:overlay||item.force_overlay,indicatorId:job.id,indicatorName:job.name});
    for(const item of latestObjects(raw,'__tables__')??[])if(item&&!item._deleted)tables.push({...item,indicatorId:job.id,indicatorName:job.name});
    warnings.push(...(raw.warnings??[]).map((w:any)=>job.name+': '+String(w?.message??w)).slice(0,3));
-  }catch(e){errors.push(job.name+': '+(e instanceof Error?e.message:String(e)));}
+  }catch(e){errors.push(job.name+': '+(e instanceof Error?(e.stack||e.message):String(e)));}
  }
  context.postMessage({id,plots:allPlots,shapes,drawings,tables,warnings:warnings.slice(0,12),errors});
 };
