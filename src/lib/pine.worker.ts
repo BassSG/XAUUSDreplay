@@ -68,8 +68,8 @@ context.onmessage=async(event:MessageEvent)=>{
   try{
    const src=job.source;if(src.length>250000)throw Error('Pine Script ยาวเกิน 250,000 ตัวอักษร');
    if(/\bimport\b/.test(src.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,m=>' '.repeat(m.length))))throw Error('ยังไม่รองรับ Pine library import');
-   const dataSource=provider(baseBars,baseSeconds,calendar);
-   const pine=new PineTS(dataSource as any,'XAUUSD',String(seconds/60),undefined,baseBars[0]?.time*1000,baseBars.at(-1)?.time*1000);
+   const dataSource=provider(baseBars,baseSeconds,calendar);const firstTime=baseBars[0]?.time;const lastTime=baseBars.at(-1)?.time;
+   const pine=new PineTS(dataSource as any,'XAUUSD',String(seconds/60),undefined,firstTime===undefined?undefined:firstTime*1000,lastTime===undefined?undefined:lastTime*1000);
    pine.setMaxLoops(100000);
    const indicator=new Indicator(src);
    const raw=await pine.run(indicator) as any;
