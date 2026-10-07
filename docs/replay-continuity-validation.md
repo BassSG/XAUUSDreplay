@@ -8,7 +8,7 @@
 - เก็บผลล่าสุดไม่เกิน 6 จุดและจำกัดจำนวน plot points ป้องกันภาพหายเมื่อย้อนในแคช เก็บจุดปัจจุบันไว้ขณะเตรียมจุดถัดไป
 - Pause ยกเลิก timer ที่รอ commit; การเปลี่ยนรอบหรือ TF ยกเลิก worker และ promise เก่า ปัญหาคำนวณ/timeout แจ้ง error และหยุด Play
 - แก้ Hero slice ให้ใช้ TF และ function call scope ของคำขอจริงทั้ง security และ security_lower_tf รองรับ argument ที่ inline และที่ transpiler ยกไปเป็น parameter ตัวแปร ไม่แก้ไฟล์ Pine ต้นฉบับ
-- ซ่อน indicator label, box text, plot marker text และ table dashboard เป็นค่าเริ่มต้น เปิดกลับได้แยกจากกันโดยไม่เริ่ม worker ใหม่ เส้น โซน ลูกศร รูปทรง และข้อความออเดอร์ยังอยู่
+- ซ่อน indicator label, box text, plot marker text, ชื่อเส้นตามแกน oscillator และ table dashboard เป็นค่าเริ่มต้น เปิดกลับได้แยกจากกันโดยไม่เริ่ม worker ใหม่ เส้น โซน ลูกศร รูปทรง และข้อความออเดอร์ยังอยู่ (Lightweight Charts แยกการแสดง title ออกจาก lastValueVisible จึงต้องซ่อนทั้งสอง)
 
 ## หลักฐาน
 
