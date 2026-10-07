@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {Indicator} from 'pinets';
 let callback;
 globalThis.self={postMessage:(v)=>callback(v)};
 await import('../src/lib/pine.worker.ts');
@@ -17,5 +18,9 @@ const invalid=await run('//@version=6\nindicator("Broken")\nplot(');assert.ok(in
 const allIndy=fs.readFileSync(new URL('../public/indicators/all-indy-v10.4.4.pine',import.meta.url),'utf8');
 const fibo=fs.readFileSync(new URL('../public/indicators/ebw-fibo-1.9.pine',import.meta.url),'utf8');
 const builtins=await run('',{seconds:300,scripts:[{id:'all',name:'All Indy',source:allIndy},{id:'fibo',name:'EBW-Fibo',source:fibo}]});
+if(builtins.errors.length){
+ const compiled=new Indicator(allIndy).prepare().fn.toString().split('\n');
+ console.error('COMPILED_CONTEXT_3710_3740\n'+compiled.slice(3709,3740).map((v,i)=>String(3710+i)+': '+v).join('\n'));
+}
 assert.equal(builtins.errors.length,0,'Built-in Pine errors: '+builtins.errors.join(' | '));
 console.log(JSON.stringify({passed:6,tests:'EMA; RSI; MTF request.security; Pine drawings; syntax errors; All Indy + EBW-Fibo built-ins'}));
