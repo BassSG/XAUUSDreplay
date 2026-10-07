@@ -34,7 +34,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  useEffect(()=>{
   if(!enabled||(!source&&!scripts?.length)||!bars.length){latest.current=null;setPlots([]);return;}
   const time=bars.at(-1)!.time;lastTime.current=time;
-  latest.current={id:++counter.current,source,bars,seconds,scripts};dispatch.current?.();
+  latest.current={id:++counter.current,source:source||'',bars,seconds,scripts};dispatch.current?.();
  },[bars,source,enabled,seconds,sessionId,JSON.stringify(scripts?.map(s=>[s.id,s.source]))]);
  return {plots,status,error};
 }
