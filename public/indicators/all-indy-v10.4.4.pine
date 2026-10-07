@@ -677,7 +677,8 @@ lp_Pack lp_b = array.get(lp_packets, 1)
 lp_Pack lp_c = array.get(lp_packets, 2)
 
 f_lp_planText(lp_Plan p) =>
-    p.id == "" ? p.reason : p.status + " · " + p.family + "\nE " + f_price(p.entry) + " | SL " + f_price(p.stop) + "\nTarget " + f_price(p.target) + " | net " + str.tostring(p.netR, "#.##") + "R\n" + p.reason
+    lp_Plan q = na(p) ? lp_Plan.new() : p
+    q.id == "" ? q.reason : q.status + " · " + q.family + "\nE " + f_price(q.entry) + " | SL " + f_price(q.stop) + "\nTarget " + f_price(q.target) + " | net " + str.tostring(q.netR, "#.##") + "R\n" + q.reason
 
 f_lp_event(lp_Plan p, string previous, string tf, string eventType) =>
     // Host compatibility: during MTF warm-up PineTS can surface an uninitialized nested UDT as na.
@@ -747,16 +748,19 @@ f_lp_row(int row, string title, string value, color tint) =>
     table.cell(lp_board, 1, row, value, text_color=tint, text_size=lp_panelSize, text_halign=text.align_right, bgcolor=uiPanel)
 
 f_lp_statusCode(lp_Plan p) =>
-    p.id == "" ? "—" : p.status == "Watching" ? "WAIT" : p.status == "Active" ? "ACTIVE" : p.status == "Ambiguous touch" ? "CHECK" : p.status == "Expired" ? "EXPIRED" : p.status == "Invalidated" ? "VOID" : str.upper(p.status)
+    lp_Plan q = na(p) ? lp_Plan.new() : p
+    q.id == "" ? "—" : q.status == "Watching" ? "WAIT" : q.status == "Active" ? "ACTIVE" : q.status == "Ambiguous touch" ? "CHECK" : q.status == "Expired" ? "EXPIRED" : q.status == "Invalidated" ? "VOID" : str.upper(q.status)
 
 f_lp_compactPlan(lp_Plan p) =>
-    p.id == "" ? "—" : f_lp_statusCode(p) + ((p.status == "Watching" or p.status == "Active") ? " · " + f_price(p.entry) : "")
+    lp_Plan q = na(p) ? lp_Plan.new() : p
+    q.id == "" ? "—" : f_lp_statusCode(q) + ((q.status == "Watching" or q.status == "Active") ? " · " + f_price(q.entry) : "")
 
 f_lp_pair(lp_Pack packet) =>
     na(packet) ? "—" : "B " + f_lp_compactPlan(packet.buy) + " / S " + f_lp_compactPlan(packet.sell)
 
 f_lp_left(lp_Pack packet, lp_Plan p) =>
-    p.id == "" or na(packet) ? "—" : str.tostring(math.max(0, lp_planAge - (packet.clockBar - p.born)))
+    lp_Plan q = na(p) ? lp_Plan.new() : p
+    q.id == "" or na(packet) ? "—" : str.tostring(math.max(0, lp_planAge - (packet.clockBar - q.born)))
 
 f_lp_familyCode(string family) =>
     family == "Demand" ? "D" : family == "Supply" ? "S" : family == "Swing" ? "SW" : family == "Flip" ? "FL" : family == "Volume OB" ? "OB" : family
