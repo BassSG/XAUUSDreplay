@@ -9,7 +9,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  const latest=useRef<Job|null>(null);const counter=useRef(0);const dispatch=useRef<(()=>void)|null>(null);const lastTime=useRef(0);
  useEffect(()=>{
   setPlots([]);setError('');setStatus('');lastTime.current=0;latest.current=null;
-  if(!enabled||!source)return;
+  if(!enabled||(!source&&!scripts?.length))return;
   let worker:Worker;
   try{worker=new Worker(new URL('./pine.worker.ts',import.meta.url),{type:'module'})}catch(e){setError(e instanceof Error?e.message:'Pine runtime ไม่พร้อม');return;}
   let active:Job|null=null;let completed=0;let deadline:ReturnType<typeof setTimeout>|undefined;let dead=false;
@@ -32,7 +32,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
   return()=>{dead=true;dispatch.current=null;clearTimeout(deadline);worker.terminate()};
  },[source,enabled,seconds,sessionId,JSON.stringify(scripts?.map(s=>[s.id,s.name,s.source]))]);
  useEffect(()=>{
-  if(!enabled||!source||!bars.length){latest.current=null;setPlots([]);return;}
+  if(!enabled||(!source&&!scripts?.length)||!bars.length){latest.current=null;setPlots([]);return;}
   const time=bars.at(-1)!.time;lastTime.current=time;
   latest.current={id:++counter.current,source,bars,seconds,scripts};dispatch.current?.();
  },[bars,source,enabled,seconds,sessionId,JSON.stringify(scripts?.map(s=>[s.id,s.source]))]);
