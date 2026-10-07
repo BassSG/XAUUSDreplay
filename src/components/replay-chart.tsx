@@ -38,7 +38,37 @@ export default function ReplayChart({bars,trades,plots,shapes=[],pineDrawings=[]
   for(const [key,s] of r.studies)if(!live.has(key)){r.chart.removeSeries(s);r.studies.delete(key);}
   if(plots.some(p=>!p.overlay)&&r.chart.panes().length>1)r.chart.panes()[1].setHeight(150);
  },[plots]);
- const tradeLevels=(()=>{const r=ref.current;if(!r||!host.current)return null;const w=host.current.clientWidth;const open=trades.filter(t=>t.remaining>0);const move=(ev:any)=>{const d=dragProtectRef.current;if(!d)return;const rect=host.current?.getBoundingClientRect();if(!rect)return;const p=r.series.coordinateToPrice(ev.clientY-rect.top);if(p===null||!Number.isFinite(p))return;const next={...d,price:p};dragProtectRef.current=next;setDragProtect(next)};const end=(ev:any)=>{const d=dragProtectRef.current;if(!d)return;try{ev.currentTarget.releasePointerCapture?.(ev.pointerId)}catch{}dragProtectRef.current=null;setDragProtect(null);onProtectChange?.(d.tradeId,d.kind,d.price)};return <svg className="trade-level-overlay" width={host.current.clientWidth} height={host.current.clientHeight}>{open.flatMap(t=>([['sl',t.sl],['tp',t.tp]] as const).map(([kind,raw])=>{const price=dragProtect?.tradeId===t.id&&dragProtect.kind===kind?dragProtect.price:raw;const y=r.series.priceToCoordinate(price);if(y===null)return null;const cls=kind==='sl'?'trade-level-sl':'trade-level-tp';return <g key={t.id+'-'+kind} className={'trade-level '+cls+(protectDisabled?' disabled':'')} onPointerDown={ev=>{if(protectDisabled)return;ev.stopPropagation();ev.currentTarget.setPointerCapture?.(ev.pointerId);const d={tradeId:t.id,kind,price};dragProtectRef.current=d;setDragProtect(d)}} onPointerMove={move} onPointerUp={end} onPointerCancel={end}><line className="trade-level-hit" x1={0} x2={w} y1={y} y2={y}/><line className="trade-level-visible" x1={0} x2={w} y1={y} y2={y}/><rect className="trade-level-label-bg" x={Math.max(4,w-122)} y={y-12} width={116} height={23} rx={4}/><text className="trade-level-label" x={Math.max(8,w-116)} y={y+4}>{kind.toUpperCase()} {price.toFixed(2)} ↕</text></g>})) )}</svg>})();
+ const tradeLevels=(()=>{
+  const r=ref.current;if(!r||!host.current)return null;
+  const w=host.current.clientWidth,h=host.current.clientHeight;
+  const open=trades.filter(t=>t.remaining>0);
+  const move=(ev:any)=>{
+   const d=dragProtectRef.current;if(!d)return;
+   const rect=host.current?.getBoundingClientRect();if(!rect)return;
+   const p=r.series.coordinateToPrice(ev.clientY-rect.top);
+   if(p===null||!Number.isFinite(p))return;
+   const next={...d,price:p};dragProtectRef.current=next;setDragProtect(next);
+  };
+  const endDrag=(ev:any)=>{
+   const d=dragProtectRef.current;if(!d)return;
+   try{ev.currentTarget.releasePointerCapture?.(ev.pointerId)}catch{}
+   dragProtectRef.current=null;setDragProtect(null);onProtectChange?.(d.tradeId,d.kind,d.price);
+  };
+  const items=open.flatMap(t=>([['sl',t.sl],['tp',t.tp]] as const).map(([kind,raw])=>{
+   const price=dragProtect?.tradeId===t.id&&dragProtect.kind===kind?dragProtect.price:raw;
+   const y=r.series.priceToCoordinate(price);if(y===null)return null;
+   const cls=kind==='sl'?'trade-level-sl':'trade-level-tp';
+   return <g key={t.id+'-'+kind} className={'trade-level '+cls+(protectDisabled?' disabled':'')}
+    onPointerDown={ev=>{if(protectDisabled)return;ev.stopPropagation();ev.currentTarget.setPointerCapture?.(ev.pointerId);const d={tradeId:t.id,kind,price};dragProtectRef.current=d;setDragProtect(d)}}
+    onPointerMove={move} onPointerUp={endDrag} onPointerCancel={endDrag}>
+    <line className="trade-level-hit" x1={0} x2={w} y1={y} y2={y}/>
+    <line className="trade-level-visible" x1={0} x2={w} y1={y} y2={y}/>
+    <rect className="trade-level-label-bg" x={Math.max(4,w-122)} y={y-12} width={116} height={23} rx={4}/>
+    <text className="trade-level-label" x={Math.max(8,w-116)} y={y+4}>{kind.toUpperCase()} {price.toFixed(2)} ↕</text>
+   </g>;
+  }));
+  return <svg className="trade-level-overlay" width={w} height={h}>{items}</svg>;
+ })();
  const overlay=(()=>{const r=ref.current;if(!r||!host.current)return null;const w=host.current.clientWidth,h=host.current.clientHeight;const xy=(p:DrawingPoint)=>[r.chart.timeScale().timeToCoordinate(p.time as any),r.series.priceToCoordinate(p.price)] as const;const pineX=(x:any,xloc:any)=>{const n=Number(x);if(!Number.isFinite(n))return null;const isTime=String(xloc||'').toLowerCase().includes('time')||String(xloc||'')==='bt';const t=isTime?Math.floor(n>1e12?n/1000:n):(bars[Math.trunc(n)-barIndexOffset]?.time);return t? r.chart.timeScale().timeToCoordinate(t as any):null};const items:any[]=[];
   for(const d of drawings){const a=xy(d.points[0]);if(a[0]===null||a[1]===null)continue;if(d.kind==='hline'){items.push(<line key={'u'+d.id} x1={0} x2={w} y1={a[1]} y2={a[1]} className="drawing-line"/>);continue;}if(d.kind==='vline'){items.push(<line key={'u'+d.id} x1={a[0]} x2={a[0]} y1={0} y2={h} className="drawing-line"/>);continue;}const b=d.points[1]&&xy(d.points[1]);if(!b||b[0]===null||b[1]===null)continue;
    if(d.kind==='trend')items.push(<line key={'u'+d.id} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="drawing-line"/>);
