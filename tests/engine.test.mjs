@@ -86,3 +86,23 @@ test('normalization sorts, handles seconds/milliseconds/ISO and validates OHLC',
 test('higher timeframe contains only revealed minute bars',()=>{
  const prefix=[bar(0,100,103,98,102),bar(1,102,104,101,103)];const result=aggregate(prefix,3600);assert.equal(result[0].high,104);assert.equal(result[0].close,103);assert.equal(result[0].volume,20);assert.equal(prefix[0].high,103);
 });
+
+
+test('limit order remains cancellable until touched',()=>{
+ const bars=[bar(0,100,101,99),bar(1,100,102,99),bar(2,100,111,89)];
+ const pending={...open({lots:1,sl:90,tp:120}),orderType:'limit',entry:95};
+ const first=simulate(bars,1,[pending],config);assert.equal(first.trades.length,0);assert.equal(first.orders.length,1);
+ const cancelled=simulate(bars,2,[pending,{id:'cancel',at:t+60,type:'cancel',orderId:'entry'}],config);
+ assert.equal(cancelled.trades.length,0);assert.equal(cancelled.orders.length,0);
+});
+test('pending order can be modified before fill',()=>{
+ const bars=[bar(0),bar(1,100,103,98),bar(2,100,103,96)];
+ const pending={...open({lots:1,sl:90,tp:120}),orderType:'limit',entry:95};
+ const commands=[pending,{id:'modify',at:t+60,type:'modify',orderId:'entry',entry:97,sl:90,tp:120,lots:1}];
+ const s=simulate(bars,2,commands,config);assert.equal(s.trades.length,1);assert.equal(s.trades[0].entry,97);
+});
+test('position protective TP can be modified without changing initial risk',()=>{
+ const bars=[bar(0),bar(1,100,104,99,103),bar(2,103,108,102,107)];
+ const commands=[open({lots:1,tp:120}),{id:'protect',at:t+60,type:'protect',tradeId:'entry',tp:110}];
+ const s=simulate(bars,2,commands,config);assert.equal(s.trades[0].tp,110);assert.equal(s.trades[0].risk,5);
+});
