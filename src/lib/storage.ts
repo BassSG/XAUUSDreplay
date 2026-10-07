@@ -41,14 +41,14 @@ const commandSchema = z.object({
  if ((v.type === 'cancel' || v.type === 'modify') && !v.orderId) ctx.addIssue({ code: 'custom', message: 'ไม่พบ Pending order' });
  if (v.type === 'open' && (v.orderType === 'limit' || v.orderType === 'stop') && !v.entry) ctx.addIssue({ code: 'custom', message: 'Pending order ต้องมี Entry' });
 });
-const indicatorSchema=z.object({id:uuid,name:z.string().trim().min(1).max(120),source:z.string().max(30000),enabled:z.boolean()});
+const indicatorSchema=z.object({id:uuid,name:z.string().trim().min(1).max(120),source:z.string().max(250000),enabled:z.boolean()});
 const drawingSchema=z.object({id:uuid,kind:z.enum(['hline','trend','rect','fib']),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(2),locked:z.boolean().optional()});
 const sessionSchema = z.object({
  id: uuid, name: z.string().trim().min(1).max(120), dataset: safeId, from: z.number().int().positive(),
  cursor: z.number().int().min(0).max(999999), furthest: z.number().int().min(0).max(999999),
  commands: z.array(commandSchema).max(10000), settings: settingsSchema, parent: uuid.optional(),
- notes: z.record(z.string().max(5000)).refine(v => Object.keys(v).length <= 10000), pine: z.string().max(30000),
- indicatorEnabled: z.boolean(), timeframe: z.number().int().min(60).max(86400), revision: z.number().int().min(0), engineVersion: z.literal(1), indicators:z.array(indicatorSchema).max(24).optional(), drawings:z.array(drawingSchema).max(500).optional(),
+ notes: z.record(z.string().max(5000)).refine(v => Object.keys(v).length <= 10000), pine: z.string().max(250000),
+ indicatorEnabled: z.boolean(), timeframe: z.number().int().min(60).max(86400), revision: z.number().int().min(0), engineVersion: z.literal(1), indicators:z.array(indicatorSchema).optional(), drawings:z.array(drawingSchema).max(500).optional(),
 }).refine(s => s.cursor <= s.furthest, 'ตำแหน่ง Replay ไม่ถูกต้อง')
  .refine(s => new Set(s.commands.map(c => c.id)).size === s.commands.length, 'คำสั่งซ้ำ');
 type BundledDataset = z.infer<typeof bundledSchema>;
