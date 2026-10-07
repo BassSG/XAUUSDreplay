@@ -79,7 +79,10 @@
       "390 x 844 responsive viewport: chart, controls, mobile journal and navigation render",
       "Play advances with current Pine output; Pause stops; rewind restores matching cached output",
       "Full-source plots and dashboard cells match a fresh calculation after several forming/closed-candle updates",
-      "SVG overlays appear above the native chart; PNG selects the overlay SVG, not the attribution logo"
+      "SVG overlays appear above the native chart; PNG selects the overlay SVG, not the attribution logo",
+      "Cross-window date jump switches to compatible history, creates a separate round and resets stale draft SL/TP to the new price (3302.00 / 3322.00 at 3307.00)",
+      "New session/TF remounts the chart to a useful 110-candle view; drawing undo history does not cross session boundaries",
+      "Actual exported PNG file includes candlesticks, oscillator series and Pine overlay objects"
     ]
   },
   "limitations": [
