@@ -11,7 +11,7 @@
     "dev": "vite --host 127.0.0.1 --port 5199",
     "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 5199",
-    "test": "node --experimental-strip-types --test tests/engine.test.mjs tests/storage.test.mjs tests/pwa.test.mjs tests/pine.test.mjs tests/history.test.mjs tests/indicator-upgrade.test.mjs",
+    "test": "node --experimental-strip-types --test tests/engine.test.mjs tests/storage.test.mjs tests/pwa.test.mjs tests/pine.test.mjs tests/history.test.mjs tests/indicator-upgrade.test.mjs tests/chart-tools.test.mjs",
     "data:prepare": "node --experimental-strip-types scripts/prepare-data.mjs"
   },
   "dependencies": {

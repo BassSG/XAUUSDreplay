@@ -39,3 +39,15 @@
 .chart-recovery{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;color:#d6e1ef;text-align:center}.chart-recovery p{max-width:600px;overflow-wrap:anywhere;font-size:12px;color:#e98d9a}.chart-recovery small{color:#8da0b7}
 
 .drawing-overlay{z-index:4}.chart-expanded .chart-scroll-content{min-height:calc(100dvh - 44px)}
+.user-drawing-overlay{position:absolute;top:0;left:0;z-index:5;pointer-events:none;overflow:hidden}
+.drawing-hit,.drawing-anchor{cursor:move;touch-action:none}.drawing-anchor{cursor:crosshair}.drawing-locked{cursor:default;touch-action:none}
+.drawing-active .chart-canvas{touch-action:none}
+.drawing-instruction{position:absolute;left:12px;top:10px;z-index:8;display:flex;align-items:center;gap:12px;max-width:calc(100% - 24px);padding:6px 10px;border:1px solid #d7b46a60;border-radius:6px;background:#10151df0;color:#eed6a2;font-size:12px;pointer-events:none}
+.drawing-instruction button{pointer-events:auto;font-size:11px;padding:3px 6px;white-space:nowrap}
+.drawing-properties{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 12px;background:#18202b;border-bottom:1px solid #344155;font-size:12px}
+.drawing-properties label{display:flex;align-items:center;gap:6px}.drawing-properties input[type=color]{width:34px;height:29px;padding:2px;border:1px solid #344155;background:#10151d;cursor:pointer}
+.drawing-properties input:not([type=color]){min-width:90px;max-width:240px;background:#10151d;border:1px solid #344155;border-radius:5px;padding:6px;color:#dbe4ef}
+.drawing-properties button[aria-pressed=true]{border-color:#d7b46a;color:#f2d99c}.drawing-objects>div>button:first-child{flex:1;text-align:left}.drawing-objects[open]{max-height:190px;overflow:auto}
+.drawing-tools button.active{border-color:#d7b46a;color:#f2d99c;background:#d7b46a14}
+.replay-throughput{font-size:11px;color:#b8c9df;white-space:nowrap;font-variant-numeric:tabular-nums}
+@media(max-width:700px){.drawing-properties{gap:6px}.drawing-properties button{min-height:36px}.drawing-instruction{font-size:11px;gap:6px}.replay-throughput{font-size:10px}}

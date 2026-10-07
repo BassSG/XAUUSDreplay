@@ -8,8 +8,15 @@ let callback,sequence=0;
 globalThis.self={postMessage:v=>{if(!v.progress)callback(v)}};
 await import('../src/lib/pine.worker.ts');
 const base=Array.from({length:2400},(_,i)=>({time:1700000100+i*60,open:2000+Math.sin(i/8)*3+i/100,high:2004+Math.sin(i/8)*3+i/100,low:1996+Math.sin(i/8)*3+i/100,close:2000.4+Math.sin(i/8)*3+i/100,volume:10+(i%7)}));
-async function run(source,{bars=base,baseBars=bars,seconds=60,scripts}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds:60,calendar:'utc',scripts}})});}
+async function run(source,{bars=base,baseBars=bars,seconds=60,scripts,plotLimit}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds:60,calendar:'utc',scripts,plotLimit}})});}
 const assertGood=r=>assert.deepEqual(r.errors,[],r.errors.join(' | '));
+test('windowed worker output retains full TA history and ten-candle batches match cold output',async()=>{
+ const source='//@version=6\nindicator("Fast replay",overlay=true)\nvar array<float> values=array.new_float()\nvalues.push(close)\nplot(ta.ema(close,200),"EMA")\nplot(ta.rsi(close,14),"RSI")\nplot(array.size(values),"Count")\nplot(request.security(syminfo.tickerid,"15",ta.ema(close,8)),"HTF")';
+ let warm;for(const n of [2300,2310,2320]){const b=base.slice(0,n);warm=await run('',{bars:b,scripts:[{id:'fast-live',name:'Fast',source}],plotLimit:2000});assertGood(warm);assert.equal(warm.studies[0].mode,n===2300?'initial':'incremental');assert.ok(warm.plots.every(p=>p.data.length===2000));}
+ const b=base.slice(0,2320),cold=await run('',{bars:b,scripts:[{id:'fast-cold',name:'Cold',source}]});assertGood(cold);
+ assert.deepEqual(warm.plots.map(p=>p.data),cold.plots.map(p=>p.data.slice(-2000)));
+ assert.equal(warm.plots.find(p=>p.name==='Count').data.at(-1).value,2320,'batch evaluates every intermediate candle');
+});
 test('EMA, RSI and mixed oscillator plots contain real numeric output',async()=>{
  const ema=await run('//@version=6\nindicator("EMA", overlay=true)\nplot(ta.ema(close,20),title="EMA",color=color.orange)');assertGood(ema);assert.equal(ema.plots.length,1);assert.equal(ema.plots[0].overlay,true);assert.ok(Number.isFinite(ema.plots[0].data.at(-1).value));
  const rsi=await run('//@version=6\nindicator("RSI",overlay=false)\nplot(ta.rsi(close,14))\nhline(70,"High")\nhline(30,"Low")');assertGood(rsi);assert.equal(rsi.plots.length,3);assert.equal(rsi.plots[0].overlay,false);
@@ -57,8 +64,8 @@ test('both bundled scripts match full originals and produce plots, overlays, tab
  const sourceA=a.toString(),sourceF=f.toString();assert.match(sourceA,/ZB 16 S2 CHECK/);assert.match(sourceF,/cf_packet/);
  const b=base.slice(0,2200);const scripts=[{id:'all',name:'All Indy',source:sourceA,inputs:{in_1:true}},{id:'fibo',name:'EBW-Fibo',source:sourceF}];
  const r=await run('',{bars:aggregate(b,300),baseBars:b,seconds:300,scripts});assertGood(r);assert.equal(r.plots.filter(p=>p.indicatorId==='all').length,12);assert.ok(r.plots.some(p=>p.indicatorId==='fibo'&&p.overlay));assert.ok(r.drawings.some(d=>d.indicatorId==='all'&&d.overlay));assert.ok(r.drawings.some(d=>d.indicatorId==='fibo'&&d.overlay));assert.ok(r.tables.some(t=>t.indicatorId==='all'&&t.cells.flat().some(c=>c?.text?.includes('EBW /'))));assert.ok(r.tables.some(t=>t.indicatorId==='fibo'));assert.equal(r.studies.find(s=>s.id==='fibo').bridge,true);assert.ok(r.studies.every(s=>s.inputs.length>20));
- let step;for(const n of [2201,2205,2210]){const forward=base.slice(0,n);step=await run('',{bars:aggregate(forward,300),baseBars:forward,seconds:300,scripts});assertGood(step);assert.equal(step.plots.length,r.plots.length);assert.equal(step.studies.find(s=>s.id==='fibo').bridge,true);assert.ok(step.studies.every(s=>s.mode==='incremental'),'Play must reuse both compiled studies and their live state');}
- const final=base.slice(0,2210);const cold=await run('',{bars:aggregate(final,300),baseBars:final,seconds:300,scripts:scripts.map(s=>({...s,id:'cold-'+s.id}))});assertGood(cold);
+ let step;for(const n of [2201,2205,2210,2260]){const forward=base.slice(0,n);step=await run('',{bars:aggregate(forward,300),baseBars:forward,seconds:300,scripts});assertGood(step);assert.equal(step.plots.length,r.plots.length);assert.equal(step.studies.find(s=>s.id==='fibo').bridge,true);assert.ok(step.studies.every(s=>s.mode==='incremental'),'Play must reuse both compiled studies and their live state');}
+ const final=base.slice(0,2260);const cold=await run('',{bars:aggregate(final,300),baseBars:final,seconds:300,scripts:scripts.map(s=>({...s,id:'cold-'+s.id}))});assertGood(cold);
  const output=result=>result.plots.map(p=>({name:p.name,overlay:p.overlay,data:p.data}));assert.deepEqual(output(step),output(cold),'full-script forward results must match fresh calculation across forming and closed candles');
  assert.deepEqual(step.tables.map(t=>t.cells),cold.tables.map(t=>t.cells),'full-script dashboard values must match a fresh calculation');
 });

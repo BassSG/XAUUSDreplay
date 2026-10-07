@@ -9,7 +9,7 @@ const preparedSlices=new WeakMap<Function,Function>();
 PineTS.prototype.runPretranspiled=function(fn:Function,inputs?:Record<string,any>,periods?:number){let prepared=preparedSlices.get(fn);if(!prepared){prepared=wrapPineContext(optimizePrepared(fn));preparedSlices.set(fn,prepared);}return secondaryRun.call(this,prepared,inputs,periods)};
 const context=self as unknown as Worker;
 export type ScriptJob={id:string;name:string;source:string;inputs?:Record<string,string|number|boolean>;builtinId?:string};
-type Payload={id:number;key?:string;source?:string;bars:Bar[];baseBars?:Bar[];seconds:number;baseSeconds?:number;calendar?:CandleCalendar;scripts?:ScriptJob[];bundled?:boolean;history?:Record<string,Bar[]>};
+type Payload={id:number;key?:string;source?:string;bars:Bar[];baseBars?:Bar[];seconds:number;baseSeconds?:number;calendar?:CandleCalendar;scripts?:ScriptJob[];bundled?:boolean;history?:Record<string,Bar[]>;plotLimit?:number};
 type Compiled={source:string;indicator:Indicator;meta:any[];bridge:Map<string,Map<number,number>>;runtime?:{pine:any;raw:any;provider:{current:any};bars:Bar[];baseBars:Bar[];settings:string}};
 const compiled=new Map<string,Compiled>();
 const results=new Map<string,any>();
@@ -18,8 +18,12 @@ function color(v:any,fallback='#d7b46a'){return typeof v==='string'&&v&&v!=='na'
 function plain(value:any){return JSON.parse(JSON.stringify(value,(k,v)=>['context','_udt','_definition'].includes(k)||typeof v==='function'?undefined:v));}
 export const visibleDisplay=(v:unknown)=>v===undefined||v==='all'||typeof v==='string'&&v.includes('pane');
 context.onmessage=async(event:MessageEvent)=>{
- const {id,key,source,bars,baseBars=bars,seconds,baseSeconds=seconds,calendar='utc',scripts,bundled=false,history}=event.data as Payload;
- if(key&&results.has(key)){context.postMessage({...results.get(key),id});return;}
+ const {id,key,source,bars,baseBars=bars,seconds,baseSeconds=seconds,calendar='utc',scripts,bundled=false,history,plotLimit}=event.data as Payload;
+ // Keep the full runtime history for TA and MTF requests; transfer only the
+ // chart's drawable window. This reduces worker serialization at high speeds.
+ const outputFrom=plotLimit&&plotLimit>0?(bars[Math.max(0,bars.length-Math.floor(plotLimit))]?.time??0):0;
+ const cacheKey=key?key+'|output:'+(plotLimit||'all'):undefined;
+ if(cacheKey&&results.has(cacheKey)){context.postMessage({...results.get(cacheKey),id});return;}
  const jobs=(scripts?.length?scripts:[{id:'legacy',name:'Pine',source:source||''}]).slice().sort((a,b)=>Number(b.source.includes('indicator("All Indy (EBW) V10.4.4'))-Number(a.source.includes('indicator("All Indy (EBW) V10.4.4')));
  const plots:any[]=[],shapes:any[]=[],drawings:any[]=[],tables:any[]=[],warnings:string[]=[],errors:string[]=[],studies:any[]=[];
  let bridge=new Map<string,Map<number,number>>();
@@ -50,7 +54,7 @@ context.onmessage=async(event:MessageEvent)=>{
    context.postMessage({id,progress:job.name,metadata:study});
    const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:String(seconds/60),bars});
    const settings=JSON.stringify([seconds,baseSeconds,calendar,bundled,job.inputs]);const prior=item.runtime;
-   const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>JSON.stringify(b)===JSON.stringify(next[i]));
+   const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>{const n=next[i];return b.time===n.time&&b.open===n.open&&b.high===n.high&&b.low===n.low&&b.close===n.close&&b.volume===n.volume&&b.spread===n.spread;});
    let raw:any;
    if(prior&&prior.settings===settings&&prefix(prior.bars,bars)&&prefix(prior.baseBars,baseBars)){
     study.mode='incremental';
@@ -69,11 +73,12 @@ context.onmessage=async(event:MessageEvent)=>{
     if(key.startsWith('__'))continue;const p=value as any;if(!Array.isArray(p?.data)||!visibleDisplay(p.options?.display))continue;
     const style=p.options?.style??'style_line',overlay=!!(p.options?.force_overlay||p.options?.overlay||raw.indicator?.overlay);
     if(style==='shape'||style==='char'){
-     for(const d of p.data){if(!d?.options||!d.value)continue;shapes.push({indicatorId:job.id,indicatorName:job.name,time:Math.floor(d.time/1000),shape:d.options.shape||style,location:d.options.location||'abovebar',color:color(d.options.color),text:d.options.text||d.options.char||'',textcolor:color(d.options.textcolor,'#ffffff'),size:d.options.size||'small'});}continue;
+     for(const d of p.data){if(!d?.options||!d.value||d.time<outputFrom*1000)continue;shapes.push({indicatorId:job.id,indicatorName:job.name,time:Math.floor(d.time/1000),shape:d.options.shape||style,location:d.options.location||'abovebar',color:color(d.options.color),text:d.options.text||d.options.char||'',textcolor:color(d.options.textcolor,'#ffffff'),size:d.options.size||'small'});}continue;
     }
     if(['background','barcolor','bar','candle'].includes(style)){warnings.push(job.name+': '+style+' ยังไม่แสดงในกราฟ');continue;}
     if(!['style_line','style_linebr','style_stepline','line','hline','style_histogram','style_columns','style_area'].includes(style))continue;
-    plots.push({indicatorId:job.id,indicatorName:job.name,name:p.title||key,style,overlay,color:color(p.options?.color),width:Math.max(1,Math.min(4,p.options?.linewidth||1)),data:p.data.map((d:any)=>({time:Math.floor(d.time/1000),value:Number.isFinite(d.value)?d.value:null,color:typeof d.options?.color==='string'?d.options.color:undefined}))});
+    let lo=0,hi=p.data.length;while(lo<hi){const mid=(lo+hi)>>>1;if(p.data[mid].time<outputFrom*1000)lo=mid+1;else hi=mid;}
+    plots.push({indicatorId:job.id,indicatorName:job.name,name:p.title||key,style,overlay,color:color(p.options?.color),width:Math.max(1,Math.min(4,p.options?.linewidth||1)),data:p.data.slice(lo).map((d:any)=>({time:Math.floor(d.time/1000),value:Number.isFinite(d.value)?d.value:null,color:typeof d.options?.color==='string'?d.options.color:undefined}))});
    }
    for(const [kind,key,overlay] of [['line','__lines__',false],['line','__lines_overlay__',true],['box','__boxes__',false],['box','__boxes_overlay__',true],['label','__labels__',false],['label','__labels_overlay__',true],['linefill','__linefills__',false],['linefill','__linefills_overlay__',true]] as const){
     for(const d of latestObjects(raw,key)??[])if(d&&!d._deleted)drawings.push(plain({...d,kind,overlay:overlay||d.force_overlay||raw.indicator?.overlay,indicatorId:job.id,indicatorName:job.name}));
@@ -85,6 +90,6 @@ context.onmessage=async(event:MessageEvent)=>{
  }}finally{Date.now=realNow;}
  for(const key of compiled.keys())if(!jobs.some(j=>j.id===key))compiled.delete(key);
  const result={id,plots,shapes,drawings,tables,warnings:[...new Set(warnings)].slice(0,12),errors,studies};
- if(key&&!errors.length){results.set(key,result);while(results.size>8||[...results.values()].reduce((n,r)=>n+r.plots.reduce((v:number,p:any)=>v+p.data.length,0),0)>400000)results.delete(results.keys().next().value!);}
+ if(cacheKey&&!errors.length){results.set(cacheKey,result);while(results.size>8||[...results.values()].reduce((n,r)=>n+r.plots.reduce((v:number,p:any)=>v+p.data.length,0),0)>400000)results.delete(results.keys().next().value!);}
  context.postMessage(result);
 };

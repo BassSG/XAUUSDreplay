@@ -3,7 +3,7 @@ import type {Bar,CandleCalendar} from './engine';
 import type {ScriptJob} from './pine.worker';
 import type {PinePlot,PineShape,PineDrawing,PineTable} from '../components/replay-chart';
 export type StudyStatus={id:string;name:string;inputs:any[];error:string;bridge:boolean;ms:number;mode?:'initial'|'incremental'};
-type Job={id:number;key:string;source:string;bars:Bar[];baseBars:Bar[];seconds:number;baseSeconds:number;calendar:CandleCalendar;scripts?:ScriptJob[];bundled:boolean};
+type Job={id:number;key:string;source:string;bars:Bar[];baseBars:Bar[];seconds:number;baseSeconds:number;calendar:CandleCalendar;scripts?:ScriptJob[];bundled:boolean;plotLimit:number};
 type Snapshot={key:string;plots:PinePlot[];shapes:PineShape[];drawings:PineDrawing[];tables:PineTable[];studies:StudyStatus[];errors:string[];warnings:string[]};
 const empty:Snapshot={key:'',plots:[],shapes:[],drawings:[],tables:[],studies:[],errors:[],warnings:[]};
 function hash(s:string){let h=2166136261;for(let i=0;i<s.length;i++)h=Math.imul(h^s.charCodeAt(i),16777619);return (h>>>0).toString(36)+':'+s.length;}
@@ -50,7 +50,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  const prepare=useCallback((nextBars:Bar[],nextBaseBars:Bar[])=>{
   const p=params.current;if(!p.needed)return Promise.resolve(true);
   if(!request.current||!nextBars.length)return Promise.resolve(false);
-  return request.current({id:++counter.current,key:frameKey(p.scope,nextBars,nextBaseBars),source:p.source,bars:nextBars,baseBars:nextBaseBars,seconds:p.seconds,baseSeconds:p.baseSeconds,calendar:p.calendar,scripts:p.scripts,bundled:p.bundled});
+  return request.current({id:++counter.current,key:frameKey(p.scope,nextBars,nextBaseBars),source:p.source,bars:nextBars,baseBars:nextBaseBars,seconds:p.seconds,baseSeconds:p.baseSeconds,calendar:p.calendar,scripts:p.scripts,bundled:p.bundled,plotLimit:2000});
  },[]);
  useEffect(()=>{if(needed&&bars.length)void prepare(bars,baseBars);},[key,needed,prepare]);
  // No older or prefetched result can leak into a rewind or a forming candle.
