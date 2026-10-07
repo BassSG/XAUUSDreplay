@@ -1,5 +1,5 @@
 import {PineTS,Indicator} from 'pinets';
-import type {Bar,CandleCalendar} from './engine';
+import type {Bar,CandleCalendar} from './engine.ts';
 import {brokerTimeToUtc,utcToBrokerTime} from './engine';
 
 const context=self as unknown as Worker;
