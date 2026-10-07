@@ -926,24 +926,20 @@ f_s_momentum(int offsetBars) =>
     s_Momentum.new(r[offsetBars], kk[offsetBars], dd[offsetBars], raw[offsetBars], crossDown[offsetBars], crossUp[offsetBars], up20[offsetBars], down80[offsetBars], time[offsetBars], time_close[offsetBars])
 
 simple int i_ltfBars = 2600
-f_s_request(string sourceTf) =>
+// PineTS compatibility: each MTF slot uses a unique request callsite.
+// TradingView supports one dynamic callsite in a loop; unique callsites avoid
+// PineTS secondary-context cache collisions while preserving the same rules.
+f_s_request_0(string sourceTf) =>
     int sourceSeconds = int(timeframe.in_seconds(sourceTf))
     bool alignedLower = sourceSeconds < chartSec and chartSec % sourceSeconds == 0
     s_Momentum result = s_Momentum.new()
     if sourceSeconds > chartSec
-        // Previous completed HTF source bar: stable on reload.
         result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
     else if sourceSeconds == chartSec
         result := f_s_momentum(0)
     else if alignedLower and perf_runtimeGuard
-        // FAST PATH: standard 5m / 15m / 1h ladders divide evenly.
-        // request.security with lookahead_off returns the final LTF sample for a
-        // completed chart candle, avoiding large intrabar arrays on every bar.
         result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
     else
-        // FALLBACK for unusual / non-divisible adaptive intervals.
-        // We retain the exact "last sample whose close <= chart close" rule,
-        // but bound the intrabar history to prevent TradingView runtime pressure.
         array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
         if array.size(samples) > 0
             for index = array.size(samples) - 1 to 0
@@ -953,31 +949,133 @@ f_s_request(string sourceTf) =>
                     break
     na(result) ? s_Momentum.new() : result
 
-var array<string> s_sourceTFs = array.from(s_tf1, s_tf3, s_tf5, s_tf15, s_tf30, s_tf60, s_tf240)
-array<s_Momentum> s_packets = array.new<s_Momentum>(7, na)
-for sourceIndex = 0 to 6
-    string sourceTf = array.get(s_sourceTFs, sourceIndex)
-    bool need = s_ebwOn
-    int duplicate = -1
-    if sourceIndex > 0 and need
-        for j = 0 to sourceIndex - 1
-            if timeframe.in_seconds(array.get(s_sourceTFs, j)) == timeframe.in_seconds(sourceTf) and not na(array.get(s_packets, j))
-                duplicate := j
-                break
-    s_Momentum packet = na
-    if need
-        if duplicate >= 0
-            packet := array.get(s_packets, duplicate)
-        else
-            packet := f_s_request(sourceTf)
-    array.set(s_packets, sourceIndex, packet)
-s_Momentum s_m1 = na(array.get(s_packets, 0)) ? s_Momentum.new() : array.get(s_packets, 0)
-s_Momentum s_m3 = na(array.get(s_packets, 1)) ? s_Momentum.new() : array.get(s_packets, 1)
-s_Momentum s_m5 = na(array.get(s_packets, 2)) ? s_Momentum.new() : array.get(s_packets, 2)
-s_Momentum s_m15 = na(array.get(s_packets, 3)) ? s_Momentum.new() : array.get(s_packets, 3)
-s_Momentum s_m30 = na(array.get(s_packets, 4)) ? s_Momentum.new() : array.get(s_packets, 4)
-s_Momentum s_m60 = na(array.get(s_packets, 5)) ? s_Momentum.new() : array.get(s_packets, 5)
-s_Momentum s_m240 = na(array.get(s_packets, 6)) ? s_Momentum.new() : array.get(s_packets, 6)
+f_s_request_1(string sourceTf) =>
+    int sourceSeconds = int(timeframe.in_seconds(sourceTf))
+    bool alignedLower = sourceSeconds < chartSec and chartSec % sourceSeconds == 0
+    s_Momentum result = s_Momentum.new()
+    if sourceSeconds > chartSec
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
+    else if sourceSeconds == chartSec
+        result := f_s_momentum(0)
+    else if alignedLower and perf_runtimeGuard
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
+    else
+        array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
+        if array.size(samples) > 0
+            for index = array.size(samples) - 1 to 0
+                s_Momentum sample = array.get(samples, index)
+                if sample.closedAt <= time_close
+                    result := sample
+                    break
+    na(result) ? s_Momentum.new() : result
+
+f_s_request_2(string sourceTf) =>
+    int sourceSeconds = int(timeframe.in_seconds(sourceTf))
+    bool alignedLower = sourceSeconds < chartSec and chartSec % sourceSeconds == 0
+    s_Momentum result = s_Momentum.new()
+    if sourceSeconds > chartSec
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
+    else if sourceSeconds == chartSec
+        result := f_s_momentum(0)
+    else if alignedLower and perf_runtimeGuard
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
+    else
+        array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
+        if array.size(samples) > 0
+            for index = array.size(samples) - 1 to 0
+                s_Momentum sample = array.get(samples, index)
+                if sample.closedAt <= time_close
+                    result := sample
+                    break
+    na(result) ? s_Momentum.new() : result
+
+f_s_request_3(string sourceTf) =>
+    int sourceSeconds = int(timeframe.in_seconds(sourceTf))
+    bool alignedLower = sourceSeconds < chartSec and chartSec % sourceSeconds == 0
+    s_Momentum result = s_Momentum.new()
+    if sourceSeconds > chartSec
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
+    else if sourceSeconds == chartSec
+        result := f_s_momentum(0)
+    else if alignedLower and perf_runtimeGuard
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
+    else
+        array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
+        if array.size(samples) > 0
+            for index = array.size(samples) - 1 to 0
+                s_Momentum sample = array.get(samples, index)
+                if sample.closedAt <= time_close
+                    result := sample
+                    break
+    na(result) ? s_Momentum.new() : result
+
+f_s_request_4(string sourceTf) =>
+    int sourceSeconds = int(timeframe.in_seconds(sourceTf))
+    bool alignedLower = sourceSeconds < chartSec and chartSec % sourceSeconds == 0
+    s_Momentum result = s_Momentum.new()
+    if sourceSeconds > chartSec
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
+    else if sourceSeconds == chartSec
+        result := f_s_momentum(0)
+    else if alignedLower and perf_runtimeGuard
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
+    else
+        array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
+        if array.size(samples) > 0
+            for index = array.size(samples) - 1 to 0
+                s_Momentum sample = array.get(samples, index)
+                if sample.closedAt <= time_close
+                    result := sample
+                    break
+    na(result) ? s_Momentum.new() : result
+
+f_s_request_5(string sourceTf) =>
+    int sourceSeconds = int(timeframe.in_seconds(sourceTf))
+    bool alignedLower = sourceSeconds < chartSec and chartSec % sourceSeconds == 0
+    s_Momentum result = s_Momentum.new()
+    if sourceSeconds > chartSec
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
+    else if sourceSeconds == chartSec
+        result := f_s_momentum(0)
+    else if alignedLower and perf_runtimeGuard
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
+    else
+        array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
+        if array.size(samples) > 0
+            for index = array.size(samples) - 1 to 0
+                s_Momentum sample = array.get(samples, index)
+                if sample.closedAt <= time_close
+                    result := sample
+                    break
+    na(result) ? s_Momentum.new() : result
+
+f_s_request_6(string sourceTf) =>
+    int sourceSeconds = int(timeframe.in_seconds(sourceTf))
+    bool alignedLower = sourceSeconds < chartSec and chartSec % sourceSeconds == 0
+    s_Momentum result = s_Momentum.new()
+    if sourceSeconds > chartSec
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
+    else if sourceSeconds == chartSec
+        result := f_s_momentum(0)
+    else if alignedLower and perf_runtimeGuard
+        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
+    else
+        array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
+        if array.size(samples) > 0
+            for index = array.size(samples) - 1 to 0
+                s_Momentum sample = array.get(samples, index)
+                if sample.closedAt <= time_close
+                    result := sample
+                    break
+    na(result) ? s_Momentum.new() : result
+
+s_Momentum s_m1 = s_ebwOn ? f_s_request_0(s_tf1) : s_Momentum.new()
+s_Momentum s_m3 = s_ebwOn ? f_s_request_1(s_tf3) : s_Momentum.new()
+s_Momentum s_m5 = s_ebwOn ? f_s_request_2(s_tf5) : s_Momentum.new()
+s_Momentum s_m15 = s_ebwOn ? f_s_request_3(s_tf15) : s_Momentum.new()
+s_Momentum s_m30 = s_ebwOn ? f_s_request_4(s_tf30) : s_Momentum.new()
+s_Momentum s_m60 = s_ebwOn ? f_s_request_5(s_tf60) : s_Momentum.new()
+s_Momentum s_m240 = s_ebwOn ? f_s_request_6(s_tf240) : s_Momentum.new()
 
 var int s_seen5 = na
 var int s_seen15 = na
