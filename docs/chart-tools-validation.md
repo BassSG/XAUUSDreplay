@@ -22,5 +22,6 @@ Runtime ยังเก็บ history เต็มสำหรับ TA/MTF/Zone
 - หลังปรับ adaptive batch: จาก cursor 2659 → 3169 (510 แท่ง) ในประมาณ 12.7 วินาที รวมเวลาเก็บภาพ/กด Pause (~40.2×; ค่า frame สุดท้าย 42.0×) จากเดิม frame ประมาณ 22.3× ตรวจ 40 frame: overlay ว่าง 0, loading 0, V-Line x=314.15873015873024 ทุก frame; batch ที่สังเกต 10 และ 50 แท่ง
 - Regression full All Indy + EBW-Fibo เพิ่มการเดินหน้า 2210 → 2260 (50 แท่ง) ยังใช้ incremental ทั้งคู่ และ plots/tables ตรง cold calculation; targeted tests ทั้ง full sources และ windowed worker ผ่าน 2/2 หลังปรับ batch
 - Responsive 390px: document width และ scroll width 390px เท่ากัน เครื่องมือเลื่อนใน toolbar เอง; ยังไม่ได้ตรวจ touch gesture บนอุปกรณ์ iOS/Android จริง เพราะ in-app browser ไม่รองรับ Input.dispatchTouchEvent
+- PNG export ตรวจจากไฟล์ที่ดาวน์โหลดจริง: เส้นทั้ง 9 ชนิดและข้อความปรากฏตรงกับกราฟ รวม Pine oscillator/โซน โดยไม่ยืดรูปวาดข้าม pane และเอา hit area/จุดจับออกก่อน export; ใช้สัดส่วน canvas pixel ต่อ CSS pixel สำหรับหน้าจอความละเอียดสูง
 
 ความเร็ว 100× เป็นเป้าหมาย ไม่ใช่การรับประกันทุกสคริปต์/อุปกรณ์ สคริปต์ใหญ่โหลดครั้งแรกและเมื่อเปลี่ยน inputs/TF ยังต้องคำนวณ history ใหม่; ระบบรอผลครบเพื่อให้ราคา อินดิเคเตอร์และออเดอร์ตรงกัน
