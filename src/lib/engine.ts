@@ -3,9 +3,9 @@ export type CandleCalendar='utc'|'eightcap';
 export type Side='long'|'short';
 export type OrderType='market'|'limit'|'stop';
 export type IndicatorSpec={id:string;name:string;source:string;enabled:boolean};
-export type DrawingKind='hline'|'trend'|'rect'|'fib';
+export type DrawingKind='hline'|'vline'|'trend'|'ray'|'arrow'|'rect'|'fib'|'measure';
 export type DrawingPoint={time:number;price:number};
-export type Drawing={id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean};
+export type Drawing={id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;text?:string};
 export type Command={
  id:string;at:number;type:'open'|'close'|'stop'|'protect'|'cancel'|'modify';
  side?:Side;lots?:number;sl?:number;tp?:number;tradeId?:string;orderId?:string;fraction?:number;
