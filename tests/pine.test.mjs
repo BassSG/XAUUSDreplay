@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 let callback;
 globalThis.self={postMessage:(v)=>callback(v)};
 await import('../src/lib/pine.worker.ts');
-const bars=Array.from({length:200},(_,i)=>({time:1700000040+i*60,open:100+i/10,high:101+i/10,low:99+i/10,close:100+i/10,volume:10}));
-async function run(source){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:1,source,bars,seconds:60}});});}
+const bars=Array.from({length:2400},(_,i)=>({time:1700000040+i*60,open:2000+i/100,high:2001+i/100,low:1999+i/100,close:2000.4+i/100,volume:10+(i%7)}));
+async function run(source,{seconds=60,scripts}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:1,source,bars,baseBars:bars,seconds,baseSeconds:60,calendar:'utc',scripts}});});}
 const ema=await run('//@version=6\nindicator("EMA", overlay=true)\nplot(ta.ema(close, 20), title="EMA", color=color.orange)');
-assert.equal(ema.error,undefined);assert.equal(ema.plots.length,1);assert.equal(ema.plots[0].overlay,true);assert.equal(ema.plots[0].data.at(-1).time,bars.at(-1).time);
-const rsi=await run('//@version=6\nindicator("RSI", overlay=false)\nplot(ta.rsi(close, 14))\nhline(70,"High")\nhline(30,"Low")');assert.equal(rsi.error,undefined);assert.equal(rsi.plots.length,3);assert.equal(rsi.plots[0].overlay,false);
-const rejected=await run('//@version=6\nindicator("MTF")\nplot(request.security("XAUUSD","60",close))');assert.match(rejected.error,/request/);
-const invalid=await run('//@version=6\nindicator("Broken")\nplot(');assert.ok(invalid.error);
-console.log(JSON.stringify({passed:4,tests:'native Pine v6 EMA; RSI pane+hline; MTF rejection; syntax-error reporting'}));
+assert.equal(ema.errors.length,0);assert.equal(ema.plots.length,1);assert.equal(ema.plots[0].overlay,true);
+const rsi=await run('//@version=6\nindicator("RSI", overlay=false)\nplot(ta.rsi(close, 14))\nhline(70,"High")\nhline(30,"Low")');
+assert.equal(rsi.errors.length,0);assert.equal(rsi.plots.length,3);assert.equal(rsi.plots[0].overlay,false);
+const mtf=await run('//@version=6\nindicator("MTF")\nx=request.security(syminfo.tickerid,"15",close)\nplot(x)');
+assert.equal(mtf.errors.length,0);assert.equal(mtf.plots.length,1);
+const drawing=await run('//@version=6\nindicator("Draw",overlay=true,max_lines_count=10)\nif barstate.islast\n    line.new(bar_index-10,low,bar_index,high,color=color.orange,width=2)\n    label.new(bar_index,high,"TEST")\nplot(close)');
+assert.equal(drawing.errors.length,0);assert.ok(drawing.drawings.some(d=>d.kind==='line'));assert.ok(drawing.drawings.some(d=>d.kind==='label'));
+const invalid=await run('//@version=6\nindicator("Broken")\nplot(');assert.ok(invalid.errors.length);
+const allIndy=fs.readFileSync(new URL('../public/indicators/all-indy-v10.4.4.pine',import.meta.url),'utf8');
+const fibo=fs.readFileSync(new URL('../public/indicators/ebw-fibo-1.9.pine',import.meta.url),'utf8');
+const builtins=await run('',{seconds:300,scripts:[{id:'all',name:'All Indy',source:allIndy},{id:'fibo',name:'EBW-Fibo',source:fibo}]});
+assert.equal(builtins.errors.length,0,'Built-in Pine errors: '+builtins.errors.join(' | '));
+console.log(JSON.stringify({passed:6,tests:'EMA; RSI; MTF request.security; Pine drawings; syntax errors; All Indy + EBW-Fibo built-ins'}));
