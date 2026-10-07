@@ -680,8 +680,10 @@ f_lp_planText(lp_Plan p) =>
     p.id == "" ? p.reason : p.status + " · " + p.family + "\nE " + f_price(p.entry) + " | SL " + f_price(p.stop) + "\nTarget " + f_price(p.target) + " | net " + str.tostring(p.netR, "#.##") + "R\n" + p.reason
 
 f_lp_event(lp_Plan p, string previous, string tf, string eventType) =>
-    string key = p.id + ":" + p.status
-    string message = key != previous and p.id != "" ? eventType + " | " + tf + " | " + p.id + " | " + p.status + "\n" + p.reason + "\nE " + f_price(p.entry) + " | SL " + f_price(p.stop) + " | Target " + f_price(p.target) + "\nSource close " + str.format_time(p.changed, "yyyy-MM-dd HH:mm", syminfo.timezone) + " " + syminfo.timezone + "\nNot a broker order or fill.\n" : ""
+    // Host compatibility: during MTF warm-up PineTS can surface an uninitialized nested UDT as na.
+    lp_Plan q = na(p) ? lp_Plan.new() : p
+    string key = q.id + ":" + q.status
+    string message = key != previous and q.id != "" ? eventType + " | " + tf + " | " + q.id + " | " + q.status + "\n" + q.reason + "\nE " + f_price(q.entry) + " | SL " + f_price(q.stop) + " | Target " + f_price(q.target) + "\nSource close " + str.format_time(q.changed, "yyyy-MM-dd HH:mm", syminfo.timezone) + " " + syminfo.timezone + "\nNot a broker order or fill.\n" : ""
     [key, message]
 
 var string lp_prevBuy = ""
