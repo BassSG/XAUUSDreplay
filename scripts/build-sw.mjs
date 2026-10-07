@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 const base='/XAUUSDreplay/';
 async function walk(dir){const files=[];for(const e of await readdir(dir,{withFileTypes:true})){const p=path.join(dir,e.name);if(e.isDirectory())files.push(...await walk(p));else files.push(p);}return files;}
-const all=await walk('dist');const shell=all.filter(p=>!p.replaceAll('\\','/').startsWith('dist/data/')&&!p.replaceAll('\\','/').startsWith('dist/brand/')&&!p.endsWith('sw.js')).map(p=>base+p.replaceAll('\\','/').slice(5));shell.push(base+'data/catalog.json');
+const all=await walk('dist');const shell=all.filter(p=>!p.replaceAll('\\','/').startsWith('dist/data/')&&!p.replaceAll('\\','/').startsWith('dist/brand/')&&!p.endsWith('sw.js')).map(p=>base+p.replaceAll('\\','/').slice(5));shell.push(base+'data/catalog.json',base+'data/catalog-v2.json');
 const digest=createHash('sha256');for(const url of shell){digest.update(url);digest.update(await readFile('dist/'+url.slice(base.length)));}const hash=digest.digest('hex').slice(0,12);
 const sw=`const SCOPE=${JSON.stringify(base)}, CACHE='xau-replay-${hash}', SHELL=${JSON.stringify(shell)};
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL))));

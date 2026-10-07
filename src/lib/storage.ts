@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { gunzipSync } from 'fflate';
+import {decodeChunk} from './bundled-chunk.ts';
 import type { Bar, Session } from './engine';
 import type { Dataset } from './types';
 
@@ -24,6 +24,7 @@ const chunkSchema = z.object({
  file: z.string().regex(/^data\/[a-zA-Z0-9._/-]+\.json(?:\.gz)?$/).refine(s => !s.split('/').includes('..')),
  start: z.number().int().min(1e9), end: z.number().int().min(1e9), count: z.number().int().positive().max(100000),
  sha256: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
+ contentSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
 });
 const bundledSchema = datasetSchema.extend({ chunks: z.array(chunkSchema).min(1).max(10000) });
 const settingsSchema = z.object({
@@ -41,13 +42,14 @@ const commandSchema = z.object({
  if ((v.type === 'cancel' || v.type === 'modify') && !v.orderId) ctx.addIssue({ code: 'custom', message: 'ไม่พบ Pending order' });
  if (v.type === 'open' && (v.orderType === 'limit' || v.orderType === 'stop') && !v.entry) ctx.addIssue({ code: 'custom', message: 'Pending order ต้องมี Entry' });
 });
-const indicatorSchema=z.object({id:uuid,name:z.string().trim().min(1).max(120),source:z.string().max(250000),enabled:z.boolean()});
-const drawingSchema=z.object({id:uuid,kind:z.enum(['hline','trend','rect','fib']),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(2),locked:z.boolean().optional()});
+const indicatorSchema=z.object({id:uuid,name:z.string().trim().min(1).max(120),source:z.string().max(250000),enabled:z.boolean(),builtinId:z.string().optional(),inputs:z.record(z.union([z.string(),z.number(),z.boolean()])).optional()});
+const drawingSchema=z.object({id:uuid,kind:z.enum(['hline','vline','trend','ray','rect','fib','ruler','text','position']),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(2),locked:z.boolean().optional(),text:z.string().max(1000).optional(),color:z.string().max(40).optional()});
 const sessionSchema = z.object({
  id: uuid, name: z.string().trim().min(1).max(120), dataset: safeId, from: z.number().int().positive(),
  cursor: z.number().int().min(0).max(999999), furthest: z.number().int().min(0).max(999999),
  commands: z.array(commandSchema).max(10000), settings: settingsSchema, parent: uuid.optional(),
  notes: z.record(z.string().max(5000)).refine(v => Object.keys(v).length <= 10000), pine: z.string().max(250000),
+ windowStart:z.number().int().positive().optional(),
  indicatorEnabled: z.boolean(), timeframe: z.number().int().min(60).max(86400), revision: z.number().int().min(0), engineVersion: z.literal(1), indicators:z.array(indicatorSchema).optional(), drawings:z.array(drawingSchema).max(500).optional(),
 }).refine(s => s.cursor <= s.furthest, 'ตำแหน่ง Replay ไม่ถูกต้อง')
  .refine(s => new Set(s.commands.map(c => c.id)).size === s.commands.length, 'คำสั่งซ้ำ');
@@ -107,7 +109,8 @@ async function loadCatalog(): Promise<BundledDataset[]> {
  if (catalogRequest) return catalogRequest;
  catalogRequest = (async () => {
   try {
-   const response = await fetch(baseURL() + 'data/catalog.json', { cache: 'no-cache' });
+   let response = await fetch(baseURL() + 'data/catalog-v2.json', { cache: 'no-cache' });
+   if(response.status===404)response=await fetch(baseURL()+'data/catalog.json',{cache:'no-cache'});
    if (!response.ok) throw new Error('โหลดรายการข้อมูลไม่สำเร็จ');
    const value: unknown = await response.json();
    const rows = z.array(bundledSchema).max(1000).parse(Array.isArray(value) ? value : (value as { datasets?: unknown })?.datasets);
@@ -147,16 +150,10 @@ async function loadBundledChunk(ds: BundledDataset, descriptor: z.infer<typeof c
  let bytes: ArrayBuffer;
  try { const response = await fetch(baseURL() + descriptor.file); if (!response.ok) throw new Error(String(response.status)); bytes = await response.arrayBuffer(); }
  catch { throw new StorageError('ข้อมูลช่วงนี้ยังไม่ได้เก็บในเครื่อง กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อดาวน์โหลดก่อนใช้งานออฟไลน์', 503); }
- if (descriptor.sha256) {
-  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), n => n.toString(16).padStart(2, '0')).join('');
-  if (hash !== descriptor.sha256.toLowerCase()) throw new StorageError('ไฟล์ราคาดาวน์โหลดไม่สมบูรณ์ กรุณาลองใหม่', 503);
- }
  let text: string;
  try {
-  if (descriptor.file.endsWith('.gz')) {
-   text = typeof DecompressionStream === 'undefined' ? new TextDecoder().decode(gunzipSync(new Uint8Array(bytes))) : await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
-  } else text = new TextDecoder().decode(bytes);
- } catch { throw new StorageError('อ่านไฟล์ราคาที่ดาวน์โหลดไม่สำเร็จ กรุณาเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่', 503); }
+  text=await decodeChunk(bytes,descriptor);
+ } catch(e) { throw new StorageError(e instanceof Error?e.message:'อ่านไฟล์ราคาไม่สำเร็จ',503); }
  const value: unknown = JSON.parse(text); const bars = parseBars(Array.isArray(value) ? value : (value as { bars?: unknown })?.bars);
  if (bars.length !== descriptor.count || bars[0].time !== descriptor.start || bars.at(-1)!.time !== descriptor.end) throw new StorageError('ข้อมูลราคาไม่ตรงกับรายการชุดข้อมูล กรุณาลองใหม่', 503);
  // A full disk should not prevent an online replay. Custom data and sessions never silently skip saving.
@@ -231,7 +228,7 @@ export async function localRequest(action: string, input: any = {}): Promise<any
    const chunks = await request<StoredChunk[]>(tx.objectStore('chunks').index('dataset').getAll(id)); for (const c of chunks) await request(tx.objectStore('chunks').delete(c.key)); await request(tx.objectStore('datasets').delete(id)); return { ok: true };
   });
   if (action === 'saveSession') {
-   const s = sessionSchema.parse(input.session) as Session; if (JSON.stringify(s).length > 3000000) throw new StorageError('รอบนี้มีข้อมูลมากเกินไป กรุณาเริ่มรอบใหม่');
+   const s = sessionSchema.parse(input.session) as Session; if (JSON.stringify(s).length > 24000000) throw new StorageError('Source และข้อมูลของรอบใหญ่เกิน 24 MB กรุณาปิดและนำอินดิเคเตอร์ที่ไม่ได้ใช้เก็บแยกไว้');
    const ds = await findDataset(s.dataset); validateSessionDataset(s, ds);
    return transaction(['sessions'], 'readwrite', async tx => {
     const store = tx.objectStore('sessions'); const previous = await request<StoredSession | undefined>(store.get(s.id));
@@ -318,7 +315,7 @@ export async function restoreBackup(file: Blob | string): Promise<{ sessions: nu
    }
    for (const { row, cloned } of planned) {
     // Copies preserve the relationship between backed-up branches even when the parent was copied.
-    if (cloned && row.payload.parent && mappedIds.has(row.payload.parent)) row.payload.parent = mappedIds.get(row.payload.parent);
+    if (row.payload.parent && mappedIds.has(row.payload.parent)) row.payload.parent = mappedIds.get(row.payload.parent);
     await request(tx.objectStore('sessions').add(row)); sessions++;
    }
    return { sessions, datasets, skipped };

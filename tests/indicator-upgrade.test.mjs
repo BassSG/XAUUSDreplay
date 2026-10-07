@@ -1,0 +1,9 @@
+import fs from 'node:fs';import {gunzipSync} from 'node:zlib';import assert from 'node:assert/strict';import test from 'node:test';import {builtinIndicators,sourceHash,upgradeBundledIndicators} from '../src/lib/builtin-indicators.ts';
+const legacy=id=>gunzipSync(fs.readFileSync(new URL('./fixtures/'+id+'-legacy.pine.gz',import.meta.url))).toString();const full=item=>fs.readFileSync(new URL('../public/'+item.file,import.meta.url),'utf8');const spec=(source,id='study')=>({id,name:'My indicator',source,enabled:false,inputs:{test:1}});
+test('recognized shipped truncations upgrade to exact full source while keeping IDs and settings',async()=>{
+ for(const item of builtinIndicators){assert.equal(await sourceHash(legacy(item.id).replace(/\r\n/g,'\n').trimEnd()),item.legacyHash);assert.equal(await sourceHash(full(item)),item.sha256);const r=await upgradeBundledIndicators([spec(legacy(item.id))],async i=>full(i));assert.equal(r.changed,true);assert.equal(r.indicators[0].source,full(item));assert.equal(r.indicators[0].id,'study');assert.equal(r.indicators[0].enabled,false);assert.deepEqual(r.indicators[0].inputs,{test:1});assert.equal(r.indicators[0].builtinId,item.id);}
+});
+test('custom edits and already complete sources are never overwritten by automatic migration',async()=>{
+ const item=builtinIndicators[0],input=[spec(legacy(item.id)+'\n// my edits','custom'),spec(full(item),'full')];let requests=0;const r=await upgradeBundledIndicators(input,async()=>{requests++;throw Error('must not load')});assert.equal(r.changed,false);assert.equal(requests,0);assert.deepEqual(r.indicators,input);
+});
+test('offline migration preserves the saved script and explains how to retry',async()=>{const input=[spec(legacy(builtinIndicators[0].id))];const r=await upgradeBundledIndicators(input,async()=>{throw Error('offline')});assert.equal(r.changed,false);assert.deepEqual(r.indicators,input);assert.match(r.errors[0],/Indicators/);});

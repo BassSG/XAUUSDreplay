@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-07",
+  "runtime": {
+    "node": "v24.13.1",
+    "pinets": "0.11.0"
+  },
+  "automated": {
+    "tests": 61,
+    "passed": 61,
+    "failed": 0,
+    "build": "TypeScript + Vite + scoped service worker passed"
+  },
+  "realHistoryBenchmark": {
+    "timeframe": "5m",
+    "calendar": "eightcap",
+    "studies": [
+      "All Indy (EBW) V10.4.4 full source",
+      "EBW-Fibo 1.9 full source"
+    ],
+    "measurements": [
+      {
+        "bars": 300,
+        "ms": 110768,
+        "errors": [],
+        "plots": 13,
+        "objects": 61,
+        "tables": 3,
+        "inputs": [
+          167,
+          94
+        ],
+        "bridge": [
+          false,
+          true
+        ]
+      },
+      {
+        "bars": 301,
+        "ms": 683,
+        "errors": [],
+        "plots": 13,
+        "objects": 61,
+        "tables": 3,
+        "inputs": [
+          167,
+          94
+        ],
+        "bridge": [
+          false,
+          true
+        ]
+      },
+      {
+        "bars": 302,
+        "ms": 646,
+        "errors": [],
+        "plots": 13,
+        "objects": 61,
+        "tables": 3,
+        "inputs": [
+          167,
+          94
+        ],
+        "bridge": [
+          false,
+          true
+        ]
+      }
+    ],
+    "note": "Cold versus forward execution on this Windows machine. Object/table counts include reserved empty objects; UI hides empty tables. These timings are not device guarantees."
+  },
+  "browser": {
+    "localProductionPreview": "http://127.0.0.1:5202/XAUUSDreplay/",
+    "checks": [
+      "Both full scripts: Pine ready, oscillator plots, source-linked 17-slot Zone Bridge",
+      "Draft SL drag 4169.29 -> 4165.42, TP 4189.29 -> 4192.77: inputs and RR update",
+      "Position SL and TP dragged in the same bar, then next-bar execution retains both: 4162.45 / 4197.45",
+      "Reload retains session, two scripts, chart TF, trade and protection",
+      "390 x 844 responsive viewport: chart, controls, mobile journal and navigation render",
+      "Play advances with current Pine output; Pause stops; rewind restores matching cached output",
+      "Full-source plots and dashboard cells match a fresh calculation after several forming/closed-candle updates",
+      "SVG overlays appear above the native chart; PNG selects the overlay SVG, not the attribution logo"
+    ]
+  },
+  "limitations": [
+    "No TradingView golden-reference numerical parity comparison",
+    "Pine indicator runtime is beta; strategy orders and external library imports are not supported",
+    "Only browser viewport emulation was used; no physical iPad/iPhone test",
+    "Each browser/device stores its own journal; transfer with JSON backup"
+  ]
+}

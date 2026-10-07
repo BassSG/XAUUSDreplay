@@ -2,10 +2,10 @@ export type Bar={time:number;open:number;high:number;low:number;close:number;vol
 export type CandleCalendar='utc'|'eightcap';
 export type Side='long'|'short';
 export type OrderType='market'|'limit'|'stop';
-export type IndicatorSpec={id:string;name:string;source:string;enabled:boolean};
-export type DrawingKind='hline'|'trend'|'rect'|'fib';
+export type IndicatorSpec={id:string;name:string;source:string;enabled:boolean;builtinId?:string;inputs?:Record<string,string|number|boolean>};
+export type DrawingKind='hline'|'vline'|'trend'|'ray'|'rect'|'fib'|'ruler'|'text'|'position';
 export type DrawingPoint={time:number;price:number};
-export type Drawing={id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean};
+export type Drawing={id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;text?:string;color?:string};
 export type Command={
  id:string;at:number;type:'open'|'close'|'stop'|'protect'|'cancel'|'modify';
  side?:Side;lots?:number;sl?:number;tp?:number;tradeId?:string;orderId?:string;fraction?:number;
@@ -26,6 +26,10 @@ export type EngineResult={
 };
 export const defaultSettings:Settings={balance:10000,contractSize:100,spread:0.16,commission:0,slippage:0};
 const round=(n:number)=>Math.round(n*1e8)/1e8;
+export function appendCommand(commands:Command[],command:Command):Command[]{
+ const matches=(c:Command)=>c.at===command.at&&((command.type==='protect'&&(c.type==='protect'||c.type==='stop')&&c.tradeId===command.tradeId)||(command.type==='modify'&&c.type==='modify'&&c.orderId===command.orderId));
+ const prior=commands.filter(matches).at(-1);return [...commands.filter(c=>!matches(c)),{...prior,...command}];
+}
 function finitePositive(...values:(number|undefined)[]){return values.every(v=>Number.isFinite(v)&&v!>0);}
 export function simulate(bars:Bar[],cursor:number,commands:Command[],settings:Settings):EngineResult {
  if(!Object.values(settings).every(Number.isFinite)||settings.balance<=0||settings.contractSize<=0||settings.spread<0||settings.commission<0||settings.slippage<0)throw new Error('Invalid simulation settings');
@@ -129,15 +133,23 @@ export function simulate(bars:Bar[],cursor:number,commands:Command[],settings:Se
    const o=orders[oi];if(o.activeFrom>b.time)continue;
    const fill=pendingFill(o,b);if(fill===null)continue;
    orders.splice(oi,1);
+   if(!validProtective(o.side,fill,o.sl,o.tp)){rejected.push({id:o.id,reason:'ราคา Fill ข้าม SL/TP ของ Pending order'});continue;}
    const t=createTrade(o.id,o.id,o.side,fill,o.lots,o.sl,o.tp,b);
+   gap(t,b);if(t.remaining<=0)continue;
    const quoteOffset=t.side==='long'?-settings.spread/2:settings.spread/2;
    const hitSL=t.side==='long'?b.low+quoteOffset<=t.sl:b.high+quoteOffset>=t.sl;
    const hitTP=t.side==='long'?b.high+quoteOffset>=t.tp:b.low+quoteOffset<=t.tp;
-   if(hitSL||hitTP){const level=hitSL?t.sl:t.tp;exit(t,b,level-quoteOffset,t.remaining,hitSL?'SL':'TP',true);}
+   const openQuote=b.open+(o.side==='long'?settings.spread/2:-settings.spread/2);
+   const filledAtOpen=o.side==='long'?(o.orderType==='limit'?openQuote<=o.entry:openQuote>=o.entry):(o.orderType==='limit'?openQuote>=o.entry:openQuote<=o.entry);
+   // A limit can fill AFTER the bar's profitable extreme. Only the close
+   // proves a TP crossing happened after the entry; otherwise keep it open.
+   const closeBeyondTP=t.side==='long'?b.close+quoteOffset>=t.tp:b.close+quoteOffset<=t.tp;
+   const certainTP=hitTP&&(filledAtOpen||o.orderType==='stop'||closeBeyondTP);
+   if(hitSL||certainTP){const level=hitSL?t.sl:t.tp;exit(t,b,level-quoteOffset,t.remaining,hitSL?'SL':'TP',hitSL||!filledAtOpen);}
   }
 
   for(const t of active){
-   if(t.remaining<=0||t.time===b.time&&t.exits.length)continue;
+   if(t.remaining<=0||t.time===b.time&&(t.exits.length||t.orderId))continue;
    const quoteOffset=t.side==='long'?-settings.spread/2:settings.spread/2;
    const hitSL=t.side==='long'?b.low+quoteOffset<=t.sl:b.high+quoteOffset>=t.sl;
    const hitTP=t.side==='long'?b.high+quoteOffset>=t.tp:b.low+quoteOffset<=t.tp;
@@ -145,6 +157,7 @@ export function simulate(bars:Bar[],cursor:number,commands:Command[],settings:Se
   }
   let floating=0;for(const t of active)if(t.remaining>0)floating+=(b.close+(t.side==='long'?-settings.spread/2:settings.spread/2)-t.entry)*(t.side==='long'?1:-1)*t.remaining*settings.contractSize;
   const equity=settings.balance+realized+floating;peak=Math.max(peak,equity);maxDD=Math.max(maxDD,peak-equity);curve.push({time:b.time,value:equity});
+  for(let ai=active.length-1;ai>=0;ai--)if(active[ai].remaining<=0)active.splice(ai,1);
  }
  const closed=trades.filter(t=>t.remaining<=0);const equity=curve.at(-1)?.value??settings.balance;
  return {trades,orders,pending:ordered.slice(commandIndex).filter(c=>c.at<=(bars[last]?.time??0)),rejected,pnl:round(realized),floating:round(equity-settings.balance-realized),equity,balance:settings.balance+realized,totalR:trades.reduce((v,t)=>v+(t.risk?t.pnl/t.risk:0),0),closed,winRate:closed.length?closed.filter(t=>t.pnl>0).length/closed.length*100:0,drawdown:maxDD,curve};

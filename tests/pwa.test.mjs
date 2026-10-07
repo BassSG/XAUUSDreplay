@@ -21,6 +21,7 @@ before(async () => {
   await writeFile(path.join(fixture, 'dist/index.html'), '<main>offline replay shell</main>');
   await writeFile(path.join(fixture, 'dist/assets/app-abc.js'), 'console.log("replay");');
   await writeFile(path.join(fixture, 'dist/data/catalog.json'), '{"datasets":[]}');
+  await writeFile(path.join(fixture, 'dist/data/catalog-v2.json'), '{"version":2,"datasets":[]}');
   await writeFile(path.join(fixture, 'dist/data/m1/000.json.gz'), 'lazy market data');
   await run(process.execPath, [path.join(root, 'scripts/build-sw.mjs')], {cwd: fixture});
   worker = await readFile(path.join(fixture, 'dist/sw.js'), 'utf8');
@@ -94,6 +95,7 @@ test('install caches a scoped offline shell and catalog without eagerly download
   assert.equal(h.counters.claim, 0);
   assert.ok(h.precached.includes(base + 'index.html'));
   assert.ok(h.precached.includes(base + 'data/catalog.json'));
+  assert.ok(h.precached.includes(base + 'data/catalog-v2.json'));
   assert.ok(h.precached.includes(base + 'assets/app-abc.js'));
   assert.ok(h.precached.every(url => url.startsWith(base)));
   assert.ok(!h.precached.some(url => url.endsWith('.json.gz')));

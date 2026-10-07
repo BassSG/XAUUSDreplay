@@ -1,0 +1,1637 @@
+//@version=6
+// Independent book companion. No EBW code is included or overwritten.
+// Source: แกะกราฟเทคนิคอล, นพ.เมธา อาจหาญ (2563), supplied by the user.
+// Computational conventions and discretionary limits: BOOK_RULES_TH.md.
+// Internal revision 1.7: optional single-row Hero TF dashboard.
+// EW source: Frost/Prechter, Elliott Wave Principle, tenth edition (2005).
+// Swing matches are explicit engineering tests, NOT proof of Elliott degree/subwaves.
+indicator("EBW-Fibo 1.9 • Strength Map", "EBW-Fibo 1.9 ZB", overlay = true, max_lines_count = 150, max_labels_count = 200, max_boxes_count = 10, max_bars_back = 2000)
+
+// BEGIN ZONE BRIDGE SWITCHES
+// Keep the seven input positions and all 17 source input titles/order compatible.
+const string CF_QUICK = "00 · ความแข็งแรงของแนวรับ–แนวต้าน"
+bool cf_enabled = input.bool(true, "ประเมินแนวกล่อง + ฟิโบ", group=CF_QUICK, tooltip="อ่านกล่องจาก All Indy ผ่าน ZB 00–16 แล้วแสดงหลักฐานของแต่ละบริเวณ สูงสุด 2 แนวรับ + 2 แนวต้าน", display=display.none)
+bool cf_showLabels = input.bool(true, "แสดงคะแนนและช่วงราคาของแต่ละแนว", group=CF_QUICK, display=display.none)
+bool cf_debug = input.bool(false, "แสดงสถานะการเชื่อมและเหตุผล", group=CF_QUICK, display=display.none)
+const string CF_RULES = "08 · รวมแนวใกล้กัน / เกณฑ์ช่วยประเมิน"
+float cf_minZone = input.float(0, "คะแนนกล่องขั้นต่ำที่แสดง", minval=0, maxval=100, step=1, group=CF_RULES, tooltip="0 = แสดงทุกกล่องที่ต้นทางส่งมา พร้อมคะแนนจริง ไม่ได้แปลว่าทุกกล่องแข็งแรง", display=display.none)
+float cf_tolerance = input.float(1.0, "ระยะฟิโบใกล้กล่อง (ATR ของกราฟ)", minval=0, maxval=2, step=0.05, group=CF_RULES, tooltip="นับเป้าที่ห่างจากขอบกล่องไม่เกินระยะนี้เป็นบริเวณเดียวกัน ไม่ผูกกับความบางของกล่อง; 0 = ต้องทับกล่องจริง ระยะนี้เป็นค่าช่วยจัดกลุ่ม ไม่ใช่สูตรจากหนังสือ", display=display.none)
+string cf_scope = input.string("ชุดฟิโบที่เปิดแสดง", "ชุดฟิโบที่นำมาเทียบ", options=["ชุดฟิโบที่เปิดแสดง", "Current + TF ใหญ่ 1/2"], group=CF_RULES, tooltip="พิจารณาเฉพาะชุดที่ยังมีผลหลัง Break ค่าแรกใช้ชุดที่เปิดแสดง; ตัวเลือกที่สองรวม TF ใหญ่แม้ปิดการวาด", display=display.none)
+int cf_labelBars = input.int(5, "ระยะป้ายจากแท่งล่าสุด", minval=1, maxval=100, group=CF_RULES, display=display.none)
+// END ZONE BRIDGE SWITCHES
+
+// Switches are deliberately the first inputs.
+string G0 = "01 · เปิด / ปิดระบบ"
+bool uiBoard = input.bool(false, "Dashboard · รายละเอียดที่มีข้อมูล", group = G0, display = display.none)
+bool uiLinks = input.bool(true, "แผง TF พระเอก / ความสัมพันธ์ที่ตรวจพบ", group = G0, tooltip = "พระเอกอ้างอิงช่วงราคา ไม่ใช่ TF ที่เปิดกราฟ; สแกน 10m / 30m / 1H / 2H / 4H / 1D / 1W / 1M และ TF อ้างอิง ไม่ใช้ Chart เป็น fallback", display = display.none)
+bool uiEW = input.bool(true, "EW · ผลตรวจราคาที่ชัดเจนบนแผง", group = G0, tooltip = "แสดงเฉพาะเมื่อเปิดตรวจจุดเองและใส่ราคา/เวลาครบ; ไม่แสดง 1–2? / ABC? / W3? และไม่ยืนยัน subwaves หรือ degree", display = display.none)
+bool uiEWManual = input.bool(false, "EW · ตรวจจุดที่เลือกเองเพิ่มเติม", group = G0, display = display.none)
+bool uiEWChannel = input.bool(false, "EW · Channel ของ Impulse ที่เลือกเอง", group = G0, display = display.none)
+bool uiFrames = input.bool(true, "กรอบปรับฐานที่ผ่านเงื่อนไข", group = G0, display = display.none)
+bool uiTargets = input.bool(true, "Fibonacci หาเป้า (หลัง Break เท่านั้น)", group = G0, display = display.none)
+bool uiAnchors = input.bool(true, "จุดยึดฟิโบ + เส้นเชื่อมสวิง", group = G0, display = display.none)
+bool uiRetrace = input.bool(false, "Fibonacci Retrace / Gauge", group = G0, display = display.none)
+bool uiZones = input.bool(false, "โซนสุญญากาศ 261.8–423.6", group = G0, display = display.none)
+bool uiTS = input.bool(false, "เส้น Trailing Stop / Cut (ไม่มีป้าย Action)", group = G0, display = display.none)
+bool uiInvalid = input.bool(false, "ข้อความเมื่อชุดฟิโบถูกทำลาย", group = G0, display = display.none)
+bool uiDiv = input.bool(false, "Regular + Hidden divergence", group = G0, display = display.none)
+bool uiCycles = input.bool(false, "จุดรอบ Stochastic / RSI", group = G0, display = display.none)
+bool uiMTF = input.bool(false, "กรอบและเป้า TF ใหญ่ที่เลือก", group = G0, display = display.none)
+bool uiClusters = input.bool(false, "Cluster ระหว่างชุด Current / TF ใหญ่", group = G0, display = display.none)
+
+string G1 = "02 · ค่าหนังสือ / การยืนยัน"
+int rLen = input.int(14, "RSI", minval = 2, maxval = 100, group = G1, display = display.none)
+int kLen = input.int(9, "Stochastic length", minval = 2, maxval = 100, group = G1, display = display.none)
+int kSmooth = input.int(3, "Smooth K", minval = 1, maxval = 20, group = G1, display = display.none)
+int dSmooth = input.int(3, "Smooth D", minval = 1, maxval = 20, group = G1, display = display.none)
+float rOS = input.float(30, "RSI OS", minval = 1, maxval = 49, group = G1, display = display.none)
+float rOB = input.float(70, "RSI OB", minval = 51, maxval = 99, group = G1, display = display.none)
+float kOS = input.float(20, "Stochastic OS", minval = 1, maxval = 49, group = G1, display = display.none)
+float kOB = input.float(80, "Stochastic OB", minval = 51, maxval = 99, group = G1, display = display.none)
+string breakMode = input.string("Wick ของแท่งปิด", "Break กรอบ", options = ["Wick ของแท่งปิด", "Close ของแท่งปิด"], group = G1, display = display.none)
+bool allowNeck = input.bool(true, "กรอบหักคอ: ต้องมี Regular divergence ในรอบ", group = G1, display = display.none)
+int divLen = input.int(3, "ยืนยัน pivot สำหรับ Divergence เท่านั้น", minval = 1, maxval = 20, group = G1, display = display.none)
+
+string G2 = "03 · เชื่อม Time Frame"
+string tf1 = input.timeframe("240", "TF ใหญ่ 1", group = G2, display = display.none)
+string tf2 = input.timeframe("D", "TF ใหญ่ 2", group = G2, display = display.none)
+string controlTF = input.string("TF ใหญ่ 1", "บริบทสำหรับ Action 2–5", options = ["TF ใหญ่ 1", "TF ใหญ่ 2"], group = G2, display = display.none)
+float clusterATR = input.float(0.1, "ระยะ Cluster (ATR) — ค่าของโค้ด ไม่ใช่สูตรเล่ม", minval = 0, maxval = 1, step = 0.01, group = G2, display = display.none)
+float linkATR = input.float(0.03, "คลาดเคลื่อนจุดร่วม (ATR ของ TF ใหญ่)", minval = 0, maxval = 0.2, step = 0.01, group = G2, tooltip = "ข้อกำหนดของโค้ด ไม่ใช่สูตรหนังสือ; ต้องตรงช่วงแท่ง A/B/C และราคาด้วย ไม่ใช้ทิศตรงกันอย่างเดียว", display = display.none)
+bool requireLink = input.bool(false, "Action 2–5 ต้องผ่านการเชื่อม TF ด้วย", group = G2, tooltip = "ปิด = คง Action เดิม; เปิด = ต้องมีความสัมพันธ์เวลา/ราคาในกรอบใหญ่ที่ Break แล้ว อาจได้ Alert น้อยลง ไม่เปลี่ยนสูตรฟิโบ", display = display.none)
+string boardCorner = input.string("ขวาบน", "ตำแหน่งแผง", options = ["ขวาบน", "ซ้ายบน", "ขวาล่าง"], group = G2, display = display.none)
+
+string GH = "03A · TF พระเอก — ช่วงราคาอ้างอิง"
+string heroRefTF = input.timeframe("60", "TF อ้างอิงรอบราคา (ไม่ใช่ TF พระเอก)", group = GH, tooltip = "ใช้รอบ Sto ของ TF นี้ระบุจุดเริ่มของขาล่าสุด ไม่เปลี่ยนตาม TF กราฟ; TF อ้างอิงไม่มี Form ก็ไม่ถูกตั้งเป็นพระเอก", display = display.none)
+string heroRefMode = input.string("Auto · ขาจากรอบ Sto ล่าสุด", "ช่วงที่ต้องการหาพระเอก", options = ["Auto · ขาจากรอบ Sto ล่าสุด", "เลือกจุดเริ่มเอง → ราคาล่าสุด"], group = GH, tooltip = "พระเอกผูกกับช่วง M→N หรือ N→O ที่กำลังศึกษา ไม่ใช่ชื่อเดียวสำหรับทุกขา; Auto ใช้จุดสุดขั้ว Sto ที่ยืนยันแล้ว → ราคาปิดล่าสุดของ TF อ้างอิง", display = display.none)
+float heroStartP = input.float(0, "ราคาจุดเริ่ม M / N", inline = "href", group = GH, active = heroRefMode == "เลือกจุดเริ่มเอง → ราคาล่าสุด", display = display.none)
+int heroStartT = input.time(0, "เวลาจุดเริ่ม", inline = "href", group = GH, active = heroRefMode == "เลือกจุดเริ่มเอง → ราคาล่าสุด", display = display.none)
+
+string G3 = "04 · Action 5 ท่า / เครื่องมือวางแผน"
+bool act1 = input.bool(true, "A1 · บริบท Current + Trailing Start", group = G3, display = display.none)
+bool act2 = input.bool(true, "A2 · บริบท TF ใหญ่ + Regular divergence Current + TS", group = G3, display = display.none)
+bool act3 = input.bool(true, "A3 · บริบท TF ใหญ่ + Form Current + TS", group = G3, display = display.none)
+bool act4 = input.bool(true, "A4 · บริบท TF ใหญ่ + Break Form Current", group = G3, display = display.none)
+bool act5 = input.bool(true, "A5 · Gap ข้าม Form + Break แท่งแรก", group = G3, display = display.none)
+
+string G4 = "05 · Fibonacci / ภาพ"
+string fibChoice = input.string("Auto ตาม Gauge D→A→B", "เลือกวิธี", options = ["Auto ตาม Gauge D→A→B", "Extension (เลือกเอง)", "Projection (เลือกเอง)"], group = G4, display = display.none)
+bool overrideD = input.bool(false, "ใช้ D อ้างอิงใหญ่ที่เลือกเอง (เฉพาะ Current)", group = G4, display = display.none)
+float manualD = input.float(0, "ราคา D ก่อน A", group = G4, active = overrideD, display = display.none)
+int manualDT = input.time(0, "เวลา D ก่อน A", group = G4, active = overrideD, display = display.none)
+int reach = input.int(8, "ระยะป้ายไปทางขวา (แท่ง)", minval = 1, maxval = 100, group = G4, display = display.none)
+bool uiInner = input.bool(false, "เป้า: แสดงระดับย่อย 38.2–78.6%", group = G4, display = display.none)
+bool uiLabels = input.bool(true, "ราคา / ป้ายระดับ", group = G4, display = display.none)
+bool stickLabels = input.bool(true, "ป้ายชิดแท่งล่าสุด (เหมาะกับจอแคบ)", group = G4, display = display.none)
+bool pairLabels = input.bool(true, "รวมป้าย 350% / 361.8% ที่อยู่ใกล้กัน", group = G4, display = display.none)
+string labelScale = input.string("ปกติ", "ขนาดตัวอักษร", options = ["เล็ก", "ปกติ", "ใหญ่"], group = G4, display = display.none)
+
+string G5 = "06 · Elliott — ตรวจราคา ไม่ยืนยันคลื่นย่อย"
+string ewKind = input.string("Impulse 0–5", "แบบที่ตรวจ", options = ["Impulse 0–5", "Zigzag 0–A–B–C", "Flat 0–A–B–C", "Diagonal 0–5", "Triangle 0–A–B–C–D–E"], group = G5, active = uiEWManual, display = display.none)
+string ewDiag = input.string("Ending 5/C", "ตำแหน่ง Diagonal ที่ผู้ใช้เลือก", options = ["Ending 5/C", "Leading 1/A"], group = G5, active = uiEWManual and ewKind == "Diagonal 0–5", display = display.none)
+string ewTriangle = input.string("Contracting", "ชนิด Triangle", options = ["Contracting", "Barrier", "Expanding"], group = G5, active = uiEWManual and ewKind == "Triangle 0–A–B–C–D–E", display = display.none)
+// Manual prices are hypotheses; no subwave/parent classification is inferred.
+float ew0 = input.float(0, "จุด 0", inline = "w0", group = G5, active = uiEWManual, display = display.none)
+int et0 = input.time(0, "เวลา", inline = "w0", group = G5, active = uiEWManual, display = display.none)
+float ew1 = input.float(0, "จุด 1 / A", inline = "w1", group = G5, active = uiEWManual, display = display.none)
+int et1 = input.time(0, "เวลา", inline = "w1", group = G5, active = uiEWManual, display = display.none)
+float ew2 = input.float(0, "จุด 2 / B", inline = "w2", group = G5, active = uiEWManual, display = display.none)
+int et2 = input.time(0, "เวลา", inline = "w2", group = G5, active = uiEWManual, display = display.none)
+float ew3 = input.float(0, "จุด 3 / C", inline = "w3", group = G5, active = uiEWManual, display = display.none)
+int et3 = input.time(0, "เวลา", inline = "w3", group = G5, active = uiEWManual, display = display.none)
+float ew4 = input.float(0, "จุด 4 / D", inline = "w4", group = G5, active = uiEWManual and (ewKind == "Impulse 0–5" or ewKind == "Diagonal 0–5" or ewKind == "Triangle 0–A–B–C–D–E"), display = display.none)
+int et4 = input.time(0, "เวลา", inline = "w4", group = G5, active = uiEWManual and (ewKind == "Impulse 0–5" or ewKind == "Diagonal 0–5" or ewKind == "Triangle 0–A–B–C–D–E"), display = display.none)
+float ew5 = input.float(0, "จุด 5 / E", inline = "w5", group = G5, active = uiEWManual and (ewKind == "Impulse 0–5" or ewKind == "Diagonal 0–5" or ewKind == "Triangle 0–A–B–C–D–E"), display = display.none)
+int et5 = input.time(0, "เวลา", inline = "w5", group = G5, active = uiEWManual and (ewKind == "Impulse 0–5" or ewKind == "Diagonal 0–5" or ewKind == "Triangle 0–A–B–C–D–E"), display = display.none)
+
+// Append inputs to preserve the saved input order; group G0 keeps them near the top.
+string visualMode = input.string("สะอาด", "รูปแบบการแสดงผล", options = ["สะอาด", "ละเอียด"], group = G0, tooltip = "สะอาด: ลดข้อความซ้ำ เน้นระดับหลัก แผงสั้น; เส้นระดับเสริมยังอยู่ เลือกละเอียดเพื่อดูป้ายทุกระดับและความสัมพันธ์ TF ครบ", display = display.none)
+bool uiHeroOnly = input.bool(true, "แสดงเฉพาะ TF พระเอก (แผงแถวเดียว)", group = G0, tooltip = "เปิด: แผงเหลือเพียง TF พระเอกและทิศทาง เช่น 2H · ขาลง ↓; ปิด: แสดงรายละเอียดตามตัวเลือก Dashboard / TF Link / EW เดิม รายละเอียดพระเอกยังอ่านได้จาก tooltip ของแถวนี้", display = display.none)
+// BEGIN ZONE BRIDGE SOURCES
+const string CF_CONNECT = "07 · เชื่อม All Indy / เลือกชื่อ ZB ให้ตรงกันครั้งแรก"
+float cf_sync = input.source(close, "ZB 00 SYNC", group=CF_CONNECT, tooltip="เลือก All Indy EBW ZB: ZB 00 SYNC ไม่ใช่ Close; ทุกช่องต้องมาจาก All Indy ตัวเดียวกัน", display=display.none)
+float cf_d1_low = input.source(close, "ZB 01 D1 LOW", group=CF_CONNECT, display=display.none)
+float cf_d1_high = input.source(close, "ZB 02 D1 HIGH", group=CF_CONNECT, display=display.none)
+float cf_d1_score = input.source(close, "ZB 03 D1 SCORE", group=CF_CONNECT, display=display.none)
+float cf_d1_check = input.source(close, "ZB 04 D1 CHECK", group=CF_CONNECT, display=display.none)
+float cf_d2_low = input.source(close, "ZB 05 D2 LOW", group=CF_CONNECT, display=display.none)
+float cf_d2_high = input.source(close, "ZB 06 D2 HIGH", group=CF_CONNECT, display=display.none)
+float cf_d2_score = input.source(close, "ZB 07 D2 SCORE", group=CF_CONNECT, display=display.none)
+float cf_d2_check = input.source(close, "ZB 08 D2 CHECK", group=CF_CONNECT, display=display.none)
+float cf_s1_low = input.source(close, "ZB 09 S1 LOW", group=CF_CONNECT, display=display.none)
+float cf_s1_high = input.source(close, "ZB 10 S1 HIGH", group=CF_CONNECT, display=display.none)
+float cf_s1_score = input.source(close, "ZB 11 S1 SCORE", group=CF_CONNECT, display=display.none)
+float cf_s1_check = input.source(close, "ZB 12 S1 CHECK", group=CF_CONNECT, display=display.none)
+float cf_s2_low = input.source(close, "ZB 13 S2 LOW", group=CF_CONNECT, display=display.none)
+float cf_s2_high = input.source(close, "ZB 14 S2 HIGH", group=CF_CONNECT, display=display.none)
+float cf_s2_score = input.source(close, "ZB 15 S2 SCORE", group=CF_CONNECT, display=display.none)
+float cf_s2_check = input.source(close, "ZB 16 S2 CHECK", group=CF_CONNECT, display=display.none)
+// END ZONE BRIDGE SOURCES
+
+bool cleanView = visualMode == "สะอาด"
+bool darkView = color.r(chart.bg_color) * 0.299 + color.g(chart.bg_color) * 0.587 + color.b(chart.bg_color) * 0.114 < 128
+color UP = darkView ? #6BBFA9 : #1F7661
+color DN = darkView ? #D797A2 : #A34659
+color GOLD = darkView ? #E6C77B : #8D6828
+color INK = darkView ? #D7DEE8 : #253449
+color MUTED = darkView ? #94A2B4 : #65758A
+color PANEL = darkView ? #111820 : #F4F6F9
+color RULE = darkView ? #506073 : #B1BCCB
+color HEAD = darkView ? #1B2531 : #E5EBF2
+string labelSize = labelScale == "ใหญ่" ? size.normal : labelScale == "เล็ก" ? size.tiny : size.small
+int panelTextSize = labelScale == "ใหญ่" ? 14 : labelScale == "เล็ก" ? 10 : 12
+int panelTitleSize = labelScale == "ใหญ่" ? 18 : labelScale == "เล็ก" ? 13 : 16
+var array<float> ratios = array.from(0.0, 0.382, 0.5, 0.618, 0.786, 1.0, 1.618, 2.0, 2.618, 3.5, 3.618, 4.236)
+
+type Point
+    int kind = 0
+    float p = na
+    float r = na
+    int t = na
+    int i = na
+    float trigger = na
+    int closeT = na
+
+type Episode
+    int kind = 0
+    float p = na
+    float r = na
+    int t = na
+    int i = na
+    float trigger = na
+    int closeT = na
+
+type Frame
+    int side = 0
+    int stage = 0
+    bool neck = false
+    bool joint = false
+    Point a
+    Point b
+    Point c
+    Point ref
+    float gauge = na
+    int known = na
+
+// Flat scalar snapshot: no mutable nested references cross request.security.
+type View
+    int asof = na
+    float rangeATR = na
+    int aEnd = na
+    int bEnd = na
+    int cEnd = na
+    int paEnd = na
+    int pbEnd = na
+    int pcEnd = na
+    float legLow = na
+    float legHigh = na
+    float frameLow = na
+    float frameHigh = na
+    float r = na
+    float k = na
+    float d = na
+    int rBias = 0
+    int kBias = 0
+    float rCut = na
+    float kCut = na
+    int rCutT = na
+    int kCutT = na
+    int div = 0
+    float divFrom = na
+    int divFromT = na
+    float divTo = na
+    int divToT = na
+    int divKnown = na
+    int eventKind = 0
+    float eventPrice = na
+    int eventT = na
+    int rEvent = 0
+    int fside = 0
+    int fstage = 0
+    bool neck = false
+    bool joint = false
+    float a = na
+    float b = na
+    float c = na
+    float ref = na
+    int at = na
+    int bt = na
+    int ct = na
+    int rt = na
+    float gauge = na
+    int fknown = na
+    int side = 0
+    int method = 0
+    float zero = na
+    float span = na
+    int id = na
+    int zeroT = na
+    int born = na
+    float pa = na
+    float pb = na
+    int pat = na
+    int pbt = na
+    float pref = na
+    int preft = na
+    float pgauge = na
+    bool pneck = false
+    bool pjoint = false
+    int ts = 0
+    bool formedTS = false
+    int broke = 0
+    int gap = 0
+    float cut = na
+    float trail = na
+    int trailSide = 0
+    int stopped = 0
+    int invalid = 0
+    int progress = 0
+
+// Chart-side snapshots only. No nested mutable object crosses request.security.
+type SwingContext
+    int side = 0
+    int phase = 0
+    float a = na
+    float b = na
+    float c = na
+    int at = na
+    int bt = na
+    int ct = na
+    int ae = na
+    int be = na
+    int ce = na
+    int known = na
+    int asof = na
+    float lo = na
+    float hi = na
+    bool neck = false
+
+type LinkState
+    int code = 0
+    int parentId = na
+    int parentPhase = 0
+    int parentSide = 0
+
+// Compact immutable feed for the hero scanner; no chart drawings or Action state.
+type HeroFeed
+    bool ready = false
+    int historyFrom = na
+    int asof = na
+    float price = na
+    float atr = na
+    int pivotKind = 0
+    float pivotP = na
+    int pivotT = na
+    float pivotLow = na
+    float pivotHigh = na
+    bool rangeKnown = false
+    float manualLow = na
+    float manualHigh = na
+    bool manualRangeKnown = false
+    int formSide = 0
+    int formKnown = na
+    int watchT = na
+    float watchLow = na
+    float watchHigh = na
+    int upPhase = 0
+    float upA = na
+    float upB = na
+    float upC = na
+    int upAT = na
+    int upAE = na
+    int upBT = na
+    int upCT = na
+    int upCE = na
+    int upKnown = na
+    float upLow = na
+    float upHigh = na
+    int dnPhase = 0
+    float dnA = na
+    float dnB = na
+    float dnC = na
+    int dnAT = na
+    int dnAE = na
+    int dnBT = na
+    int dnCT = na
+    int dnCE = na
+    int dnKnown = na
+    float dnLow = na
+    float dnHigh = na
+
+type HeroRange
+    int side = 0
+    float fromP = na
+    int fromT = na
+    float toP = na
+    int toT = na
+    float lo = na
+    float hi = na
+    bool rangeKnown = false
+
+f_price(float p) =>
+    na(p) ? "—" : str.tostring(p, format.mintick)
+
+f_copy(Point p) =>
+    Point.new(p.kind, p.p, p.r, p.t, p.i, p.trigger, p.closeT)
+
+// The episode is a zone visit, not an arbitrary Zigzag pivot.
+method step(Episode e, float osc, float os, float ob, float rr) =>
+    Point event = Point.new()
+    int zone = osc <= os ? -1 : osc >= ob ? 1 : 0
+    if e.kind != 0
+        bool newExtreme = e.kind == -1 ? low < e.p : high > e.p
+        if newExtreme
+            e.p := e.kind == -1 ? low : high
+            e.r := rr
+            e.t := time
+            e.i := bar_index
+            e.trigger := e.kind == -1 ? high[1] : low[1]
+            e.closeT := time_close
+        if zone != e.kind
+            event := Point.new(e.kind, e.p, e.r, e.t, e.i, e.trigger, e.closeT)
+            e.kind := 0
+    if e.kind == 0 and zone != 0
+        e.kind := zone
+        e.p := zone == -1 ? low : high
+        e.r := rr
+        e.t := time
+        e.i := bar_index
+        e.trigger := zone == -1 ? high[1] : low[1]
+        e.closeT := time_close
+    event
+
+f_push(array<Point> seq, Point event) =>
+    bool changed = false
+    if event.kind != 0
+        int n = seq.size()
+        if n > 0 and seq.get(n - 1).kind == event.kind
+            Point old = seq.get(n - 1)
+            bool better = event.kind == -1 ? event.p < old.p : event.p > old.p
+            if better
+                seq.set(n - 1, f_copy(event))
+                changed := true
+        else
+            seq.push(f_copy(event))
+            if seq.size() > 6
+                seq.shift()
+            changed := true
+    changed
+
+f_breached(int side, float zero) =>
+    side == 1 ? low < zero : side == -1 ? high > zero : false
+
+f_break(int side, float boundary) =>
+    float observed = breakMode == "Close ของแท่งปิด" ? close : side == 1 ? high : low
+    side == 1 ? observed > boundary : observed < boundary
+
+f_gauge(Point ref, Point a, Point b, int side) =>
+    bool valid = not na(ref.p) and ref.t < a.t and side * (ref.p - a.p) > 0 and side * (b.p - a.p) > 0
+    valid ? math.abs(b.p - a.p) / math.abs(ref.p - a.p) : na
+
+f_method(Frame frame) =>
+    frame.neck ? 3 : fibChoice == "Extension (เลือกเอง)" ? 1 : fibChoice == "Projection (เลือกเอง)" ? 2 : na(frame.gauge) ? 0 : frame.gauge >= 0.5 ? 1 : 2
+
+f_engine(bool chartContext) =>
+    float contextATR = ta.atr(14)
+    float rr = ta.rsi(close, rLen)
+    float kk = ta.sma(ta.stoch(close, high, low, kLen), kSmooth)
+    float dd = ta.sma(kk, dSmooth)
+    var Episode re = Episode.new()
+    var Episode ke = Episode.new()
+    var array<Point> rseq = array.new<Point>()
+    var array<Point> kseq = array.new<Point>()
+    var Frame bull = Frame.new(a = Point.new(), b = Point.new(), c = Point.new(), ref = Point.new())
+    var Frame bear = Frame.new(a = Point.new(), b = Point.new(), c = Point.new(), ref = Point.new())
+    var int rBias = 0
+    var int kBias = 0
+    var float kHoldPrice = na
+    var int kHoldT = na
+    var int lastROS = na
+    var int lastROB = na
+    var float rLowPrice = na
+    var float rHighPrice = na
+    var int divState = 0
+    var float divR = na
+    var float divRef = na
+    var int divFromT = na
+    var int divToT = na
+    var float divTo = na
+    var int divKnown = na
+    var Point prevLow = Point.new()
+    var Point prevHigh = Point.new()
+    var Point tsLow = Point.new()
+    var Point tsHigh = Point.new()
+    var bool lowHold = false
+    var bool highHold = false
+    var int usedLowTS = na
+    var int usedHighTS = na
+    var int usedBull = na
+    var int usedBear = na
+    var int chainSide = 0
+    var float chainOrigin = na
+    var View plan = View.new()
+    var int stopSide = 0
+    var float stopPrice = na
+    var float runExtreme = na
+    var int stopBorn = na
+    var int gapSide = 0
+    var float gapTrigger = na
+    var float gapCut = na
+    var int gapBorn = na
+    var int legId = na
+    var float legLow = na
+    var float legHigh = na
+    var int frameLegId = na
+    var float frameLow = na
+    var float frameHigh = na
+
+    View out = View.new(r = rr, k = kk, d = dd)
+    Point rp = re.step(rr, rOS, rOB, rr)
+    bool rc = f_push(rseq, rp)
+    if rp.kind == -1
+        lastROS := rp.t
+        rLowPrice := rp.p
+    if rp.kind == 1
+        lastROB := rp.t
+        rHighPrice := rp.p
+    if rc and rseq.size() >= 3
+        Point ra = rseq.get(rseq.size() - 3)
+        Point rb = rseq.get(rseq.size() - 2)
+        Point rz = rseq.get(rseq.size() - 1)
+        rBias := rz.kind == -1 and rz.p >= ra.p ? 1 : rz.kind == 1 and rz.p <= ra.p ? -1 : 0
+    if rBias == 1 and low < rLowPrice or rBias == -1 and high > rHighPrice
+        rBias := 0
+
+    // Divergence only: confirmed price pivots, with RSI at the same candle.
+    float pl = ta.pivotlow(low, divLen, divLen)
+    float ph = ta.pivothigh(high, divLen, divLen)
+    if not na(pl)
+        Point p = Point.new(-1, pl, rr[divLen], time[divLen], bar_index - divLen, high[divLen + 1])
+        bool separated = not na(lastROB) and lastROB > prevLow.t
+        bool regular = not na(prevLow.p) and not separated and p.p < prevLow.p and p.r > prevLow.r
+        bool hidden = not na(prevLow.p) and not separated and p.p > prevLow.p and p.r < prevLow.r
+        if regular or hidden
+            divState := regular ? 1 : 2
+            divR := p.r
+            divRef := prevLow.p
+            divFromT := prevLow.t
+            divToT := p.t
+            divTo := p.p
+            divKnown := time
+        prevLow := p
+    if not na(ph)
+        Point p = Point.new(1, ph, rr[divLen], time[divLen], bar_index - divLen, low[divLen + 1])
+        bool separated = not na(lastROS) and lastROS > prevHigh.t
+        bool regular = not na(prevHigh.p) and not separated and p.p > prevHigh.p and p.r < prevHigh.r
+        bool hidden = not na(prevHigh.p) and not separated and p.p < prevHigh.p and p.r > prevHigh.r
+        if regular or hidden
+            divState := regular ? -1 : -2
+            divR := p.r
+            divRef := prevHigh.p
+            divFromT := prevHigh.t
+            divToT := p.t
+            divTo := p.p
+            divKnown := time
+        prevHigh := p
+    bool clearBull = divState == 1 and (rr <= rOS and rr < divR or kk >= kOB)
+    bool clearBear = divState == -1 and (rr >= rOB and rr > divR or kk <= kOS)
+    bool clearHB = divState == 2 and (low < divRef or rr >= rOB)
+    bool clearHS = divState == -2 and (high > divRef or rr <= rOS)
+    if clearBull or clearBear or clearHB or clearHS
+        divState := 0
+
+    // Old zero breach never moves zero and never reuses the same candidate.
+    if plan.side != 0 and f_breached(plan.side, plan.zero)
+        out.invalid := plan.side
+        plan := View.new()
+    if chainSide != 0 and f_breached(chainSide, chainOrigin)
+        chainSide := 0
+        chainOrigin := na
+    if bull.stage > 0 and f_breached(1, bull.c.p)
+        usedBull := bull.c.t
+        bull.stage := 0
+    if bear.stage > 0 and f_breached(-1, bear.c.p)
+        usedBear := bear.c.t
+        bear.stage := 0
+
+    Point kp = ke.step(kk, kOS, kOB, rr)
+    bool kc = f_push(kseq, kp)
+    if kc
+        out.eventKind := kp.kind
+        out.eventPrice := kp.p
+        out.eventT := kp.t
+        int n = kseq.size()
+        if n >= 3
+            Point a = kseq.get(n - 3)
+            Point b = kseq.get(n - 2)
+            Point c = kseq.get(n - 1)
+            Point ref = n >= 4 ? kseq.get(n - 4) : Point.new()
+            int side = c.kind == -1 ? 1 : -1
+            bool held = side * (c.p - a.p) >= 0
+            bool sameRSI = side == 1 ? na(lastROB) or lastROB < a.t : na(lastROS) or lastROS < a.t
+            bool neck = not held and sameRSI and side * (c.r - a.r) > 0
+            kBias := held ? side : 0
+            kHoldPrice := held ? c.p : na
+            kHoldT := c.t
+            bool initialContext = side == 1 ? a.r <= rOS or rBias == 1 or divState == 1 : a.r >= rOB or rBias == -1 or divState == -1
+            bool joint = chainSide == side and not f_breached(side, chainOrigin)
+            bool validShape = a.t < b.t and b.t < c.t and side * (b.p - a.p) > 0 and side * (b.p - c.p) > 0
+            bool candidate = validShape and ((held and (initialContext or joint)) or (allowNeck and neck))
+            if kp.kind == -1
+                tsLow := f_copy(c)
+                lowHold := held or neck or rBias == 1 or divState == 1
+                highHold := false
+                if candidate and (na(usedBull) or c.t != usedBull)
+                    bull := Frame.new(1, 1, neck, joint, f_copy(a), f_copy(b), f_copy(c), f_copy(ref), na, time)
+                    if chartContext and overrideD
+                        bull.ref := Point.new(1, manualD, na, manualDT, na, na)
+                    bull.gauge := f_gauge(bull.ref, a, b, 1)
+            else
+                tsHigh := f_copy(c)
+                highHold := held or neck or rBias == -1 or divState == -1
+                lowHold := false
+                if candidate and (na(usedBear) or c.t != usedBear)
+                    bear := Frame.new(-1, 1, neck, joint, f_copy(a), f_copy(b), f_copy(c), f_copy(ref), na, time)
+                    if chartContext and overrideD
+                        bear.ref := Point.new(-1, manualD, na, manualDT, na, na)
+                    bear.gauge := f_gauge(bear.ref, a, b, -1)
+
+    if kBias == 1 and (low < kHoldPrice or kk >= kOB) or kBias == -1 and (high > kHoldPrice or kk <= kOS)
+        kBias := 0
+    if lowHold and low < tsLow.p
+        lowHold := false
+    if highHold and high > tsHigh.p
+        highHold := false
+    bool tsUp = lowHold and time > tsLow.t and high > tsLow.trigger and (na(usedLowTS) or usedLowTS != tsLow.t)
+    bool tsDn = highHold and time > tsHigh.t and low < tsHigh.trigger and (na(usedHighTS) or usedHighTS != tsHigh.t)
+    if tsUp and tsDn
+        tsUp := false
+        tsDn := false
+    if tsUp or tsDn
+        out.ts := tsUp ? 1 : -1
+        out.cut := tsUp ? tsLow.p : tsHigh.p
+        out.formedTS := tsUp ? bull.stage == 1 : bear.stage == 1
+        if tsUp
+            usedLowTS := tsLow.t
+        else
+            usedHighTS := tsHigh.t
+        stopSide := out.ts
+        stopPrice := out.cut
+        runExtreme := tsUp ? high : low
+        stopBorn := time
+
+    // Invalidate before break; reject bars touching both boundaries.
+    bool bullBreak = bull.stage == 1 and time > bull.c.t and not f_breached(1, bull.c.p) and f_break(1, bull.b.p)
+    bool bearBreak = bear.stage == 1 and time > bear.c.t and not f_breached(-1, bear.c.p) and f_break(-1, bear.b.p)
+    if bullBreak and bearBreak
+        bull.stage := 0
+        bear.stage := 0
+        usedBull := bull.c.t
+        usedBear := bear.c.t
+        bullBreak := false
+        bearBreak := false
+    if bullBreak or bearBreak
+        Frame chosen = bullBreak ? bull : bear
+        int method = f_method(chosen)
+        int side = chosen.side
+        chosen.stage := 2
+        out.broke := side
+        out.cut := chosen.c.p
+        if side == 1
+            usedBull := chosen.c.t
+        else
+            usedBear := chosen.c.t
+        chainOrigin := chainSide == side ? chainOrigin : chosen.a.p
+        chainSide := side
+        // Missing reference means no invented Auto target grid.
+        plan := View.new()
+        if method != 0
+            float span = method == 2 ? chosen.b.p - chosen.a.p : chosen.b.p - chosen.c.p
+            plan := View.new(side = side, method = method, zero = chosen.c.p, span = span, id = chosen.c.t, zeroT = chosen.c.t, born = time, pa = chosen.a.p, pb = chosen.b.p, pat = chosen.a.t, pbt = chosen.b.t, paEnd = chosen.a.closeT, pbEnd = chosen.b.closeT, pcEnd = chosen.c.closeT, pref = chosen.ref.p, preft = chosen.ref.t, pgauge = chosen.gauge, pneck = chosen.neck, pjoint = chosen.joint)
+        bool gap = side == 1 ? low > chosen.b.p and close[1] <= chosen.b.p : high < chosen.b.p and close[1] >= chosen.b.p
+        if gap
+            gapSide := side
+            gapTrigger := side == 1 ? high : low
+            gapCut := side == 1 ? low : high
+            gapBorn := time
+    if gapSide != 0
+        if f_breached(gapSide, gapCut)
+            gapSide := 0
+        else if time > gapBorn and (gapSide == 1 ? high > gapTrigger : low < gapTrigger)
+            out.gap := gapSide
+            out.cut := gapCut
+            gapSide := 0
+
+    // Conservative OHLC stop handling: test old stop BEFORE moving it.
+    if stopSide != 0 and time > stopBorn
+        if f_breached(stopSide, stopPrice)
+            out.stopped := stopSide
+            stopSide := 0
+            stopPrice := na
+        else if stopSide == 1 and high > runExtreme
+            stopPrice := math.max(stopPrice, low[1])
+            runExtreme := high
+        else if stopSide == -1 and low < runExtreme
+            stopPrice := math.min(stopPrice, high[1])
+            runExtreme := low
+
+    // Track the observed leg only for a live ID; never mix highs/lows of old plans.
+    if plan.side != 0
+        if na(legId) or legId != plan.id
+            legId := plan.id
+            legLow := math.min(math.min(plan.pa, plan.pb), math.min(plan.zero, low))
+            legHigh := math.max(math.max(plan.pa, plan.pb), math.max(plan.zero, high))
+        else
+            legLow := math.min(legLow, low)
+            legHigh := math.max(legHigh, high)
+    else
+        legId := na
+        legLow := na
+        legHigh := na
+    out.asof := time_close
+    out.rangeATR := contextATR
+    out.legLow := legLow
+    out.legHigh := legHigh
+    // A newer destroyed frame must not hide the other still-valid frame.
+    bool useBullFrame = bull.stage > 0 and (bear.stage == 0 or na(bear.known) or bull.known >= bear.known)
+    Frame currentFrame = useBullFrame ? bull : bear.stage > 0 ? bear : Frame.new(a = Point.new(), b = Point.new(), c = Point.new(), ref = Point.new())
+    if currentFrame.stage > 0
+        if na(frameLegId) or frameLegId != currentFrame.c.t
+            frameLegId := currentFrame.c.t
+            frameLow := math.min(math.min(currentFrame.a.p, currentFrame.b.p), math.min(currentFrame.c.p, low))
+            frameHigh := math.max(math.max(currentFrame.a.p, currentFrame.b.p), math.max(currentFrame.c.p, high))
+        else
+            frameLow := math.min(frameLow, low)
+            frameHigh := math.max(frameHigh, high)
+    else
+        frameLegId := na
+        frameLow := na
+        frameHigh := na
+    out.frameLow := frameLow
+    out.frameHigh := frameHigh
+    out.fside := currentFrame.side
+    out.fstage := currentFrame.stage
+    out.neck := currentFrame.neck
+    out.joint := currentFrame.joint
+    out.a := currentFrame.a.p
+    out.b := currentFrame.b.p
+    out.c := currentFrame.c.p
+    out.ref := currentFrame.ref.p
+    out.at := currentFrame.a.t
+    out.bt := currentFrame.b.t
+    out.ct := currentFrame.c.t
+    out.aEnd := currentFrame.a.closeT
+    out.bEnd := currentFrame.b.closeT
+    out.cEnd := currentFrame.c.closeT
+    out.rt := currentFrame.ref.t
+    out.gauge := currentFrame.gauge
+    out.fknown := currentFrame.known
+    out.side := plan.side
+    out.method := plan.method
+    out.zero := plan.zero
+    out.span := plan.span
+    out.id := plan.id
+    out.zeroT := plan.zeroT
+    out.born := plan.born
+    out.pa := plan.pa
+    out.pb := plan.pb
+    out.pat := plan.pat
+    out.pbt := plan.pbt
+    out.paEnd := plan.paEnd
+    out.pbEnd := plan.pbEnd
+    out.pcEnd := plan.pcEnd
+    out.pref := plan.pref
+    out.preft := plan.preft
+    out.pgauge := plan.pgauge
+    out.pneck := plan.pneck
+    out.pjoint := plan.pjoint
+    out.rBias := rBias
+    out.kBias := kBias
+    out.rCut := rBias == 1 ? rLowPrice : rBias == -1 ? rHighPrice : na
+    out.kCut := kHoldPrice
+    out.rCutT := rBias == 1 ? lastROS : rBias == -1 ? lastROB : na
+    out.kCutT := kHoldT
+    out.div := divState
+    out.divFrom := divRef
+    out.divFromT := divFromT
+    out.divTo := divTo
+    out.divToT := divToT
+    out.divKnown := divKnown
+    out.rEvent := rp.kind
+    out.trail := stopPrice
+    out.trailSide := stopSide
+    if plan.side != 0
+        float progress = (close - plan.zero) / plan.span
+        out.progress := progress >= 4.236 ? 4 : progress >= 2.618 ? 3 : progress >= (plan.method == 2 ? 1 : plan.method == 3 ? 1.618 : 2.618) ? 2 : 1
+    out
+
+f_confirmed() =>
+    View snapshot = f_engine(false)
+    snapshot[1]
+
+f_context(View v, bool pending, bool running) =>
+    SwingContext s = SwingContext.new()
+    if not na(v)
+        if pending
+            s := SwingContext.new(v.fside, v.fstage, v.a, v.b, v.c, v.at, v.bt, v.ct, v.aEnd, v.bEnd, v.cEnd, v.fknown, v.asof, v.fstage == 1 ? math.min(math.min(v.a, v.b), v.c) : v.frameLow, v.fstage == 1 ? math.max(math.max(v.a, v.b), v.c) : v.frameHigh, v.neck)
+        else if running
+            s := SwingContext.new(v.side, 2, v.pa, v.pb, v.zero, v.pat, v.pbt, v.zeroT, v.paEnd, v.pbEnd, v.pcEnd, v.born, v.asof, v.legLow, v.legHigh, v.pneck)
+    s
+
+f_samePoint(int childT, float childP, int parentT, int parentEnd, float parentP, float tolerance) =>
+    // Use the ACTUAL source candle end, not assumed 4H/24H duration.
+    not na(childT) and not na(parentEnd) and childT >= parentT and childT < parentEnd and math.abs(childP - parentP) <= tolerance
+
+f_sameSwing(SwingContext c, SwingContext p, float tolerance) =>
+    c.side != 0 and p.side == c.side and f_samePoint(c.at, c.a, p.at, p.ae, p.a, tolerance) and f_samePoint(c.bt, c.b, p.bt, p.be, p.b, tolerance) and f_samePoint(c.ct, c.c, p.ct, p.ce, p.c, tolerance)
+
+// Presentation-only eligibility. Never changes the engine, links or Action gates.
+f_heroValid(SwingContext s) =>
+    (s.side == 1 or s.side == -1) and (s.phase == 1 or s.phase == 2) and not na(s.a) and not na(s.b) and not na(s.c) and not na(s.at) and not na(s.bt) and not na(s.ct) and s.at < s.bt and s.bt < s.ct
+
+// Chapter 5 hero Form: OS–OB–OS with higher low, or OB–OS–OB without a
+// higher high. RSI/Action/Gauge filters do NOT define whether this Form exists.
+// Neck cases require the special context discussed on book p.147 and are not
+// automatically certified by this normal-Form scanner.
+f_heroEngine() =>
+    float kk = ta.sma(ta.stoch(close, high, low, kLen), kSmooth)
+    float rangeATR = ta.atr(14)
+    var int historyFrom = na
+    var bool episodeArmed = false
+    var float manualLow = na
+    var float manualHigh = na
+    var bool manualRangeKnown = false
+    if not na(kk)
+        if na(historyFrom)
+            historyFrom := time
+        // Do not mistake a truncated initial zone visit for a full cycle.
+        if kk > kOS and kk < kOB
+            episodeArmed := true
+    if heroStartT > 0 and not na(historyFrom)
+        if time <= heroStartT and time_close > heroStartT
+            manualLow := math.min(heroStartP, low)
+            manualHigh := math.max(heroStartP, high)
+            manualRangeKnown := historyFrom <= heroStartT and heroStartP >= low and heroStartP <= high
+        else if manualRangeKnown and time > heroStartT
+            manualLow := math.min(manualLow, low)
+            manualHigh := math.max(manualHigh, high)
+    var Episode visit = Episode.new()
+    var array<Point> seq = array.new<Point>()
+    var SwingContext up = SwingContext.new()
+    var SwingContext dn = SwingContext.new()
+    // Retain chronology even after the newest opposite Form is destroyed.
+    var int formSide = 0
+    var int formKnown = na
+    if up.phase > 0 and low < up.c
+        up := SwingContext.new()
+    if dn.phase > 0 and high > dn.c
+        dn := SwingContext.new()
+    Point event = episodeArmed ? visit.step(kk, kOS, kOB, 0) : Point.new()
+    bool changed = f_push(seq, event)
+    int count = seq.size()
+    Point origin = count >= 3 ? seq.get(count - 3) : Point.new()
+    Point pivot = count > 0 ? seq.get(count - 1) : Point.new()
+    int formLength = not na(origin.i) ? math.max(1, bar_index - origin.i + 1) : 1
+    int pivotLength = not na(pivot.i) ? math.max(1, bar_index - pivot.i + 1) : 1
+    float formLow = ta.lowest(low, math.min(2000, formLength))
+    float formHigh = ta.highest(high, math.min(2000, formLength))
+    float pivotLow = ta.lowest(low, math.min(2000, pivotLength))
+    float pivotHigh = ta.highest(high, math.min(2000, pivotLength))
+    if changed and count >= 3
+        Point a = seq.get(count - 3)
+        Point b = seq.get(count - 2)
+        Point c = seq.get(count - 1)
+        int side = c.kind == -1 ? 1 : -1
+        bool alternating = a.kind == c.kind and b.kind == -c.kind
+        bool held = side == 1 ? c.p > a.p : c.p <= a.p
+        bool geometry = a.t < b.t and b.t < c.t and side * (b.p - a.p) > 0 and side * (b.p - c.p) > 0
+        if alternating and held and geometry and not f_breached(side, c.p)
+            SwingContext formed = SwingContext.new(side = side, phase = 1, a = a.p, b = b.p, c = c.p, at = a.t, bt = b.t, ct = c.t, ae = a.closeT, be = b.closeT, ce = c.closeT, known = time_close, asof = time_close, lo = formLow, hi = formHigh)
+            formSide := side
+            formKnown := time_close
+            if side == 1
+                up := formed
+            else
+                dn := formed
+    if up.phase > 0
+        up.lo := math.min(up.lo, low)
+        up.hi := math.max(up.hi, high)
+        if up.phase == 1 and time > up.ct and f_break(1, up.b)
+            up.phase := 2
+    if dn.phase > 0
+        dn.lo := math.min(dn.lo, low)
+        dn.hi := math.max(dn.hi, high)
+        if dn.phase == 1 and time > dn.ct and f_break(-1, dn.b)
+            dn.phase := 2
+    HeroFeed.new(ready = not na(kk) and episodeArmed, historyFrom = historyFrom, asof = time_close, price = close, atr = rangeATR, pivotKind = pivot.kind, pivotP = pivot.p, pivotT = pivot.t, pivotLow = pivotLow, pivotHigh = pivotHigh, rangeKnown = pivotLength <= 2000, manualLow = manualLow, manualHigh = manualHigh, manualRangeKnown = manualRangeKnown, formSide = formSide, formKnown = formKnown, upPhase = up.phase, upA = up.a, upB = up.b, upC = up.c, upAT = up.at, upAE = up.ae, upBT = up.bt, upCT = up.ct, upCE = up.ce, upKnown = up.known, upLow = up.lo, upHigh = up.hi, dnPhase = dn.phase, dnA = dn.a, dnB = dn.b, dnC = dn.c, dnAT = dn.at, dnAE = dn.ae, dnBT = dn.bt, dnCT = dn.ct, dnCE = dn.ce, dnKnown = dn.known, dnLow = dn.lo, dnHigh = dn.hi)
+
+f_heroClosedFeed() =>
+    HeroFeed fresh = f_heroEngine()
+    // Never confirm a Form from a still-open source candle. A closed market's
+    // last completed candle is usable, avoiding an extra chart-dependent delay.
+    HeroFeed confirmed = time_close <= timenow ? fresh : fresh[1]
+    na(confirmed) ? HeroFeed.new() : confirmed.copy()
+
+f_heroFetch(string tf) =>
+    var HeroFeed latest = HeroFeed.new()
+    varip int killedUp = na
+    varip int killedDn = na
+    // A separate source OHLC watch is shared by BOTH fetch paths. It is not
+    // used to create Form/Break or reference endpoints from an open candle.
+    [watchT, watchLow, watchHigh] = request.security(syminfo.tickerid, tf, [time, low, high], lookahead = barmerge.lookahead_off, calc_bars_count = 2000)
+    if timeframe.in_seconds(tf) < timeframe.in_seconds()
+        // Pine may hoist fixed-TF requests out of this function's branch.
+        // A larger-TF call must be harmless; its regular-security path is used.
+        array<HeroFeed> packets = request.security_lower_tf(syminfo.tickerid, tf, f_heroEngine(), ignore_invalid_timeframe = true, calc_bars_count = 2000)
+        int idx = packets.size() - 1
+        bool found = false
+        while idx >= 0 and not found
+            HeroFeed packet = packets.get(idx)
+            if not na(packet.asof) and packet.asof <= timenow
+                latest := packet.copy()
+                found := true
+            idx -= 1
+    else
+        HeroFeed packet = request.security(syminfo.tickerid, tf, f_heroClosedFeed(), lookahead = barmerge.lookahead_off, calc_bars_count = 2000)
+        if not na(packet)
+            latest := packet.copy()
+    HeroFeed result = latest.copy()
+    result.watchT := watchT
+    result.watchLow := watchLow
+    result.watchHigh := watchHigh
+    bool watchAfterSnapshot = not na(watchT) and not na(result.asof) and watchT >= result.asof
+    if watchAfterSnapshot and result.upPhase > 0 and watchLow < result.upC
+        killedUp := result.upCT
+    if watchAfterSnapshot and result.dnPhase > 0 and watchHigh > result.dnC
+        killedDn := result.dnCT
+    if not na(killedUp) and killedUp == result.upCT
+        result.upPhase := 0
+    if not na(killedDn) and killedDn == result.dnCT
+        result.dnPhase := 0
+    result
+
+f_heroForm(HeroFeed feed, int side) =>
+    SwingContext s = SwingContext.new()
+    if not na(feed)
+        int phase = side == 1 ? feed.upPhase : feed.dnPhase
+        int known = side == 1 ? feed.upKnown : feed.dnKnown
+        float zero = side == 1 ? feed.upC : feed.dnC
+        bool observedBreach = not na(feed.watchT) and not na(feed.asof) and feed.watchT >= feed.asof and (side == 1 ? feed.watchLow < zero : feed.watchHigh > zero)
+        bool latestDirection = feed.formSide == side and not na(known) and known == feed.formKnown
+        if phase > 0 and latestDirection and not observedBreach
+            s := side == 1 ? SwingContext.new(side = 1, phase = phase, a = feed.upA, b = feed.upB, c = feed.upC, at = feed.upAT, ae = feed.upAE, bt = feed.upBT, ct = feed.upCT, ce = feed.upCE, known = feed.upKnown, asof = feed.asof, lo = feed.upLow, hi = feed.upHigh) : SwingContext.new(side = -1, phase = phase, a = feed.dnA, b = feed.dnB, c = feed.dnC, at = feed.dnAT, ae = feed.dnAE, bt = feed.dnBT, ct = feed.dnCT, ce = feed.dnCE, known = feed.dnKnown, asof = feed.asof, lo = feed.dnLow, hi = feed.dnHigh)
+    s
+
+f_heroRange(HeroFeed reference) =>
+    HeroRange study = HeroRange.new()
+    if not na(reference) and not na(reference.price) and not na(reference.asof)
+        bool manual = heroRefMode == "เลือกจุดเริ่มเอง → ราคาล่าสุด"
+        float startP = manual ? heroStartP : reference.pivotP
+        int startT = manual ? heroStartT : reference.pivotT
+        bool knownStart = manual ? startP > 0 and startT > 0 : reference.pivotKind != 0
+        if knownStart and not na(startP) and not na(startT) and startT < reference.asof and reference.price != startP
+            int side = reference.price > startP ? 1 : -1
+            bool correctRound = manual or (reference.pivotKind == -1 and side == 1 or reference.pivotKind == 1 and side == -1)
+            if correctRound
+                study := HeroRange.new(side, startP, startT, reference.price, reference.asof, manual ? reference.manualLow : reference.pivotLow, manual ? reference.manualHigh : reference.pivotHigh, manual ? reference.manualRangeKnown : reference.rangeKnown)
+    study
+
+// Same study LEG, not identical A/B/C. A larger Form may contain several
+// smaller Forms (book pp.144–147). Direction alone never proves this relation.
+f_heroFits(HeroRange study, SwingContext s, HeroFeed feed, float tolerance) =>
+    bool fits = false
+    if study.side != 0 and f_heroValid(s) and s.side == study.side and not na(s.known) and s.known <= study.toT and s.ct <= study.toT
+        bool sharedOrigin = f_samePoint(study.fromT, study.fromP, s.at, s.ae, s.a, tolerance)
+        bool formInsideLeg = study.rangeKnown and s.at >= study.fromT and s.ct <= study.toT and not na(study.lo) and not na(study.hi) and math.min(math.min(s.a, s.b), s.c) >= study.lo - tolerance and math.max(math.max(s.a, s.b), s.c) <= study.hi + tolerance
+        bool sharedRestart = f_samePoint(study.fromT, study.fromP, s.ct, s.ce, s.c, tolerance)
+        // Continuation requires the SAME outgoing Sto cycle after C, a confirmed
+        // Break and no completed intervening opposite pivot. Range alone is not ID.
+        bool sameCycle = feed.pivotKind == -s.side and feed.pivotT == s.ct
+        bool nestedLeg = s.phase == 2 and sameCycle and study.rangeKnown and not na(s.ce) and study.fromT >= s.ce and not na(s.lo) and not na(s.hi) and study.fromP >= s.lo - tolerance and study.fromP <= s.hi + tolerance and (s.side == 1 ? study.lo >= s.c : study.hi <= s.c)
+        // Protected C is hard: ATR tolerance cannot excuse a zero breach.
+        bool zeroHeld = study.rangeKnown and (s.side == 1 ? study.lo >= s.c or sharedOrigin or formInsideLeg : study.hi <= s.c or sharedOrigin or formInsideLeg)
+        fits := (sharedOrigin or formInsideLeg or sharedRestart or nestedLeg) and zeroHeld and s.side * (study.toP - s.c) >= 0
+    fits
+
+f_heroCovered(HeroFeed feed, HeroRange study) =>
+    feed.ready and study.side != 0 and not na(feed.historyFrom) and feed.historyFrom <= study.fromT
+
+f_inside(float price, SwingContext p, float tolerance) =>
+    // Tolerance is NOT permission to cross the protected C/zero of an active leg.
+    not na(price) and not na(p.lo) and not na(p.hi) and price >= p.lo - tolerance and price <= p.hi + tolerance and p.side * (price - p.c) >= 0
+
+f_relation(SwingContext c, SwingContext pending, SwingContext running, bool validTF, float tolerance) =>
+    LinkState link = LinkState.new()
+    SwingContext p = running.side != 0 ? running : pending
+    if not validTF
+        link.code := -1
+    else if c.side == 0
+        link.code := 0
+    else if p.side == 0
+        link.code := -2
+    else if f_sameSwing(c, pending, tolerance) or f_sameSwing(c, running, tolerance)
+        p := f_sameSwing(c, running, tolerance) ? running : pending
+        link.code := 1
+    else if c.ct >= p.asof
+        link.code := 7
+    else if c.at < p.ct
+        link.code := 6
+    else if not (f_inside(c.a, p, tolerance) and f_inside(c.b, p, tolerance) and f_inside(c.c, p, tolerance))
+        link.code := 4
+    else
+        link.code := c.side == p.side ? 2 : 3
+    link.parentId := p.ct
+    link.parentPhase := p.phase
+    link.parentSide := p.side
+    link
+
+f_linkCaption(LinkState l) =>
+    l.code == 1 ? "จุด A/B/C ร่วมเวลา–ราคา" : l.code == 2 ? "กรอบย่อยในขา/กรอบใหญ่" : l.code == 3 ? "สวนทางในขา/กรอบใหญ่" : l.code == 4 ? "ราคาพ้นช่วงใหญ่ที่ยืนยัน" : l.code == 5 ? "แค่ทิศตรงกัน ยังไม่จับคู่" : l.code == 6 ? "สวิงก่อน C ใหญ่ / คนละช่วง" : l.code == 7 ? "รอแท่งใหญ่ปิดให้ครอบคลุม C" : l.code == -1 ? "TF ต้องใหญ่กว่าและไม่ซ้ำ" : l.code == -2 ? "ไม่มีกรอบใหญ่ valid" : "รอกรอบ Current ที่ valid"
+
+f_linkReady(LinkState l) =>
+    (l.code == 1 or l.code == 2) and l.parentPhase == 2
+
+f_pairInParent(SwingContext p, int fromT, float fromP, int toT, float toP) =>
+    p.phase == 2 and not na(fromT) and fromT < toT and fromT >= p.ct and toT < p.asof and f_inside(fromP, p, 0) and f_inside(toP, p, 0)
+
+f_ewContext(SwingContext s) =>
+    string caption = "ไม่มีชุด · ไม่เดานับคลื่น"
+    if s.side != 0
+        bool startShape = s.side * (s.b - s.a) > 0 and s.side * (s.c - s.a) > 0 and s.side * (s.b - s.c) > 0
+        caption := s.neck ? "หักคอ · ไม่เรียก Impulse 1–2" : not startShape ? "ยังไม่เข้าโครงราคา 1–2" : s.phase == 1 ? "1–2? / ABC? · รอ Break" : "หลัง Break · W3? หรือ C?"
+        caption := (s.side == 1 ? "ขึ้น" : "ลง") + " · " + caption
+    caption
+
+View raw = f_engine(true)
+View current = barstate.isconfirmed ? raw : raw[1]
+float chartSeconds = timeframe.in_seconds()
+bool tf1OK = timeframe.in_seconds(tf1) > chartSeconds
+bool tf2OK = timeframe.in_seconds(tf2) > chartSeconds and timeframe.in_seconds(tf2) != timeframe.in_seconds(tf1)
+View big1 = request.security(syminfo.tickerid, tf1OK ? tf1 : timeframe.period, f_confirmed(), lookahead = barmerge.lookahead_on, calc_bars_count = 2000)
+View big2 = request.security(syminfo.tickerid, tf2OK ? tf2 : timeframe.period, f_confirmed(), lookahead = barmerge.lookahead_on, calc_bars_count = 2000)
+View controller = controlTF == "TF ใหญ่ 1" ? big1 : big2
+bool controlOK = controlTF == "TF ใหญ่ 1" ? tf1OK : tf2OK
+int controlSide = 0
+varip int killedControlR = na
+varip int killedControlK = na
+if controlOK and not na(controller)
+    if controller.rBias != 0 and f_breached(controller.rBias, controller.rCut)
+        killedControlR := controller.rCutT
+    if controller.kBias != 0 and f_breached(controller.kBias, controller.kCut)
+        killedControlK := controller.kCutT
+    bool rContextLive = controller.rBias != 0 and (na(killedControlR) or killedControlR != controller.rCutT) and not f_breached(controller.rBias, controller.rCut)
+    bool kContextLive = controller.kBias != 0 and (na(killedControlK) or killedControlK != controller.kCutT) and not f_breached(controller.kBias, controller.kCut)
+    controlSide := rContextLive ? controller.rBias : kContextLive ? controller.kBias : 0
+
+// Intrabar kill latch. A wick through zero cannot reappear on a later tick.
+varip int killedId = na
+if barstate.isnew
+    killedId := na
+if not na(current) and current.side != 0 and f_breached(current.side, current.zero)
+    killedId := current.id
+bool live = not na(current) and current.side != 0 and (na(killedId) or killedId != current.id) and not f_breached(current.side, current.zero)
+// Retain observed HTF invalidation across ALL child bars until a NEW plan arrives.
+// Otherwise a recovered child close could resurrect an old HTF grid before HTF close.
+varip int killedBig1 = na
+varip int killedBig2 = na
+if tf1OK and not na(big1) and big1.side != 0 and f_breached(big1.side, big1.zero)
+    killedBig1 := big1.id
+if tf2OK and not na(big2) and big2.side != 0 and f_breached(big2.side, big2.zero)
+    killedBig2 := big2.id
+bool big1Live = tf1OK and not na(big1) and big1.side != 0 and (na(killedBig1) or killedBig1 != big1.id) and not f_breached(big1.side, big1.zero)
+bool big2Live = tf2OK and not na(big2) and big2.side != 0 and (na(killedBig2) or killedBig2 != big2.id) and not f_breached(big2.side, big2.zero)
+varip int killedFrame1 = na
+varip int killedFrame2 = na
+if tf1OK and not na(big1) and big1.fstage > 0 and f_breached(big1.fside, big1.c)
+    killedFrame1 := big1.ct
+if tf2OK and not na(big2) and big2.fstage > 0 and f_breached(big2.fside, big2.c)
+    killedFrame2 := big2.ct
+bool frameLive = not na(current) and current.fstage == 1 and not f_breached(current.fside, current.c)
+bool frame1Live = tf1OK and not na(big1) and big1.fstage == 1 and (na(killedFrame1) or killedFrame1 != big1.ct) and not f_breached(big1.fside, big1.c)
+bool frame2Live = tf2OK and not na(big2) and big2.fstage == 1 and (na(killedFrame2) or killedFrame2 != big2.ct) and not f_breached(big2.fside, big2.c)
+
+// One latest form for the child; the parent may have a pending form AND a live leg.
+bool localFormValid = not na(current) and current.fstage > 0 and not f_breached(current.fside, current.c)
+bool tf1FormValid = tf1OK and not na(big1) and big1.fstage > 0 and (na(killedFrame1) or killedFrame1 != big1.ct) and not f_breached(big1.fside, big1.c)
+bool tf2FormValid = tf2OK and not na(big2) and big2.fstage > 0 and (na(killedFrame2) or killedFrame2 != big2.ct) and not f_breached(big2.fside, big2.c)
+SwingContext localSwing = f_context(current, localFormValid, live)
+SwingContext tf1Frame = f_context(big1, tf1FormValid, false)
+SwingContext tf2Frame = f_context(big2, tf2FormValid, false)
+SwingContext tf1Plan = f_context(big1, false, big1Live)
+SwingContext tf2Plan = f_context(big2, false, big2Live)
+SwingContext tf1Swing = f_context(big1, tf1FormValid, big1Live)
+SwingContext tf2Swing = f_context(big2, tf2FormValid, big2Live)
+float tol1 = math.max(syminfo.mintick, (na(big1) ? 0 : nz(big1.rangeATR, 0)) * linkATR)
+float tol2 = math.max(syminfo.mintick, (na(big2) ? 0 : nz(big2.rangeATR, 0)) * linkATR)
+LinkState link01 = f_relation(localSwing, tf1Frame, tf1Plan, tf1OK, tol1)
+LinkState link02 = f_relation(localSwing, tf2Frame, tf2Plan, tf2OK, tol2)
+LinkState link12 = f_relation(tf1Swing, tf2Frame, tf2Plan, tf1OK and tf2OK and timeframe.in_seconds(tf2) > timeframe.in_seconds(tf1), tol2)
+LinkState controlLink = controlTF == "TF ใหญ่ 1" ? link01 : link02
+SwingContext controlPlan = controlTF == "TF ใหญ่ 1" ? (tf1Plan.side != 0 ? tf1Plan : tf1Frame) : (tf2Plan.side != 0 ? tf2Plan : tf2Frame)
+bool linkedAction = not requireLink or (f_linkReady(controlLink) and controlLink.parentSide == controlSide)
+bool linkedDivAction = not requireLink or (controlPlan.side == controlSide and f_pairInParent(controlPlan, raw.divFromT, raw.divFrom, raw.divToT, raw.divTo))
+
+plot(uiLinks ? link01.code : na, "Link Current > TF1", display = display.data_window)
+plot(uiLinks ? link02.code : na, "Link Current > TF2", display = display.data_window)
+plot(uiLinks ? link12.code : na, "Link TF1 > TF2", display = display.data_window)
+
+// Inspectable anchors: no extra lines or status-line clutter.
+plot(live ? current.pa : na, "Target A", display = display.data_window)
+plot(live ? current.pb : na, "Target B", display = display.data_window)
+plot(live ? current.zero : na, "Target C / 0%", display = display.data_window)
+plot(live ? current.pref : na, "Gauge D", display = display.data_window)
+plot(live ? current.pgauge * 100 : na, "Gauge %", display = display.data_window)
+plot(live ? current.zero + current.span : na, "Target 100%", display = display.data_window)
+plot(live ? current.method : na, "Method E=1 P=2 N=3", display = display.data_window)
+
+bool a1Up = barstate.isconfirmed and act1 and raw.ts == 1
+bool a1Dn = barstate.isconfirmed and act1 and raw.ts == -1
+bool a2Up = barstate.isconfirmed and act2 and controlSide == 1 and raw.ts == 1 and raw.div == 1 and linkedDivAction
+bool a2Dn = barstate.isconfirmed and act2 and controlSide == -1 and raw.ts == -1 and raw.div == -1 and linkedDivAction
+bool a3Up = barstate.isconfirmed and act3 and controlSide == 1 and raw.ts == 1 and raw.formedTS and linkedAction
+bool a3Dn = barstate.isconfirmed and act3 and controlSide == -1 and raw.ts == -1 and raw.formedTS and linkedAction
+bool a4Up = barstate.isconfirmed and act4 and controlSide == 1 and raw.broke == 1 and linkedAction
+bool a4Dn = barstate.isconfirmed and act4 and controlSide == -1 and raw.broke == -1 and linkedAction
+bool a5Up = barstate.isconfirmed and act5 and controlSide == 1 and raw.gap == 1 and linkedAction
+bool a5Dn = barstate.isconfirmed and act5 and controlSide == -1 and raw.gap == -1 and linkedAction
+// Oscillator calculations are unchanged, but no oscillator pane/lines are drawn.
+// display.data_window does not contribute to the price scale or status line.
+plot(raw.k, "K actual", display = display.data_window)
+plot(raw.d, "D actual", display = display.data_window)
+plot(raw.r, "RSI actual", display = display.data_window)
+
+f_clearLines(array<line> lines) =>
+    while lines.size() > 0
+        line.delete(lines.pop())
+f_clearLabels(array<label> labels) =>
+    while labels.size() > 0
+        label.delete(labels.pop())
+f_methodName(int method) =>
+    method == 1 ? "E" : method == 2 ? "P" : method == 3 ? "N" : "?"
+// Display only: never pass these captions into request.security()/timeframe inputs.
+// Pine uses minutes ("240"); users see hours ("4H") where exactly divisible.
+f_tfLabel(string tf) =>
+    float minutes = str.tonumber(tf)
+    string caption = tf
+    if not na(minutes) and minutes > 0
+        caption := minutes % 60 == 0 ? str.tostring(minutes / 60, "#") + "H" : str.tostring(minutes, "#") + "m"
+    else if tf == "D" or tf == "W" or tf == "M" or tf == "S" or tf == "T"
+        caption := "1" + tf
+    else if tf == ""
+        caption := "Chart"
+    caption
+string tf1Label = f_tfLabel(tf1)
+string tf2Label = f_tfLabel(tf2)
+
+// Hero scan has its OWN fixed source and study interval, independent of Chart.
+// Preserve the original local Form only for optional chart detail rows.
+string chartLabel = f_tfLabel(timeframe.period)
+SwingContext localHeroFrame = f_context(current, localFormValid and (na(killedId) or killedId != current.ct), false)
+bool heroPanelOn = uiLinks or uiBoard or uiEW or uiEWManual
+HeroFeed hero10 = heroPanelOn ? f_heroFetch("10") : HeroFeed.new()
+HeroFeed hero30 = heroPanelOn ? f_heroFetch("30") : HeroFeed.new()
+HeroFeed hero60 = heroPanelOn ? f_heroFetch("60") : HeroFeed.new()
+HeroFeed hero120 = heroPanelOn ? f_heroFetch("120") : HeroFeed.new()
+HeroFeed hero240 = heroPanelOn ? f_heroFetch("240") : HeroFeed.new()
+HeroFeed heroDay = heroPanelOn ? f_heroFetch("D") : HeroFeed.new()
+HeroFeed heroWeek = heroPanelOn ? f_heroFetch("W") : HeroFeed.new()
+HeroFeed heroMonth = heroPanelOn ? f_heroFetch("M") : HeroFeed.new()
+HeroFeed heroBase = heroPanelOn ? f_heroFetch(heroRefTF) : HeroFeed.new()
+HeroRange heroStudy = f_heroRange(heroBase)
+array<string> heroTFs = array.from("10", "30", "60", "120", "240", "D", "W", "M", heroRefTF)
+array<HeroFeed> heroFeeds = array.from(hero10, hero30, hero60, hero120, hero240, heroDay, heroWeek, heroMonth, heroBase)
+SwingContext heroSwing = SwingContext.new()
+float heroSeconds = 0
+string heroTF = ""
+if heroStudy.side != 0
+    for idx = 0 to heroTFs.size() - 1
+        HeroFeed feed = heroFeeds.get(idx)
+        SwingContext candidate = f_heroForm(feed, heroStudy.side)
+        float tolerance = math.max(syminfo.mintick, nz(feed.atr, 0) * linkATR)
+        float candidateSeconds = timeframe.in_seconds(heroTFs.get(idx))
+        if f_heroCovered(feed, heroStudy) and f_heroFits(heroStudy, candidate, feed, tolerance) and candidateSeconds > heroSeconds
+            heroSwing := candidate
+            heroSeconds := candidateSeconds
+            heroTF := f_tfLabel(heroTFs.get(idx))
+bool heroCoverage = heroStudy.rangeKnown and f_heroCovered(heroBase, heroStudy)
+string heroMissing = ""
+for idx = 0 to heroTFs.size() - 1
+    if timeframe.in_seconds(heroTFs.get(idx)) > heroSeconds and not f_heroCovered(heroFeeds.get(idx), heroStudy)
+        heroCoverage := false
+        heroMissing += (heroMissing == "" ? "" : ", ") + f_tfLabel(heroTFs.get(idx))
+bool heroKnown = heroCoverage and f_heroValid(heroSwing)
+string heroScope = (heroRefMode == "เลือกจุดเริ่มเอง → ราคาล่าสุด" ? "จุดเลือกเอง → " : "รอบ Sto · ") + f_tfLabel(heroRefTF)
+
+plot(heroKnown ? heroSeconds / 60 : na, "Hero TF minutes (fixed reference scan)", display = display.data_window)
+plot(heroStudy.side != 0 ? heroStudy.fromP : na, "Hero reference start price", display = display.data_window)
+plot(heroStudy.side != 0 ? heroStudy.toP : na, "Hero reference end price", display = display.data_window)
+
+f_gridStart(View v, float ratio) =>
+    // E/N: 100% starts at B, 0% at C. P: projected levels start at C.
+    // Anchors are historical references; the plan is still known only after born.
+    ratio == 0.0 or v.method == 2 ? v.zeroT : v.pbt
+f_anchor(array<label> labels, int stamp, float price, string caption, bool above, string info) =>
+    labels.push(label.new(stamp, price, "", xloc = xloc.bar_time, style = label.style_circle, color = GOLD, size = size.tiny, tooltip = info, force_overlay = true))
+    if uiLabels
+        labels.push(label.new(stamp, price, caption + (cleanView ? "" : "\n" + f_price(price)), xloc = xloc.bar_time, style = above ? label.style_label_down : label.style_label_up, color = color.new(PANEL, 15), textcolor = GOLD, size = labelSize, tooltip = info + "\nราคา " + f_price(price), force_overlay = true))
+f_drawAnchors(array<line> lines, array<label> labels, View v, bool visible, string prefix) =>
+    if visible
+        string info = "จุดอ้างอิงสวิง ไม่ใช่สัญญาณย้อนหลัง\nชุดนี้ทราบหลัง Break: " + str.format_time(v.born, "yyyy-MM-dd HH:mm", syminfo.timezone) + "\nเขตเวลา: " + syminfo.timezone
+        if v.method == 2
+            lines.push(line.new(v.pat, v.pa, v.pbt, v.pb, xloc = xloc.bar_time, color = color.new(GOLD, 35), width = 1, style = line.style_dashed, force_overlay = true))
+            f_anchor(labels, v.pat, v.pa, prefix + "A · ขาวัด", v.side == -1, info)
+            f_anchor(labels, v.pbt, v.pb, prefix + "B · ขาวัด", v.side == 1, info + "\nProjection: B ไม่ใช่ระดับ 100%")
+        else
+            f_anchor(labels, v.pbt, v.pb, prefix + "100% · B", v.side == 1, info)
+        lines.push(line.new(v.pbt, v.pb, v.zeroT, v.zero, xloc = xloc.bar_time, color = color.new(GOLD, 35), width = 1, style = line.style_dashed, force_overlay = true))
+        f_anchor(labels, v.zeroT, v.zero, prefix + "0% · C", v.side == -1, info)
+f_drawGrid(array<line> lines, array<label> labels, View v, bool visible, string prefix, int rightT, int barDuration, int lane) =>
+    if visible
+        int labelT = stickLabels ? time + barDuration * (1 + lane * 3) : rightT
+        int lineEnd = stickLabels ? labelT : rightT
+        for idx = 0 to ratios.size() - 1
+            float ratio = ratios.get(idx)
+            if uiInner or ratio == 0 or ratio >= 1
+                float price = v.zero + v.span * ratio
+                bool anchorLevel = ratio == 0 or ratio == 1
+                bool majorLevel = ratio == 1.618 or ratio == 2 or ratio == 2.618 or ratio == 4.236
+                bool accentLevel = ratio == 2.618 or ratio == 4.236
+                color tint = accentLevel ? GOLD : anchorLevel ? INK : majorLevel ? INK : MUTED
+                int startT = f_gridStart(v, ratio)
+                int lineFade = accentLevel ? 22 : anchorLevel ? 48 : majorLevel ? 52 : 72
+                lines.push(line.new(startT, price, lineEnd, price, xloc = xloc.bar_time, color = color.new(tint, lineFade), width = accentLevel ? 2 : 1, style = anchorLevel or accentLevel ? line.style_solid : line.style_dotted, force_overlay = true))
+                // Clean mode leaves all requested lines at their true prices; only secondary text is reduced.
+                bool showCaption = not cleanView or anchorLevel or majorLevel or ratio < 1
+                if uiLabels and showCaption and not (pairLabels and ratio == 3.618)
+                    float labelPrice = price
+                    string caption = prefix + str.tostring(ratio * 100, "#.###") + "%" + (v.method == 2 and ratio == 1 ? "*" : "") + "  " + f_price(price)
+                    if pairLabels and ratio == 3.5
+                        float pairedPrice = v.zero + v.span * 3.618
+                        labelPrice := (price + pairedPrice) / 2
+                        caption += "\n361.8% · " + f_price(pairedPrice)
+                    string info = "ฟิโบ " + prefix + f_methodName(v.method) + (v.side == 1 ? " · ขาขึ้น" : " · ขาลง") + "\n0% = C " + f_price(v.zero) + "\nA " + f_price(v.pa) + " / B " + f_price(v.pb) + "\nGauge D " + f_price(v.pref) + " / " + (na(v.pgauge) ? "ไม่ครบ" : str.tostring(v.pgauge * 100, "#.##") + "%") + "\nทราบหลัง Break: " + str.format_time(v.born, "yyyy-MM-dd HH:mm", syminfo.timezone) + "\nเขตเวลา: " + syminfo.timezone + "\nWick หลุด 0% = ยกเลิก ไม่เลื่อน 0%" + (v.method == 2 ? "\n* 100% ของ Projection คำนวณจาก C + (B−A) ไม่ใช่จุด B" : "")
+                    labels.push(label.new(labelT, labelPrice, caption, xloc = xloc.bar_time, style = label.style_label_left, color = color.new(PANEL, anchorLevel or accentLevel ? 12 : 40), textcolor = tint, size = labelSize, tooltip = info, force_overlay = true))
+
+f_drawFrame(array<box> boxes, array<label> labels, View v, bool visible, string prefix, int rightT) =>
+    if visible
+        float bottom = v.fside == 1 ? math.min(v.a, v.c) : v.b
+        float top = v.fside == 1 ? v.b : math.max(v.a, v.c)
+        boxes.push(box.new(v.at, top, rightT, bottom, xloc = xloc.bar_time, border_color = color.new(RULE, 45), border_style = line.style_dotted, bgcolor = color.new(RULE, 98), force_overlay = true))
+        // Keep pending-frame caption at its left edge, away from target prices.
+        labels.push(label.new(v.at, bottom, prefix + (cleanView ? "รอ Break" : (v.neck ? "หักคอ" : v.joint ? "ข้อต่อ" : "Form") + " · รอ Break"), xloc = xloc.bar_time, style = label.style_label_upper_left, textcolor = MUTED, color = color.new(PANEL, 25), size = labelSize, tooltip = "กรอบ " + prefix + (v.neck ? "หักคอ" : v.joint ? "ข้อต่อ" : "Form") + "\nกรอบยังรอ Break ไม่ใช่ชุดเป้าที่ยืนยันแล้ว", force_overlay = true))
+
+var array<line> liveLines = array.new<line>()
+var array<label> liveLabels = array.new<label>()
+var array<box> liveBoxes = array.new<box>()
+float atr = ta.atr(14)
+int duration = int(nz(time_close - time, chartSeconds * 1000))
+int rightT = time + duration * reach
+if barstate.islast
+    f_clearLines(liveLines)
+    f_clearLabels(liveLabels)
+    while liveBoxes.size() > 0
+        box.delete(liveBoxes.pop())
+    f_drawGrid(liveLines, liveLabels, current, uiTargets and live, chartLabel + " · ", rightT, duration, 0)
+    f_drawGrid(liveLines, liveLabels, big1, uiMTF and big1Live, tf1Label + " · ", rightT + duration * 3, duration, 1)
+    f_drawGrid(liveLines, liveLabels, big2, uiMTF and big2Live, tf2Label + " · ", rightT + duration * 6, duration, 2)
+    f_drawAnchors(liveLines, liveLabels, current, uiAnchors and uiTargets and live, chartLabel + " · ")
+    f_drawAnchors(liveLines, liveLabels, big1, uiAnchors and uiMTF and big1Live, tf1Label + " · ")
+    f_drawAnchors(liveLines, liveLabels, big2, uiAnchors and uiMTF and big2Live, tf2Label + " · ")
+    f_drawFrame(liveBoxes, liveLabels, current, uiFrames and frameLive, chartLabel + " · ", rightT)
+    f_drawFrame(liveBoxes, liveLabels, big1, uiMTF and frame1Live, tf1Label + " · ", rightT + duration * 3)
+    f_drawFrame(liveBoxes, liveLabels, big2, uiMTF and frame2Live, tf2Label + " · ", rightT + duration * 6)
+    if uiRetrace and live and not na(current.pref) and current.preft < current.pat
+        for idx = 0 to 5
+            float ratio = ratios.get(idx)
+            float price = current.pref + (current.pa - current.pref) * ratio
+            int startT = ratio == 1 ? current.pat : current.preft
+            liveLines.push(line.new(startT, price, rightT, price, xloc = xloc.bar_time, color = color.new(GOLD, ratio == 0.618 ? 35 : 68), style = line.style_dotted, force_overlay = true))
+            if uiLabels
+                liveLabels.push(label.new(stickLabels ? time + duration : rightT, price, chartLabel + " R · " + str.tostring(ratio * 100, "#.###") + "%  " + f_price(price), xloc = xloc.bar_time, style = label.style_label_left, color = color.new(PANEL, 30), textcolor = GOLD, size = labelSize, tooltip = "Retrace ของขา D→A · " + chartLabel, force_overlay = true))
+        if uiAnchors
+            liveLines.push(line.new(current.preft, current.pref, current.pat, current.pa, xloc = xloc.bar_time, color = color.new(GOLD, 35), style = line.style_dashed, width = 2, force_overlay = true))
+            f_anchor(liveLabels, current.preft, current.pref, "R 0% · D", current.pref > current.pa, "Retrace วัดขาก่อน D→A ไม่ใช่ 0% ของชุดหาเป้า")
+            f_anchor(liveLabels, current.pat, current.pa, "R 100% · A", current.pa > current.pref, "Retrace วัดขาก่อน D→A ไม่ใช่ 100% ของชุดหาเป้า")
+    if uiZones and live
+        float p1 = current.zero + current.span * 2.618
+        float p2 = current.zero + current.span * 4.236
+        liveBoxes.push(box.new(current.born, math.max(p1, p2), rightT, math.min(p1, p2), xloc = xloc.bar_time, border_color = color.new(GOLD, 70), bgcolor = color.new(GOLD, 95), force_overlay = true))
+    if uiClusters and live
+        for which = 1 to 2
+            View other = which == 1 ? big1 : big2
+            bool otherLive = which == 1 ? big1Live : big2Live
+            if otherLive
+                for idx = 5 to ratios.size() - 1
+                    float p1 = current.zero + current.span * ratios.get(idx)
+                    float closest = na
+                    for jdx = 5 to ratios.size() - 1
+                        float p2 = other.zero + other.span * ratios.get(jdx)
+                        if math.abs(p1 - p2) <= math.max(syminfo.mintick, atr * clusterATR) and (na(closest) or math.abs(p1 - p2) < math.abs(p1 - closest))
+                            closest := p2
+                    if not na(closest)
+                        liveLabels.push(label.new(stickLabels ? time : rightT, (p1 + closest) / 2, "◆ Cluster " + (which == 1 ? tf1Label : tf2Label), xloc = xloc.bar_time, textcolor = GOLD, style = stickLabels ? label.style_label_right : label.style_label_left, color = color.new(color.black, 15), size = size.tiny, force_overlay = true))
+
+// Historical confirmations are labelled on the bar they become KNOWN, not backdated.
+var array<label> historyLabels = array.new<label>()
+if barstate.isconfirmed
+    if uiCycles and raw.eventKind != 0
+        historyLabels.push(label.new(time, raw.eventPrice, raw.eventKind == -1 ? "Sto OS ✓" : "Sto OB ✓", xloc = xloc.bar_time, textcolor = raw.eventKind == -1 ? UP : DN, style = label.style_none, size = size.tiny, tooltip = "จุดราคา: " + str.format_time(raw.eventT, "MM-dd HH:mm", syminfo.timezone) + "\nทราบเมื่อแท่งปัจจุบันปิด", force_overlay = true))
+    if uiCycles and raw.rEvent != 0
+        historyLabels.push(label.new(time, raw.rEvent == -1 ? low : high, raw.rEvent == -1 ? "RSI OS ✓" : "RSI OB ✓", xloc = xloc.bar_time, textcolor = GOLD, style = label.style_none, size = size.tiny, force_overlay = true))
+    // Action 1–5 calculations/alerts stay intact; the red/green badges are removed.
+    if uiInvalid and uiTargets and raw.invalid != 0
+        historyLabels.push(label.new(time, raw.invalid == 1 ? low : high, "0% ✕ · ยกเลิกชุด", xloc = xloc.bar_time, textcolor = INK, style = label.style_none, size = labelSize, force_overlay = true))
+    if uiDiv and raw.div != 0 and raw.divKnown == time
+        historyLabels.push(label.new(time, raw.div > 0 ? low : high, math.abs(raw.div) == 1 ? "Regular Di ✓" : "Hidden Di ✓", xloc = xloc.bar_time, textcolor = raw.div > 0 ? UP : DN, style = label.style_none, size = size.tiny, tooltip = "Confirmed pivot: หน่วง " + str.tostring(divLen) + " แท่ง\nห้ามนับเป็นสัญญาณย้อนหลังที่แท่ง anchor", force_overlay = true))
+    while historyLabels.size() > 70
+        label.delete(historyLabels.shift())
+
+float trailVisible = not na(current) and current.trailSide != 0 and not f_breached(current.trailSide, current.trail) ? current.trail : na
+plot(uiTS ? trailVisible : na, "Trailing Stop / Cut assist", GOLD, 2, plot.style_linebr, display = display.pane + display.data_window, force_overlay = true)
+
+// PRICE-ONLY hypotheses. Passing these tests NEVER confirms subwaves/parent role.
+f_percentLength(float startP, float endP) =>
+    startP > 0 ? math.abs(endP - startP) / startP : na
+
+f_linePrice(int stamp, int startT, float startP, int endT, float endP) =>
+    endT > startT ? startP + (endP - startP) * float(stamp - startT) / float(endT - startT) : na
+
+bool ewImpulse = ewKind == "Impulse 0–5"
+bool ewDiagonal = ewKind == "Diagonal 0–5"
+bool ewTri = ewKind == "Triangle 0–A–B–C–D–E"
+bool ewFive = ewImpulse or ewDiagonal or ewTri
+bool ewTime = et0 > 0 and et0 < et1 and et1 < et2 and et2 < et3 and et3 <= time and (not ewFive or et3 < et4 and et4 < et5 and et5 <= time)
+bool ewPrices = ew0 > 0 and ew1 > 0 and ew2 > 0 and ew3 > 0 and (not ewFive or ew4 > 0 and ew5 > 0)
+int ewSide = ew1 > ew0 ? 1 : -1
+bool ewThreeShape = ewSide * (ew1 - ew0) > 0 and ewSide * (ew2 - ew1) < 0 and ewSide * (ew3 - ew2) > 0
+bool ewFiveShape = ewThreeShape and ewSide * (ew4 - ew3) < 0 and ewSide * (ew5 - ew4) > 0
+float l1 = math.abs(ew1 - ew0)
+float l2 = math.abs(ew2 - ew1)
+float l3 = math.abs(ew3 - ew2)
+float l4 = math.abs(ew4 - ew3)
+float l5 = math.abs(ew5 - ew4)
+float pct1 = f_percentLength(ew0, ew1)
+float pct3 = f_percentLength(ew2, ew3)
+float pct5 = f_percentLength(ew4, ew5)
+bool rule2 = ewSide * (ew2 - ew0) > 0
+bool rule3 = not na(pct1) and not na(pct3) and not na(pct5) and pct3 >= math.min(pct1, pct5)
+bool rule3Points = l3 >= math.min(l1, l5)
+bool rule4 = ewSide * (ew4 - ew1) > 0
+bool wave3Beyond1 = ewSide * (ew3 - ew1) > 0
+bool fifthTruncated = ewSide * (ew5 - ew3) <= 0
+bool ewValid = false
+string ewStatus = "รอจุดราคา/เวลาเรียงกัน (ราคา > 0)"
+string ewVariant = ""
+if ewTime and ewPrices
+    if ewImpulse
+        ewValid := ewFiveShape and wave3Beyond1 and rule2 and rule3 and rule4
+        ewStatus := ewValid ? "ผ่านราคา Impulse · subwaves ยังไม่ยืนยัน" : "ผิดราคา Impulse: " + (not ewFiveShape ? "ทิศสวิง " : "") + (not wave3Beyond1 ? "W3 ไม่เลย W1 " : "") + (not rule2 ? "W2 หลุดต้น W1 " : "") + (not rule3 ? "W3 สั้นสุด (%ราคา) " : "") + (not rule4 ? "W4 ทับ W1 " : "")
+        if ewValid and fifthTruncated
+            ewStatus += "\nW5 truncated? ต้องตรวจ 5 subwaves"
+        if rule3 != rule3Points
+            ewStatus += "\nW3: points/% ให้ผลต่างกัน ใช้ % ตาม EWP หน้า 31"
+    else if ewKind == "Zigzag 0–A–B–C"
+        bool bWithinStart = ewSide * (ew2 - ew0) >= 0
+        ewValid := ewThreeShape and bWithinStart
+        ewStatus := ewValid ? "ผ่านราคา ABC · ยังไม่ยืนยัน 5–3–5" : "ผิดราคา Zigzag: " + (not ewThreeShape ? "ทิศ ABC " : "") + (not bWithinStart ? "B เกินต้น A" : "")
+        if ewValid and not wave3Beyond1
+            ewStatus += "\nC ยังไม่เลย A: atypical / อาจยังไม่จบ ไม่ปัดตกด้วย guideline"
+        if ewValid and ew2 == ew0
+            ewStatus += "\nB แตะต้น A: ต้องตรวจรูปแบบย่อยเป็นพิเศษ"
+    else if ewKind == "Flat 0–A–B–C"
+        float retraceB = l1 > 0 ? l2 / l1 : na
+        ewValid := ewThreeShape and not na(retraceB) and retraceB >= 0.9
+        ewVariant := ewValid ? retraceB > 1.05 and wave3Beyond1 ? "Expanded Flat?" : retraceB > 1 and not wave3Beyond1 ? "Running Flat? (พบยาก)" : "Flat?" : ""
+        ewStatus := ewValid ? ewVariant + " · B ≥90% · ยังไม่ยืนยัน 3–3–5" : "ผิดราคา Flat: " + (not ewThreeShape ? "ทิศ ABC " : "") + (na(retraceB) or retraceB < 0.9 ? "B ย่อไม่ถึง 90% A" : "")
+    else if ewDiagonal
+        bool overlapping = ewSide * (ew4 - ew1) < 0 and ewSide * (ew4 - ew2) > 0
+        float gapAt4 = ewSide * (f_linePrice(et4, et1, ew1, et3, ew3) - ew4)
+        float gapAt5 = ewSide * (f_linePrice(et5, et1, ew1, et3, ew3) - f_linePrice(et5, et2, ew2, et4, ew4))
+        bool contracting = l3 < l1 and l4 < l2 and l5 < l3 and gapAt4 > 0 and gapAt5 > 0 and gapAt5 < gapAt4
+        bool expanding = l3 > l1 and l4 > l2 and l5 > l3 and gapAt4 > 0 and gapAt5 > gapAt4 and not fifthTruncated
+        bool fifthOK = ewDiag == "Ending 5/C" or not fifthTruncated
+        ewValid := ewFiveShape and rule2 and rule3 and wave3Beyond1 and overlapping and (contracting or expanding) and fifthOK
+        ewVariant := contracting ? "Contracting" : expanding ? "Expanding" : "ไม่เข้า wedge"
+        ewStatus := ewValid ? ewVariant + " Diagonal? · " + ewDiag + "\nยังต้องตรวจ parent role และ subwaves" : "ราคา/ขอบเขต Diagonal ไม่เข้าเกณฑ์ · ไม่ใช้ overlap อย่างเดียว"
+    else if ewTri
+        float ratioB = l1 > 0 ? l2 / l1 : na
+        float ratioC = l2 > 0 ? l3 / l2 : na
+        float ratioD = l3 > 0 ? l4 / l3 : na
+        bool endsContract = ewSide * (ew3 - ew1) < 0 and ewSide * (ew5 - ew3) < 0
+        bool bdContract = ewSide * (ew4 - ew2) > 0
+        bool bdBarrier = math.abs(ew4 - ew2) <= syminfo.mintick
+        bool endsExpand = ewSide * (ew3 - ew1) > 0 and ewSide * (ew4 - ew2) < 0 and ewSide * (ew5 - ew3) > 0
+        bool ratiosExpand = ratioB >= 1 and ratioB <= 1.5 and ratioC >= 1 and ratioC <= 1.5 and ratioD >= 1 and ratioD <= 1.5
+        bool triangleBounds = ewTriangle == "Expanding" ? endsExpand and ratiosExpand : endsContract and (ewTriangle == "Barrier" ? bdBarrier : bdContract)
+        ewValid := ewFiveShape and triangleBounds
+        ewStatus := ewValid ? ewTriangle + " Triangle? · ยังต้องตรวจ zigzag ย่อย\nและตำแหน่ง 4/B/X หรือท้าย combination" : "ขอบเขตราคา Triangle ไม่เข้าเกณฑ์ชนิดที่เลือก"
+
+plot(uiEWManual ? ewTime and ewPrices ? ewValid ? 1 : -1 : 0 : na, "EW manual: price-only 1/pass -1/fail 0/wait", display = display.data_window)
+var array<line> ewLines = array.new<line>()
+var array<label> ewLabels = array.new<label>()
+if barstate.islast
+    f_clearLines(ewLines)
+    f_clearLabels(ewLabels)
+    if uiEWManual and ewTime and ewPrices
+        array<float> prices = array.from(ew0, ew1, ew2, ew3, ew4, ew5)
+        array<int> stamps = array.from(et0, et1, et2, et3, et4, et5)
+        int count = ewFive ? 6 : 4
+        for idx = 0 to count - 1
+            string caption = ewImpulse or ewDiagonal ? str.tostring(idx) : idx == 0 ? "0" : idx == 1 ? "A" : idx == 2 ? "B" : idx == 3 ? "C" : idx == 4 ? "D" : "E"
+            ewLabels.push(label.new(stamps.get(idx), prices.get(idx), "EW " + caption + (ewValid ? " ?" : " ×"), xloc = xloc.bar_time, color = color.new(#10151e, 20), textcolor = ewValid ? GOLD : INK, style = label.style_label_center, size = labelSize, tooltip = ewStatus + "\nตรวจเฉพาะราคาที่ใส่ ไม่ได้รับรองตำแหน่งบน OHLC หรือ degree", force_overlay = true))
+            if idx > 0
+                ewLines.push(line.new(stamps.get(idx - 1), prices.get(idx - 1), stamps.get(idx), prices.get(idx), xloc = xloc.bar_time, color = color.new(INK, 30), width = 2, force_overlay = true))
+        if uiEWChannel and ewImpulse and ewValid
+            float baseRight = f_linePrice(rightT, et2, ew2, et4, ew4)
+            ewLines.push(line.new(et2, ew2, rightT, baseRight, xloc = xloc.bar_time, color = color.new(GOLD, 45), style = line.style_dashed, force_overlay = true))
+            for anchorIndex = 1 to 2
+                int anchorT = anchorIndex == 1 ? et3 : et1
+                float anchorP = anchorIndex == 1 ? ew3 : ew1
+                float parallelRight = anchorP + baseRight - f_linePrice(anchorT, et2, ew2, et4, ew4)
+                ewLines.push(line.new(anchorT, anchorP, rightT, parallelRight, xloc = xloc.bar_time, color = color.new(GOLD, anchorIndex == 1 ? 45 : 75), style = line.style_dotted, force_overlay = true))
+
+f_bias(int bias) =>
+    bias == 1 ? "ค้างติด ↑" : bias == -1 ? "ค้างย่อ ↓" : "ไม่มีเงื่อนไขค้าง"
+
+f_boardRow(array<string> names, array<string> values, array<string> tips, string name, string value, string tip) =>
+    names.push(name)
+    values.push(value)
+    tips.push(tip)
+
+var table board = table.new(boardCorner == "ซ้ายบน" ? position.top_left : boardCorner == "ขวาล่าง" ? position.bottom_right : position.top_right, 2, uiHeroOnly ? 1 : 25, bgcolor = color.new(PANEL, 5), frame_color = color.new(RULE, 45), frame_width = 1, border_width = 0, force_overlay = true)
+if barstate.islast
+    table.clear(board, 0, 0, 1, uiHeroOnly ? 0 : 24)
+    if uiLinks or uiBoard or uiEW or uiEWManual
+        string heroTip = "พระเอกของช่วงราคาที่ศึกษา ไม่ใช่ TF ที่เปิดกราฟ\nสแกน 10m / 30m / 1H / 2H / 4H / 1D / 1W / 1M และ TF อ้างอิง\nForm: Sto OS–OB–OS ยก Low หรือ OB–OS–OB ไม่ผ่าน High\nเลือก TF ใหญ่สุดของขาเดียวกัน ไม่บังคับ A/B/C ตรงทุกจุด และไม่ใช้ทิศเดียวกันอย่างเดียว\nใช้ Form จากแท่งปิด; wick ในแท่งต้นทางยกเลิกกรอบเดิมได้\nกรอบหักคอกรณีพิเศษยังต้องตรวจบริบทเอง ไม่ยืนยันอัตโนมัติ\nไม่ใช่ TF ควบคุม Action หรือ Elliott degree"
+        if heroStudy.side != 0
+            heroTip += "\nอ้างอิง: " + heroScope + "\nจาก " + f_price(heroStudy.fromP) + " · " + str.format_time(heroStudy.fromT, "yyyy-MM-dd HH:mm", syminfo.timezone) + "\nถึง " + f_price(heroStudy.toP) + " · " + str.format_time(heroStudy.toT, "yyyy-MM-dd HH:mm", syminfo.timezone) + "\nเขตเวลา: " + syminfo.timezone
+        if heroKnown
+            heroTip += "\nForm ที่เลือก · " + heroTF + "\nA " + f_price(heroSwing.a) + " · " + str.format_time(heroSwing.at, "MM-dd HH:mm", syminfo.timezone) + "\nB " + f_price(heroSwing.b) + " · " + str.format_time(heroSwing.bt, "MM-dd HH:mm", syminfo.timezone) + "\nC " + f_price(heroSwing.c) + " · " + str.format_time(heroSwing.ct, "MM-dd HH:mm", syminfo.timezone) + "\nยืนยัน Form: " + str.format_time(heroSwing.known, "MM-dd HH:mm", syminfo.timezone)
+        if uiLinks
+            if link01.code >= 1 and link01.code <= 3
+                heroTip += "\nกรอบ " + chartLabel + " → " + tf1Label + ": " + f_linkCaption(link01)
+            if link02.code >= 1 and link02.code <= 3
+                heroTip += "\nกรอบ " + chartLabel + " → " + tf2Label + ": " + f_linkCaption(link02)
+            if link12.code >= 1 and link12.code <= 3
+                heroTip += "\nกรอบ " + tf1Label + " → " + tf2Label + ": " + f_linkCaption(link12)
+            if controlOK and controlSide != 0
+                heroTip += "\nบริบท Action · " + (controlTF == "TF ใหญ่ 1" ? tf1Label : tf2Label) + ": " + f_bias(controlSide)
+        if not heroKnown
+            heroTip += heroStudy.side == 0 ? "\nเหตุผล: ช่วงอ้างอิงยังไม่ครบ" : not heroStudy.rangeKnown ? "\nเหตุผล: ประวัติไม่ครอบคลุมช่วง หรือราคา/เวลาจุดเริ่มเองไม่อยู่ในแท่งต้นทาง" : not heroCoverage ? "\nเหตุผล: ข้อมูลยังไม่ครอบคลุมจุดเริ่มใน TF: " + heroMissing : "\nเหตุผล: ไม่พบ Form ที่มีหลักฐานขา/รอบตรงกันและยังคุ้มครอง C"
+        array<string> names = array.new<string>()
+        array<string> values = array.new<string>()
+        array<string> tips = array.new<string>()
+        // The only persistent unknown row is the required headline; never fake a TF.
+        f_boardRow(names, values, tips, "TF พระเอก", heroKnown ? heroTF + (heroSwing.side == 1 ? " · ขาขึ้น ↑" : " · ขาลง ↓") : "ยังระบุไม่ได้", heroTip)
+        if heroKnown
+            f_boardRow(names, values, tips, "สถานะ", heroSwing.phase == 2 ? "Break ยืนยันแล้ว" : "Form ครบ", "การมี Form ไม่เท่ากับมี Gauge / Fib / Action แล้ว\nพระเอกของช่วงนี้เท่านั้น ไม่โยงพระเอกของขาลงไปเป็นพระเอกของ Rebound ขาขึ้น\n" + heroTip)
+        if heroStudy.side != 0
+            f_boardRow(names, values, tips, "ขาอ้างอิง · " + f_tfLabel(heroRefTF), f_price(heroStudy.fromP) + (cleanView ? "\n→ " : " → ") + f_price(heroStudy.toP), heroTip)
+
+        string fibSources = ""
+        if uiTargets and live
+            fibSources := chartLabel + " " + f_methodName(current.method) + (current.side == 1 ? " ↑" : " ↓")
+        if uiMTF and big1Live
+            fibSources += (fibSources == "" ? "" : "\n") + tf1Label + " " + f_methodName(big1.method) + (big1.side == 1 ? " ↑" : " ↓")
+        if uiMTF and big2Live
+            fibSources += (fibSources == "" ? "" : "\n") + tf2Label + " " + f_methodName(big2.method) + (big2.side == 1 ? " ↑" : " ↓")
+        if fibSources != ""
+            f_boardRow(names, values, tips, "ฟิโบที่แสดง", fibSources, "TF ของชุดหาเป้าที่เปิดแสดงอยู่ อาจต่างจากพระเอกของขาที่ศึกษา\nE = Extension · P = Projection · N = หักคอ\nรายละเอียดจุดยึดและเวลายืนยันอยู่ที่ป้ายฟิโบ\nโหมดสะอาดลดป้าย 350/361.8% แต่ยังวาดเส้นระดับเหล่านี้")
+
+        string controlLabel = controlTF == "TF ใหญ่ 1" ? tf1Label : tf2Label
+        if uiLinks and (not cleanView or uiBoard)
+            // Legacy exact-pivot links describe the latest chart Form, NOT the hero scan.
+            if link01.code >= 1 and link01.code <= 3
+                f_boardRow(names, values, tips, "กรอบ " + chartLabel + " → " + tf1Label, f_linkCaption(link01), "ระบบ Link เดิมของกรอบ Chart แยกจากการสแกนพระเอกทั้งชุด TF\nกรอบใหญ่: " + (link01.parentPhase == 2 ? "Break ยืนยันแล้ว" : "Form สมบูรณ์"))
+            if link02.code >= 1 and link02.code <= 3
+                f_boardRow(names, values, tips, "กรอบ " + chartLabel + " → " + tf2Label, f_linkCaption(link02), "ระบบ Link เดิมของกรอบ Chart แยกจากการสแกนพระเอกทั้งชุด TF\nกรอบใหญ่: " + (link02.parentPhase == 2 ? "Break ยืนยันแล้ว" : "Form สมบูรณ์"))
+            if link12.code >= 1 and link12.code <= 3
+                f_boardRow(names, values, tips, "กรอบ " + tf1Label + " → " + tf2Label, f_linkCaption(link12), "เทียบกรอบล่าสุด TF ใหญ่ 1 กับกรอบ/ชุด TF ใหญ่ 2\nไม่ใช้ทิศทางตรงกันอย่างเดียว")
+            if controlOK and controlSide != 0
+                f_boardRow(names, values, tips, "บริบท Action · " + controlLabel, f_bias(controlSide), "TF ควบคุมเลือกจาก Settings แยกจาก TF พระเอก\n" + (requireLink ? "เปิดกรอง link เพิ่มสำหรับ Action 2–5" : "คงเงื่อนไข Action เดิม ไม่เพิ่มความเข้ม"))
+
+        // Do not present automatic EW hypotheses as confirmed evidence.
+        if uiEW and uiEWManual and ewTime and ewPrices
+            string ewResult = ewValid ? ewKind + " · ผ่านกฎราคา" : str.split(ewStatus, "\n").get(0)
+            f_boardRow(names, values, tips, "EW · กฎราคาเท่านั้น", ewResult, ewStatus + "\nผลนี้ตรวจราคา/เวลาที่ผู้ใช้ใส่ ไม่ได้ยืนยันจุดบน OHLC, subwaves, parent role หรือ degree")
+
+        if uiBoard and not na(current)
+            if current.rBias != 0 and not na(current.rCut) and not f_breached(current.rBias, current.rCut)
+                f_boardRow(names, values, tips, "RSI · " + chartLabel, f_bias(current.rBias), "สถานะรอบ RSI ที่ยังไม่หลุดจุดคุ้มครอง ไม่ใช่การรับประกันทิศราคาถัดไป")
+            if current.kBias != 0 and not na(current.kCut) and not f_breached(current.kBias, current.kCut)
+                f_boardRow(names, values, tips, "Sto · " + chartLabel, f_bias(current.kBias), "สถานะรอบ Stochastic ที่ยังไม่หลุดจุดคุ้มครอง เป็นความคาดหมายหนึ่งรอบ")
+            if current.div != 0 and not na(current.divFrom) and not na(current.divTo) and not na(current.divFromT) and not na(current.divToT)
+                f_boardRow(names, values, tips, "Di · " + chartLabel, (math.abs(current.div) == 1 ? "Regular " : "Hidden ") + (current.div > 0 ? "↑" : "↓"), "Confirmed pivot หน่วง " + str.tostring(divLen) + " แท่ง; ไม่ใช่สัญญาณที่ทราบย้อนหลัง ณ anchor")
+            if live
+                f_boardRow(names, values, tips, "ชุดหาเป้า · " + chartLabel, (current.pneck ? "หักคอ" : current.pjoint ? "ข้อต่อ" : "ตั้งไข่") + " · " + f_methodName(current.method), "ชุดที่ Break แล้วและ 0% ยังไม่ถูกทำลาย ไม่รับประกันว่าจะถึงเป้า")
+            else if f_heroValid(localHeroFrame)
+                f_boardRow(names, values, tips, "กรอบ · " + chartLabel, (current.neck ? "หักคอ" : current.joint ? "ข้อต่อ" : "ตั้งไข่") + (current.fstage == 2 ? " · Break ยืนยันแล้ว" : " · Form สมบูรณ์"), "เป็นสถานะกรอบ ไม่เท่ากับการมีชุดหาเป้า; ไม่เดาวิธีฟิโบเมื่อ Gauge ไม่ครบ")
+            float shownGauge = live ? current.pgauge : f_heroValid(localHeroFrame) ? current.gauge : na
+            if not na(shownGauge)
+                f_boardRow(names, values, tips, "Gauge · " + chartLabel, str.tostring(shownGauge * 100, "#.##") + "%", "abs(B−A)/abs(D−A) ของสวิงอ้างอิง Current ไม่ใช่เปอร์เซ็นต์โอกาสชนะ")
+            if live and not na(current.zero) and not na(current.span)
+                f_boardRow(names, values, tips, "0% / 100% · " + chartLabel, f_price(current.zero) + " / " + f_price(current.zero + current.span), "ระดับของชุด Current; Projection 100% คำนวณจาก C+(B−A) ไม่ใช่จุด B")
+            float shownD = live ? current.pref : f_heroValid(localHeroFrame) ? current.ref : na
+            int shownDT = live ? current.preft : f_heroValid(localHeroFrame) ? current.rt : na
+            int shownAT = live ? current.pat : f_heroValid(localHeroFrame) ? current.at : na
+            if not na(shownD) and not na(shownDT) and not na(shownAT) and shownDT < shownAT
+                f_boardRow(names, values, tips, "D · " + chartLabel, f_price(shownD) + (overrideD ? " · เลือกเอง" : " · รอบ Sto ก่อน A"), "D อ้างอิงที่ใช้ Gauge; การเลือกสวิงใหญ่ตามบริบทยังต้องตรวจเอง ไม่รับรองว่าเป็น D ของทุก degree")
+            if live and current.progress >= 2
+                float reachedRatio = current.progress == 4 ? 4.236 : current.progress == 3 ? 2.618 : current.method == 2 ? 1.0 : current.method == 3 ? 1.618 : 2.618
+                f_boardRow(names, values, tips, "ถึงระดับ · " + chartLabel, str.tostring(reachedRatio * 100, "#.###") + "%", "ราคาถึงระดับนี้ในชุดที่ยัง valid เป็นหลักฐานการแตะ Fib เท่านั้น ไม่ยืนยันว่าจบ Elliott wave")
+            if not na(trailVisible)
+                f_boardRow(names, values, tips, "Cut assist · " + chartLabel, f_price(trailVisible), "เส้นช่วยวาง Cut ตามระบบเดิม ไม่ใช่คำสั่งส่งไปโบรกเกอร์")
+
+        int visibleRows = uiHeroOnly ? 1 : names.size()
+        for row = 0 to visibleRows - 1
+            bool headline = row == 0
+            color rowFill = headline ? HEAD : row % 2 == 0 ? color.new(HEAD, 45) : PANEL
+            color valueTint = headline ? heroKnown ? GOLD : MUTED : names.get(row) == "ฟิโบที่แสดง" ? GOLD : INK
+            table.cell(board, 0, row, "  " + names.get(row) + "  ", text_color = headline ? INK : MUTED, text_size = panelTextSize, text_halign = text.align_left, bgcolor = rowFill, tooltip = tips.get(row), text_formatting = headline ? text.format_bold : text.format_none)
+            table.cell(board, 1, row, " " + values.get(row) + "  ", text_color = valueTint, text_size = headline and heroKnown ? panelTitleSize : panelTextSize, text_halign = text.align_left, bgcolor = rowFill, tooltip = tips.get(row), text_formatting = headline ? text.format_bold : text.format_none)
+
+alertcondition(a1Up or a2Up or a3Up or a4Up or a5Up, "Book Action ขึ้น (แท่งปิด)", "Book Companion: Action UP {{ticker}} {{interval}}. ตรวจกรอบ / TF พระเอก / Cut บนกราฟ ไม่ใช่คำสั่งซื้ออัตโนมัติ")
+alertcondition(a1Dn or a2Dn or a3Dn or a4Dn or a5Dn, "Book Action ลง (แท่งปิด)", "Book Companion: Action DOWN {{ticker}} {{interval}}. ตรวจกรอบ / TF พระเอก / Cut บนกราฟ ไม่ใช่คำสั่งขายอัตโนมัติ")
+alertcondition(barstate.isconfirmed and raw.invalid != 0, "Fibonacci 0% ถูกทำลาย", "Book Companion: ยกเลิกชุด Fibonacci {{ticker}} {{interval}} เพราะ wick หลุด 0% รอกรอบใหม่")
+alertcondition(barstate.isconfirmed and raw.stopped != 0, "ราคาผ่าน Cut assist", "Book Companion: ราคา {{ticker}} {{interval}} ผ่าน Trailing Stop assist ตรวจสถานะด้วยตนเอง")
+bool tfRelationshipReady = f_linkReady(link01) or f_linkReady(link02)
+alertcondition(barstate.isconfirmed and tfRelationshipReady and not tfRelationshipReady[1], "TF เชื่อมขาใหญ่ที่ Break แล้ว", "Book Companion: มีความสัมพันธ์เวลา/ราคาในขาใหญ่ที่ Break แล้ว {{ticker}} {{interval}} เปิดแผง TF Link ตรวจจุดร่วม/กรอบย่อย ไม่ใช่คำสั่งซื้อขายหรือการยืนยัน EW")
+
+// BEGIN ZONE BRIDGE CONFLUENCE
+// Transport validation, NOT encryption. Includes bar time, slot, bounds and score.
+// Keep this function byte-identical in sender and receiver. Prices are NOT packed.
+f_zb_check(int slot, float lower, float upper, float score) =>
+    float loTicks = math.round(lower / syminfo.mintick) % 10000019
+    float hiTicks = math.round(upper / syminfo.mintick) % 10000019
+    float digest = (loTicks * 31 + hiTicks * 67 + math.round(score) * 97 + (time % 10000019) * 13) % 999999937
+    -(7000000000000.0 + slot * 1000000000.0 + digest)
+
+f_zb_sync() =>
+    -(6000000000000.0 + time)
+
+// Area evidence, not entry signals. Four independently evaluated source zones.
+// The original Book / Hero / EW engines and target validity remain unchanged.
+f_cf_packet(int slot, float lower, float upper, float score, float check) =>
+    bool finiteFields = not na(lower) and not na(upper) and not na(score) and not na(check)
+    bool empty = lower == 0.0 and upper == 0.0 and score == 0.0
+    bool shape = empty or (lower < upper and score >= 0 and score <= 100 and score == math.round(score))
+    finiteFields and shape and math.abs(check - f_zb_check(slot, lower, upper, score)) < 0.25
+
+f_cf_same(View a, View b, float tolerance) =>
+    a.side == b.side and math.abs(a.zero - b.zero) <= tolerance and math.abs(a.span - b.span) <= tolerance
+
+// Every target must be near the ORIGINAL box, never merely near another target.
+// This prevents a chain of adjacent levels from growing an unbounded cluster.
+f_cf_targets(View v, bool valid, int zoneSide, float lower, float upper, float tolerance) =>
+    float foundLow = na
+    float foundHigh = na
+    bool exact = false
+    int levels = 0
+    string evidence = ""
+    int knowable = barstate.isconfirmed ? time_close : time
+    bool usable = valid and not na(v) and v.side == -zoneSide and not na(v.born) and v.born <= knowable and not na(v.zero) and not na(v.span) and v.side * v.span > 0 and not f_breached(v.side, v.zero)
+    if usable
+        for i = 0 to ratios.size() - 1
+            float ratio = ratios.get(i)
+            if ratio > 1.0 or (v.method == 2 and ratio == 1.0)
+                float level = v.zero + v.span * ratio
+                float gap = math.max(0.0, math.max(lower - level, level - upper))
+                if gap <= tolerance + syminfo.mintick * 0.000001
+                    foundLow := na(foundLow) ? level : math.min(foundLow, level)
+                    foundHigh := na(foundHigh) ? level : math.max(foundHigh, level)
+                    exact := exact or gap == 0.0
+                    levels += 1
+                    evidence += (evidence == "" ? "" : "\n") + str.tostring(ratio * 100, "#.###") + "% · " + f_price(level) + (gap == 0.0 ? " ทับกล่อง" : " ใกล้กล่อง · ห่าง " + f_price(gap))
+    [foundLow, foundHigh, exact, levels, evidence]
+
+type CFMatch
+    bool valid = false
+    float lower = na
+    float upper = na
+    float areaLow = na
+    float areaHigh = na
+    float base = na
+    float bonus = 0
+    float total = na
+    int side = 0
+    int count = 0
+    int levels = 0
+    int slot = -1
+    bool exact = false
+    bool inside = false
+    string details = ""
+
+f_cf_evaluate(int slot, float lower, float upper, float base, array<View> plans, array<bool> eligible, array<string> tfLabels, float rangeAtr) =>
+    CFMatch result = CFMatch.new()
+    int zoneSide = slot < 2 ? 1 : -1
+    bool correctSide = zoneSide == 1 ? close >= lower : close <= upper
+    bool zoneOK = not na(lower) and not na(upper) and not na(base) and lower < upper and base >= cf_minZone and base <= 100 and correctSide
+    if zoneOK
+        result.valid := true
+        result.lower := lower
+        result.upper := upper
+        result.areaLow := lower
+        result.areaHigh := upper
+        result.base := base
+        result.total := base
+        result.side := zoneSide
+        result.slot := slot
+        // A box remains visible with its base score even with no valid Fib/ATR.
+        if not na(rangeAtr) and rangeAtr > 0
+            float tolerance = rangeAtr * cf_tolerance
+            float dedupTolerance = math.max(syminfo.mintick * 2, rangeAtr * 0.05)
+            array<View> accepted = array.new<View>()
+            for i = 0 to plans.size() - 1
+                View v = plans.get(i)
+                [foundLow, foundHigh, exact, levels, evidence] = f_cf_targets(v, eligible.get(i), zoneSide, lower, upper, tolerance)
+                if levels > 0
+                    bool duplicate = false
+                    if accepted.size() > 0
+                        for j = 0 to accepted.size() - 1
+                            duplicate := duplicate or f_cf_same(v, accepted.get(j), dedupTolerance)
+                    result.areaLow := math.min(result.areaLow, foundLow)
+                    result.areaHigh := math.max(result.areaHigh, foundHigh)
+                    result.exact := result.exact or exact
+                    result.details += (result.details == "" ? "" : "\n\n") + tfLabels.get(i) + " · " + f_methodName(v.method) + (duplicate ? " · สวิงซ้ำ ไม่นับแต้มเพิ่ม" : "") + "\n" + evidence
+                    if not duplicate
+                        accepted.push(v)
+                        result.count += 1
+                        result.levels += levels
+            if result.count > 0
+                result.bonus := math.min(14.0, (result.exact ? 8.0 : 4.0) + (result.count - 1) * 3.0)
+                result.total := math.min(100.0, base + result.bonus)
+        result.inside := close >= result.areaLow and close <= result.areaHigh
+    result
+
+f_cf_kind(CFMatch hit) =>
+    hit.count == 0 ? "กล่อง · ยังไม่มีฟิโบหนุน" : hit.exact ? "กล่อง + Fib ทับกัน" : "กล่อง + Fib ใกล้กัน"
+
+f_cf_badge(label badge, CFMatch hit) =>
+    if hit.valid and cf_showLabels
+        string heading = hit.side == 1 ? "แนวรับ" : "แนวต้าน"
+        string caption = heading + " · " + str.tostring(hit.total, "#") + "/100\n" + f_price(hit.areaLow) + " – " + f_price(hit.areaHigh) + "\n" + f_cf_kind(hit)
+        string slotName = (hit.slot < 2 ? "D" : "S") + str.tostring(hit.slot % 2 + 1)
+        string info = "ความแข็งแรงของบริเวณแนวรับ–แนวต้าน\n" + (hit.inside ? "ราคาปัจจุบันอยู่ในบริเวณนี้" : "บริเวณสำหรับติดตามล่วงหน้า") + "\nกล่อง All Indy " + slotName + " · " + f_price(hit.lower) + " – " + f_price(hit.upper) + "\nช่วงรวมกล่องและฟิโบ · " + f_price(hit.areaLow) + " – " + f_price(hit.areaHigh) + "\nคะแนนกล่อง " + str.tostring(hit.base, "#") + " + ฟิโบ " + str.tostring(hit.bonus, "#") + " = " + str.tostring(hit.total, "#") + "/100\n" + f_cf_kind(hit) + "\n" + hit.details + "\nสวิงอิสระ " + str.tostring(hit.count) + " · ระดับฟิโบจากสวิงที่นับ " + str.tostring(hit.levels) + "\nหลายระดับในสวิงเดียวกันได้แต้มเพียงชุดเดียว\nคะแนนเป็นหลักฐานตามเกณฑ์ของระบบ ไม่ใช่เปอร์เซ็นต์ชนะหรือสัญญาณเข้า\nกล่องล้วนไม่ได้แปลว่าแนวแข็งมาก; เปรียบเทียบคะแนนและหลักฐาน\nสถานะปัจจุบัน ไม่ใช่ประวัติหรือ Backtest"
+        float level = math.avg(hit.areaLow, hit.areaHigh)
+        label.set_xy(badge, bar_index + cf_labelBars, level)
+        label.set_text(badge, caption)
+        label.set_style(badge, label.style_label_left)
+        label.set_color(badge, color.new(PANEL, hit.count > 0 ? 5 : 28))
+        label.set_textcolor(badge, hit.count > 0 ? GOLD : MUTED)
+        label.set_size(badge, labelSize)
+        label.set_tooltip(badge, info)
+    else
+        label.set_xy(badge, na, na)
+        label.set_text(badge, "")
+
+array<float> cf_lows = array.from(cf_d1_low, cf_d2_low, cf_s1_low, cf_s2_low)
+array<float> cf_highs = array.from(cf_d1_high, cf_d2_high, cf_s1_high, cf_s2_high)
+array<float> cf_scores = array.from(cf_d1_score, cf_d2_score, cf_s1_score, cf_s2_score)
+array<float> cf_checks = array.from(cf_d1_check, cf_d2_check, cf_s1_check, cf_s2_check)
+bool cf_syncOK = not na(cf_sync) and math.abs(cf_sync - f_zb_sync()) < 0.25
+bool cf_allPackets = true
+int cf_nonempty = 0
+int cf_validPackets = 0
+for slot = 0 to 3
+    bool valid = f_cf_packet(slot, cf_lows.get(slot), cf_highs.get(slot), cf_scores.get(slot), cf_checks.get(slot))
+    cf_allPackets := cf_allPackets and valid
+    if valid
+        cf_validPackets += 1
+        if cf_lows.get(slot) < cf_highs.get(slot)
+            cf_nonempty += 1
+bool cf_connected = cf_syncOK and cf_allPackets
+bool cf_hiddenTFs = cf_scope == "Current + TF ใหญ่ 1/2"
+array<View> cf_plans = array.from(current, big1, big2)
+array<bool> cf_eligible = array.from(live and (uiTargets or cf_hiddenTFs), big1Live and (uiMTF or cf_hiddenTFs), big2Live and (uiMTF or cf_hiddenTFs))
+array<string> cf_tfLabels = array.from(chartLabel, tf1Label, tf2Label)
+var array<label> cf_badges = array.new<label>()
+var label cf_statusBadge = label.new(na, na, "", force_overlay=true)
+if barstate.isfirst
+    for slot = 0 to 3
+        cf_badges.push(label.new(na, na, "", force_overlay=true))
+if barstate.islast
+    int shown = 0
+    int withFib = 0
+    for slot = 0 to 3
+        CFMatch hit = CFMatch.new()
+        if cf_enabled and cf_connected
+            hit := f_cf_evaluate(slot, cf_lows.get(slot), cf_highs.get(slot), cf_scores.get(slot), cf_plans, cf_eligible, cf_tfLabels, atr)
+            // Ignore duplicate packets for exactly the same side and price box.
+            if slot % 2 == 1 and cf_lows.get(slot) == cf_lows.get(slot - 1) and cf_highs.get(slot) == cf_highs.get(slot - 1)
+                hit.valid := false
+        f_cf_badge(cf_badges.get(slot), hit)
+        if hit.valid and cf_showLabels
+            shown += 1
+            withFib += hit.count > 0 ? 1 : 0
+    label.set_xy(cf_statusBadge, na, na)
+    label.set_text(cf_statusBadge, "")
+    if cf_enabled and (not cf_connected or cf_debug)
+        string status = not cf_syncOK ? "Fib + Zone · ยังไม่เชื่อม All Indy" : not cf_allPackets ? "Fib + Zone · ช่อง ZB ไม่ครบ / ไม่ตรงกัน" : cf_nonempty == 0 ? "เชื่อมแล้ว · ต้นทางยังไม่ส่งกล่องที่ผ่านเกณฑ์" : not cf_showLabels ? "เชื่อมแล้ว · ปิดการแสดงป้ายอยู่" : shown == 0 ? "เชื่อมแล้ว · กล่องต่ำกว่าเกณฑ์หรืออยู่ผิดฝั่งราคา" : "เชื่อมแล้ว · " + str.tostring(shown) + " แนว · มี Fib หนุน " + str.tostring(withFib) + " แนว"
+        label.set_xy(cf_statusBadge, bar_index + cf_labelBars, high + nz(atr, syminfo.mintick * 20) * 0.8)
+        label.set_text(cf_statusBadge, status)
+        label.set_style(cf_statusBadge, label.style_label_left)
+        label.set_color(cf_statusBadge, color.new(PANEL, 15))
+        label.set_textcolor(cf_statusBadge, cf_connected ? MUTED : GOLD)
+        label.set_size(cf_statusBadge, size.small)
+        label.set_tooltip(cf_statusBadge, "ZB 00–16 จาก All Indy ตัวเดียวกัน\nช่องโซนตรวจผ่าน " + str.tostring(cf_validPackets) + "/4 · กล่องที่รับ " + str.tostring(cf_nonempty) + "/4\nBridge ส่งสูงสุด 2 Demand + 2 Supply ไม่ใช่ทุกกล่องของโหมด Full Map\nใช้ All Indy Zone Bridge 1.1 เพื่อส่งกล่องแผนที่ที่ยังใช้ได้โดยไม่ติดตัวกรอง Entry\nเมื่ออัปเกรด ตรวจคะแนนขั้นต่ำและระยะ ATR: TradingView อาจเก็บค่า 70 / 0.05 เดิมไว้")
+// END ZONE BRIDGE CONFLUENCE

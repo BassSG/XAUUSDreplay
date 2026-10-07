@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.png binary
 *.gz binary
+# Preserve exact uploaded Pine source bytes on Windows and Linux.
+public/indicators/*.pine -text -eol whitespace=-blank-at-eol,-blank-at-eof

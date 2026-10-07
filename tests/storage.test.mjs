@@ -148,3 +148,16 @@ test('invalid backup candle rejects before writing any journal or dataset', asyn
  await assert.rejects(restoreBackup(JSON.stringify(backup)), /ไม่ถูกต้อง/);
  const list = await getLocalData('action=catalog'); assert.equal(list.datasets.length, 1); assert.equal(list.sessions.length, 0);
 });
+
+test('persists rewind window, drawing kinds and more than eight studies with inputs',async()=>{
+ const s=session();s.windowStart=first-60;s.indicators=Array.from({length:12},(_,i)=>({id:randomUUID(),name:'Study '+i,source:'//@version=6\nindicator("Test")\nplot(close)',enabled:true,inputs:{length:20},builtinId:'test'}));s.drawings=[{id:randomUUID(),kind:'text',points:[{time:first,price:1900}],text:'Trade note'}];
+ await localRequest('saveSession',{session:s});const loaded=await getLocalData('action=session&id='+s.id);assert.equal(loaded.windowStart,first-60);assert.equal(loaded.indicators.length,12);assert.equal(loaded.indicators[11].inputs.length,20);assert.equal(loaded.drawings[0].text,'Trade note');
+});
+test('auto-decompressed HTTP gzip is checked using decoded SHA-256 and remains offline',async()=>{
+ const payload=Buffer.from(JSON.stringify(bundled));catalog[0].chunks[0].contentSha256=createHash('sha256').update(payload).digest('hex');files.set(catalog[0].chunks[0].file,payload);
+ const loaded=await getLocalData('action=bars&id=xauusd-m1');assert.deepEqual(loaded.bars,bundled);online=false;await resetStorageConnection();assert.deepEqual((await getLocalData('action=bars&id=xauusd-m1')).bars,bundled);
+});
+test('a new imported child follows the imported copy of its conflicting parent',async()=>{
+ const parent=session(),child={...session(),parent:parent.id,name:'Child'};await localRequest('saveSession',{session:parent});await localRequest('saveSession',{session:child});const backup=await exportBackup();await erase();await localRequest('saveSession',{session:{...parent,name:'New local parent'}});
+ await restoreBackup(backup);const listing=await getLocalData('action=catalog');const copy=listing.sessions.find(s=>s.name==='Test replay · imported');assert.ok(copy);assert.equal((await getLocalData('action=session&id='+child.id)).parent,copy.id);assert.equal((await getLocalData('action=session&id='+parent.id)).name,'New local parent');
+});

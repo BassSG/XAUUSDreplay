@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import test from 'node:test';import {gzipSync} from 'node:zlib';import {createHash} from 'node:crypto';
+import {decodeChunk} from '../src/lib/bundled-chunk.ts';import {loadWindow,loadBefore} from '../src/lib/history.ts';import {replayProvider,bucketStart,periodEnd} from '../src/lib/pine-data.ts';import {brokerTimeToUtc} from '../src/lib/engine.ts';
+const stamp=s=>Date.parse(s)/1000,first=stamp('2026-01-01T00:00:00Z');const rows=Array.from({length:3200},(_,i)=>({time:first+i*60+Math.floor(i/800)*2*86400,open:100,high:102,low:99,close:101,volume:10}));const bytes=gzipSync(JSON.stringify(rows));const hash=b=>createHash('sha256').update(b).digest('hex');const chunk={file:'data/eightcap-fixture/000.json.gz',start:rows[0].time,end:rows.at(-1).time,count:rows.length,sha256:hash(bytes),contentSha256:hash(Buffer.from(JSON.stringify(rows)))};
+globalThis.fetch=async url=>String(url).endsWith('catalog-v2.json')?new Response(JSON.stringify({datasets:[{id:'eightcap-fixture',timeframe:60,calendar:'utc',start:chunk.start,end:chunk.end,chunks:[chunk]}]})):new Response(bytes);
+test('gzip accepts raw and browser-decompressed content and rejects corruption in either form',async()=>{
+ const raw=Buffer.from(JSON.stringify(rows));assert.equal(await decodeChunk(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),chunk),raw.toString());assert.equal(await decodeChunk(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength),chunk),raw.toString());const bad=Buffer.from(raw);bad[8]^=1;await assert.rejects(decodeChunk(bad.buffer.slice(bad.byteOffset,bad.byteOffset+bad.byteLength),chunk),/ไม่สมบูรณ์/);
+});
+test('date selection warms 2500 actual candles across weekends and starts at the requested candle',async()=>{
+ const center=rows[2800].time;const w=await loadWindow('eightcap-fixture',center,2500,100);assert.equal(w.index,2500);assert.equal(w.bars[w.index].time,center);assert.equal(w.bars[0].time,rows[300].time);assert.equal(w.bars.length,2600);assert.deepEqual(await loadBefore('eightcap-fixture',center,0),[]);
+});
+test('future stored HTF extremes never enter a forming candle',async()=>{
+ const start=stamp('2026-10-01T00:00:00Z');const fine=Array.from({length:30},(_,i)=>({time:start+i*60,open:100,high:102,low:99,close:101,volume:1}));const hourly=[{time:start-3600,open:98,high:100,low:97,close:99,volume:60},{time:start,open:100,high:999,low:1,close:900,volume:999}];
+ const provider=replayProvider(fine,60,'utc',start+30*60,false,[],{'60':hourly});const r=await provider.getMarketData('XAUUSD','60',20);assert.equal(r.length,2);assert.equal(r.at(-1).high,102);assert.equal(r.at(-1).low,99);assert.equal(r.at(-1).volume,30);
+});
+test('lower timeframe uses actual revealed rows and never fabricates data',async()=>{
+ const start=stamp('2026-10-01T00:00:00Z');const coarse=[{time:start,open:100,high:110,low:95,close:105,volume:5}];const minute=Array.from({length:6},(_,i)=>({time:start+i*60,open:100+i,high:102+i,low:99+i,close:101+i,volume:1}));const p=replayProvider(coarse,300,'utc',start+300,false,[],{'1':minute});const r=await p.getMarketData('XAUUSD','1',20);assert.equal(r.length,5);assert.equal(r[4].open,104);const warnings=[];const missing=await replayProvider(coarse,300,'utc',start+300,false,warnings).getMarketData('XAUUSD','1',20);assert.deepEqual(missing,[]);assert.ok(warnings.some(w=>w.includes('1')));
+});
+test('broker daily/weekly boundaries and real calendar month closes survive DST',()=>{
+ const raw=stamp('2026-10-07T00:00:00Z'),utc=brokerTimeToUtc(raw);assert.equal(bucketStart(utc+3600,'D','eightcap'),utc);assert.equal(periodEnd(utc,'D','eightcap'),brokerTimeToUtc(raw+86400));assert.equal(bucketStart(stamp('2026-10-07T10:00:00Z'),'W','utc'),stamp('2026-10-05T00:00:00Z'));assert.equal(periodEnd(stamp('2026-02-01T00:00:00Z'),'M','utc'),stamp('2026-03-01T00:00:00Z'));
+});
+test('published manifest supplies both checksums for every immutable data chunk',()=>{const catalog=JSON.parse(fs.readFileSync(new URL('../public/data/catalog-v2.json',import.meta.url),'utf8'));assert.equal(catalog.datasets.length,6);assert.equal(catalog.datasets.reduce((n,d)=>n+d.count,0),345996);for(const d of catalog.datasets)for(const c of d.chunks){assert.match(c.sha256,/^[a-f\d]{64}$/);assert.match(c.contentSha256,/^[a-f\d]{64}$/);}});

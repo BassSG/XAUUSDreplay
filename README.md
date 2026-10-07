@@ -53,16 +53,37 @@ CSV ของ Journal ใช้ดูผลการเทรด ส่วน JS
 
 แหล่งข้อมูล: [ไฟล์ประวัติ](https://theft-volatile-relock.ngrok-free.dev/download/data/), [คำอธิบายต้นทาง](https://theft-volatile-relock.ngrok-free.dev/download/data/README.txt), [API ล่าสุด](https://theft-volatile-relock.ngrok-free.dev/api/bars/all) ที่มีข้อมูลล่าสุดประมาณ 3,000 แท่งต่อ timeframe ปุ่มดึงล่าสุดนำเข้าสแนปช็อตสำหรับฝึก ไม่ใช่การส่งคำสั่งซื้อขายจริง
 
-## Pine Script
+## Pine Script และอินดิเคเตอร์หลายตัว
 
-ใช้ [PineTS 0.11.0](https://github.com/LuxAlgo/PineTS) ใน Web Worker สำหรับ source code ของอินดิเคเตอร์ที่ผู้ใช้แก้ไขได้ มีตัวอย่าง EMA, RSI และ Bollinger Bands ให้เริ่มใช้
+เปิด **Indicators** แล้วกด **เพิ่ม All Indy + EBW-Fibo ฉบับเต็ม พร้อมเชื่อม Zone Bridge** เพื่อใช้สอง source ที่เจ้าของโครงการส่งมา หรือวาง Pine ใน Editor / เลือกไฟล์ .pine หรือ .txt แล้วกด Add & Run เพิ่มหลายตัวพร้อมกันได้ ไม่มีเพดานจำนวนตัวใน UI; ความเร็วและหน่วยความจำขึ้นกับสคริปต์และเครื่อง
 
-การรองรับในแอปนี้ยังเป็น **beta** สำหรับกราฟจาก `plot` ไม่ใช่ Pine runtime เต็มรูปแบบของ TradingView โค้ดที่ใช้ `request.*` / `security`, `strategy`, วัตถุวาด เช่น `line` / `box` / `label` หรือ plot offset จะถูกปฏิเสธ ไม่สามารถเปิดอินดิเคเตอร์ล็อก source บน TradingView ได้โดยตรง
+- All Indy V10.4.4: source เต็ม 212,346 ตัวอักษร รวม Stochastic, RSI, โซน, planner และ Zone Bridge
+- EBW-Fibo 1.9: source เต็ม 103,937 ตัวอักษร รวม Hero TF, Fibonacci, strength map และ Zone Bridge inputs
+- สองไฟล์ต้นฉบับเก็บใน public/indicators/*-full.pine โดยไม่ตัดท้าย ตรวจ SHA-256 ก่อนนำเข้าตัวที่ติดมากับแอป
+- Zone Bridge เชื่อม 17 ช่องจาก All Indy ไป EBW-Fibo อัตโนมัติ ตามเวลาของแท่ง ทั้งสองตัวต้องเปิดอยู่ ตัวส่งออกยังยึดเงื่อนไขความพร้อมของโซนตามสคริปต์
+- กด **แก้ไข** ในรายการ เพื่อค้นหา/ปรับ inputs ตามกลุ่ม และเปิด Dashboard หากต้องการ: source All Indy ตั้ง Show dashboards เป็นปิดไว้ตั้งแต่ต้น
+- บันทึก source, inputs และสถานะเปิด/ปิดไว้ในรอบฝึกและ JSON สำรอง
+- สคริปต์รุ่นเดิมที่ถูกตัดในเว็บจะอัปเดตเป็นฉบับเต็มเมื่อเปิดรอบ หาก hash ตรงฉบับเดิมที่แอปเคยแจก โค้ดที่ผู้ใช้แก้เองจะไม่ถูกแทนที่
+
+ใช้ [PineTS 0.11.0](https://github.com/LuxAlgo/PineTS) ใน Web Worker รองรับชุดอินดิเคเตอร์นี้, plot/hline, inputs, request.security/security_lower_tf, line/box/label/linefill/table และ force_overlay แยก oscillator ตามตัวอินดิเคเตอร์ การร้องขอ timeframe ใช้ข้อมูลย้อนหลังที่มี ณ จุด Replay และประกอบแท่งใหญ่ที่ยังไม่ปิดจากข้อมูลที่เปิดแล้ว
+
+Runtime ยังเป็น **beta** และยังไม่ได้เทียบทุกค่า/ทุก input กับ TradingView โดยตรง ยังไม่รองรับ library import ภายนอก, อินดิเคเตอร์ล็อก source, การเชื่อม strategy() เข้ากับสมุดออเดอร์, plot offset และภาพทุกประเภทของ Pine เช่น custom candle/bar/background หรือวัตถุใน oscillator บางชนิด สคริปต์ที่ compile ไม่ผ่านและฟีเจอร์บางประเภทที่ยังไม่รองรับจะแจ้งสถานะในแอป
+
+การโหลดสองสคริปต์ใหญ่ครั้งแรกอาจใช้เวลา 1–2 นาทีบนเครื่องทดสอบ หลังจากนั้นเดินหน้าใช้สถานะเดิม และย้อนจุดที่เพิ่งดูใช้ผลที่แคชไว้ หากย้อนออกจากแคชหรือเปลี่ยน inputs/timeframe จะคำนวณใหม่ การเล่นจะรออินดิเคเตอร์ของแท่งปัจจุบันก่อนเดินต่อ เพื่อให้ผลสัมพันธ์กับจุด Replay
+
+## เครื่องมือกราฟและ SL / TP
+
+แถบเครื่องมือมี Cursor, เส้นแนวนอน/แนวตั้ง, Trend, Ray, Zone, Fibonacci, Measure, Range, Text, Magnet, ซ่อนรูปวาด, Undo/Redo และรายการวัตถุ พร้อม Fit, Reset, ขยายกราฟและส่งออก PNG
+
+ลากตัวจับ SL / TP บนกราฟได้ทั้ง draft และ Position ที่เปิดอยู่ เลือกออเดอร์จากรายการเหนือกราฟ สำหรับ Pending ลาก Entry ได้ด้วย Draft ปรับช่องราคาและ RR ทันที ส่วนคำสั่งแก้ Position/Pending มีผลแท่งถัดไปตามกติกาจำลอง ลาก SL แล้ว TP ในแท่งเดียวกันจะเก็บทั้งสองค่า 1R ยังคงอิง SL แรกของ Position
+
+ตัวจับใช้ Pointer Events สำหรับเมาส์และการแตะ สามารถเลือกตัวจับแล้วใช้ลูกศรขึ้น/ลงเพื่อปรับทีละ tick หรือ Shift เพื่อปรับครั้งละ 1 USD
 
 ## กติกาจำลอง
 
 - ออเดอร์เข้าและการปิดด้วยมือจับคู่ที่ราคาเปิดแท่งถัดไปหลังส่งคำสั่ง
 - ถ้า SL และ TP ถูกแตะในแท่งเดียวกัน เลือก SL ก่อนและทำเครื่องหมายใน Journal หากเปิดข้ามระดับ ใช้ราคาเปิดจริงตามแบบจำลอง
+- Limit ที่เข้าระหว่างแท่งจะไม่รับ TP จาก high/low ที่อาจเกิดก่อน Entry เว้นแต่ราคาปิดพิสูจน์ว่าแตะ TP หลังเข้า; Pending ที่ gap ข้าม SL/TP ถูกปฏิเสธก่อนสร้าง Position
 - 1R ยึดความเสี่ยงจากราคาเข้าและ SL แรก แม้ปิดบางส่วนหรือย้าย SL แล้ว ต้นทุนการเทรดไม่รวมในตัวหาร R
 - ปรับ spread, slippage, commission และ contract size ได้เมื่อสร้างรอบ กติกาและชุดข้อมูลถูกตรึงไว้ในรอบนั้น
 - ค่าเริ่มต้น contract size 100 และ spread 0.16 USD เป็นสมมติฐานของแอป OHLC ต้นทางยังไม่ยืนยันว่าเป็น bid หรือ midpoint จึงจำลองเป็น midpoint พร้อม spread ที่กำหนด
