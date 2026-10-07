@@ -789,9 +789,19 @@ if barstate.islast
         f_lp_row(1, "STATUS", not lp_supported ? "Use standard chart <= TFs with divisible intervals" : "Source-close checks · broker orders unknown", lp_supported ? uiMuted : uiBear)
         f_lp_row(2, "ENTRY / LIFETIME", lp_entryMode + " / " + str.tostring(lp_planAge) + " source bars", uiText)
     for i = 0 to 5
-        lp_Pack packet = i < 2 ? lp_a : i < 4 ? lp_b : lp_c
+        lp_Pack packet = na
+        if i < 2
+            packet := lp_a
+        else if i < 4
+            packet := lp_b
+        else
+            packet := lp_c
         string sourceTf = i < 2 ? lp_tf1 : i < 4 ? lp_tf2 : lp_tf3
-        lp_Zone z = na(packet) ? lp_Zone.new() : i % 2 == 0 ? packet.support : packet.resistance
+        lp_Zone z = lp_Zone.new()
+        if not na(packet)
+            lp_Zone candidateZone = i % 2 == 0 ? packet.support : packet.resistance
+            if not na(candidateZone)
+                z := candidateZone
         box band = array.get(lp_boxes, i)
         label badge = array.get(lp_badges, i)
         color tint = i % 2 == 0 ? uiBull : uiBear
@@ -813,11 +823,19 @@ if barstate.islast
             box.set_rightbottom(band, na, na)
             label.set_xy(badge, na, na)
         if lp_showPanel and lp_panelMode == "Detailed"
-            lp_Plan p = na(packet) ? lp_Plan.new() : i % 2 == 0 ? packet.buy : packet.sell
+            lp_Plan p = lp_Plan.new()
+            if not na(packet)
+                lp_Plan candidatePlan = i % 2 == 0 ? packet.buy : packet.sell
+                if not na(candidatePlan)
+                    p := candidatePlan
             string prefix = i < 2 ? "PRIMARY " : i < 4 ? "CONTEXT " : "MACRO "
             f_lp_row(i + 3, prefix + f_tfName(sourceTf) + (i % 2 == 0 ? " BUY" : " SELL"), not lp_supported ? "Overview only / planning unsupported" : f_lp_planText(p), tint)
     for i = 0 to 5
-        lp_Plan p = na(lp_a) ? lp_Plan.new() : i < 3 ? lp_a.buy : lp_a.sell
+        lp_Plan p = lp_Plan.new()
+        if not na(lp_a)
+            lp_Plan candidatePlan = i < 3 ? lp_a.buy : lp_a.sell
+            if not na(candidatePlan)
+                p := candidatePlan
         int levelIndex = i % 3
         float level = levelIndex == 0 ? p.entry : levelIndex == 1 ? p.stop : p.target
         line ray = array.get(lp_rays, i)
