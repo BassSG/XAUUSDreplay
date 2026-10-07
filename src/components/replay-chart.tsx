@@ -12,14 +12,14 @@ const tickDate=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-d
 const markerShape=(s:string)=>{const v=(s||'').toLowerCase();return v.includes('up')?'arrowUp':v.includes('down')?'arrowDown':v.includes('square')?'square':'circle'};
 const markerPosition=(s:string)=>{const v=(s||'').toLowerCase();return v.includes('below')?'belowBar':v.includes('above')?'aboveBar':'inBar'};
 const cssColor=(v:any,fallback='transparent')=>typeof v==='string'&&v&&v!=='na'?v:fallback;
-export default function ReplayChart({bars,trades,plots,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing}:{bars:Bar[];trades:Trade[];plots:PinePlot[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void}){
- const host=useRef<HTMLDivElement>(null);const ref=useRef<any>(null);const onPriceRef=useRef(onPrice);onPriceRef.current=onPrice;const drawingRef=useRef(onDrawing);drawingRef.current=onDrawing;const drawingsRef=useRef({user:drawings,pine:pineDrawings});drawingsRef.current={user:drawings,pine:pineDrawings};const modeRef=useRef(drawingMode);modeRef.current=drawingMode;const draft=useRef<DrawingPoint|null>(null);const redrawFrame=useRef<number|undefined>(undefined);const [viewTick,setViewTick]=useState(0);
+export default function ReplayChart({bars,trades,plots,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onProtectChange,protectDisabled=false,magnet=false}:{bars:Bar[];trades:Trade[];plots:PinePlot[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onProtectChange?:(tradeId:string,kind:'sl'|'tp',price:number)=>void;protectDisabled?:boolean;magnet?:boolean}){
+ const host=useRef<HTMLDivElement>(null);const ref=useRef<any>(null);const onPriceRef=useRef(onPrice);onPriceRef.current=onPrice;const drawingRef=useRef(onDrawing);drawingRef.current=onDrawing;const drawingsRef=useRef({user:drawings,pine:pineDrawings});drawingsRef.current={user:drawings,pine:pineDrawings};const modeRef=useRef(drawingMode);modeRef.current=drawingMode;const barsRef=useRef(bars);barsRef.current=bars;const magnetRef=useRef(magnet);magnetRef.current=magnet;const draft=useRef<DrawingPoint|null>(null);const redrawFrame=useRef<number|undefined>(undefined);const dragProtectRef=useRef<{tradeId:string;kind:'sl'|'tp';price:number}|null>(null);const [dragProtect,setDragProtect]=useState<{tradeId:string;kind:'sl'|'tp';price:number}|null>(null);const [viewTick,setViewTick]=useState(0);
  useEffect(()=>{
   if(!host.current)return;
   const chart=createChart(host.current,{autoSize:true,layout:{background:{type:ColorType.Solid,color:'#10151d'},textColor:'#8f9caf',fontSize:12,fontFamily:"'Segoe UI',sans-serif",panes:{separatorColor:'#2b3442',separatorHoverColor:'#46546a',enableResize:true}},grid:{vertLines:{color:'#19212c'},horzLines:{color:'#19212c'}},crosshair:{mode:0,vertLine:{color:'#778495',labelBackgroundColor:'#344155'},horzLine:{color:'#778495',labelBackgroundColor:'#344155'}},timeScale:{timeVisible:true,secondsVisible:false,tickMarkFormatter:(t:any,type:number)=>{const d=typeof t==='number'?new Date(t*1000):new Date(Date.UTC(t.year,t.month-1,t.day));return type>=3?tickTime.format(d):tickDate.format(d)},borderColor:'#293241',rightOffset:8,barSpacing:7},rightPriceScale:{borderColor:'#293241',scaleMargins:{top:.12,bottom:.1}},localization:{priceFormatter:(v:number)=>v.toFixed(2),timeFormatter:(t:any)=>dateFmt.format(new Date(Number(t)*1000))}});
   const series=chart.addSeries(CandlestickSeries,{upColor:'#35c4a0',downColor:'#ef6b79',wickUpColor:'#35c4a0',wickDownColor:'#ef6b79',borderVisible:false,priceFormat:{type:'price',precision:2,minMove:.01}});
   const markers=createSeriesMarkers(series,[]);ref.current={chart,series,markers,lines:[],studies:new Map(),count:0};
-  chart.subscribeClick((p:any)=>{if(!p.point)return;const price=series.coordinateToPrice(p.point.y);const time=chart.timeScale().coordinateToTime(p.point.x);if(price===null||time===null)return;const point={time:Number(time),price};const mode=modeRef.current;if(!mode){onPriceRef.current?.(price);return;}if(mode==='hline'){drawingRef.current?.({id:crypto.randomUUID(),kind:mode,points:[point]});return;}if(!draft.current){draft.current=point;return;}drawingRef.current?.({id:crypto.randomUUID(),kind:mode,points:[draft.current,point]});draft.current=null;});
+  chart.subscribeClick((p:any)=>{if(!p.point)return;const price=series.coordinateToPrice(p.point.y);const time=chart.timeScale().coordinateToTime(p.point.x);if(price===null||time===null)return;let snappedPrice=price;const available=barsRef.current;if(magnetRef.current&&available.length){let nearest=available[0];let best=Math.abs(nearest.time-Number(time));for(const b of available){const d=Math.abs(b.time-Number(time));if(d<best){nearest=b;best=d}}const values=[nearest.open,nearest.high,nearest.low,nearest.close];snappedPrice=values.reduce((a,b)=>Math.abs(b-price)<Math.abs(a-price)?b:a,values[0]);}const point={time:Number(time),price:snappedPrice};const mode=modeRef.current;if(!mode){onPriceRef.current?.(price);return;}if(mode==='hline'||mode==='vline'){drawingRef.current?.({id:crypto.randomUUID(),kind:mode,points:[point]});return;}if(!draft.current){draft.current=point;return;}drawingRef.current?.({id:crypto.randomUUID(),kind:mode,points:[draft.current,point]});draft.current=null;});
   const redraw=()=>{if((!drawingsRef.current.user.length&&!drawingsRef.current.pine.length)||redrawFrame.current!==undefined)return;redrawFrame.current=requestAnimationFrame(()=>{redrawFrame.current=undefined;setViewTick(v=>v+1)})};
   chart.timeScale().subscribeVisibleLogicalRangeChange(redraw);
   return()=>{chart.timeScale().unsubscribeVisibleLogicalRangeChange(redraw);if(redrawFrame.current!==undefined)cancelAnimationFrame(redrawFrame.current);ref.current=null;chart.remove()};
@@ -38,18 +38,52 @@ export default function ReplayChart({bars,trades,plots,shapes=[],pineDrawings=[]
   for(const [key,s] of r.studies)if(!live.has(key)){r.chart.removeSeries(s);r.studies.delete(key);}
   if(plots.some(p=>!p.overlay)&&r.chart.panes().length>1)r.chart.panes()[1].setHeight(150);
  },[plots]);
+ const tradeLevels=(()=>{
+  const r=ref.current;if(!r||!host.current)return null;
+  const w=host.current.clientWidth,h=host.current.clientHeight;
+  const open=trades.filter(t=>t.remaining>0);
+  const move=(ev:any)=>{
+   const d=dragProtectRef.current;if(!d)return;
+   const rect=host.current?.getBoundingClientRect();if(!rect)return;
+   const p=r.series.coordinateToPrice(ev.clientY-rect.top);
+   if(p===null||!Number.isFinite(p))return;
+   const next={...d,price:p};dragProtectRef.current=next;setDragProtect(next);
+  };
+  const endDrag=(ev:any)=>{
+   const d=dragProtectRef.current;if(!d)return;
+   try{ev.currentTarget.releasePointerCapture?.(ev.pointerId)}catch{}
+   dragProtectRef.current=null;setDragProtect(null);onProtectChange?.(d.tradeId,d.kind,d.price);
+  };
+  const items=open.flatMap(t=>([['sl',t.sl],['tp',t.tp]] as const).map(([kind,raw])=>{
+   const price=dragProtect?.tradeId===t.id&&dragProtect.kind===kind?dragProtect.price:raw;
+   const y=r.series.priceToCoordinate(price);if(y===null)return null;
+   const cls=kind==='sl'?'trade-level-sl':'trade-level-tp';
+   return <g key={t.id+'-'+kind} className={'trade-level '+cls+(protectDisabled?' disabled':'')}
+    onPointerDown={ev=>{if(protectDisabled)return;ev.stopPropagation();ev.currentTarget.setPointerCapture?.(ev.pointerId);const d={tradeId:t.id,kind,price};dragProtectRef.current=d;setDragProtect(d)}}
+    onPointerMove={move} onPointerUp={endDrag} onPointerCancel={endDrag}>
+    <line className="trade-level-hit" x1={0} x2={w} y1={y} y2={y}/>
+    <line className="trade-level-visible" x1={0} x2={w} y1={y} y2={y}/>
+    <rect className="trade-level-label-bg" x={Math.max(4,w-122)} y={y-12} width={116} height={23} rx={4}/>
+    <text className="trade-level-label" x={Math.max(8,w-116)} y={y+4}>{kind.toUpperCase()} {price.toFixed(2)} ↕</text>
+   </g>;
+  }));
+  return <svg className="trade-level-overlay" width={w} height={h}>{items}</svg>;
+ })();
  const overlay=(()=>{const r=ref.current;if(!r||!host.current)return null;const w=host.current.clientWidth,h=host.current.clientHeight;const xy=(p:DrawingPoint)=>[r.chart.timeScale().timeToCoordinate(p.time as any),r.series.priceToCoordinate(p.price)] as const;const pineX=(x:any,xloc:any)=>{const n=Number(x);if(!Number.isFinite(n))return null;const isTime=String(xloc||'').toLowerCase().includes('time')||String(xloc||'')==='bt';const t=isTime?Math.floor(n>1e12?n/1000:n):(bars[Math.trunc(n)-barIndexOffset]?.time);return t? r.chart.timeScale().timeToCoordinate(t as any):null};const items:any[]=[];
-  for(const d of drawings){const a=xy(d.points[0]);if(a[0]===null||a[1]===null)continue;if(d.kind==='hline'){items.push(<line key={'u'+d.id} x1={0} x2={w} y1={a[1]} y2={a[1]} className="drawing-line"/>);continue;}const b=d.points[1]&&xy(d.points[1]);if(!b||b[0]===null||b[1]===null)continue;
+  for(const d of drawings){const a=xy(d.points[0]);if(a[0]===null||a[1]===null)continue;if(d.kind==='hline'){items.push(<line key={'u'+d.id} x1={0} x2={w} y1={a[1]} y2={a[1]} className="drawing-line"/>);continue;}if(d.kind==='vline'){items.push(<line key={'u'+d.id} x1={a[0]} x2={a[0]} y1={0} y2={h} className="drawing-line"/>);continue;}const b=d.points[1]&&xy(d.points[1]);if(!b||b[0]===null||b[1]===null)continue;
    if(d.kind==='trend')items.push(<line key={'u'+d.id} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="drawing-line"/>);
+   if(d.kind==='ray'){const dx=b[0]-a[0],dy=b[1]-a[1],x2=dx===0?b[0]:w,y2=dx===0?b[1]:a[1]+dy*((w-a[0])/dx);items.push(<line key={'u'+d.id} x1={a[0]} y1={a[1]} x2={x2} y2={y2} className="drawing-line"/>);}
+   if(d.kind==='arrow')items.push(<line key={'u'+d.id} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="drawing-line drawing-arrow" markerEnd="url(#userArrow)"/>);
    if(d.kind==='rect')items.push(<rect key={'u'+d.id} x={Math.min(a[0],b[0])} y={Math.min(a[1],b[1])} width={Math.abs(a[0]-b[0])} height={Math.abs(a[1]-b[1])} className="drawing-box"/>);
    if(d.kind==='fib'){const levels=[0,.236,.382,.5,.618,.786,1];items.push(<g key={'u'+d.id}>{levels.map(level=>{const y=a[1]+(b[1]-a[1])*level;return <g key={level}><line x1={Math.min(a[0],b[0])} x2={Math.max(a[0],b[0])} y1={y} y2={y} className="drawing-fib"/><text x={Math.max(a[0],b[0])+5} y={y-2} className="drawing-label">{Math.round(level*1000)/10}%</text></g>})}</g>);}
+   if(d.kind==='measure'){const x=Math.min(a[0],b[0]),y=Math.min(a[1],b[1]),dw=Math.abs(a[0]-b[0]),dh=Math.abs(a[1]-b[1]),delta=d.points[1].price-d.points[0].price,pct=d.points[0].price?delta/d.points[0].price*100:0;items.push(<g key={'u'+d.id}><rect x={x} y={y} width={dw} height={dh} className="drawing-measure"/><text x={x+5} y={Math.max(14,y+15)} className="drawing-label">{delta>=0?'+':''}{delta.toFixed(2)} · {pct>=0?'+':''}{pct.toFixed(2)}%</text></g>);}
   }
   for(const d of pineDrawings){if(d.overlay===false)continue;
    if(d.kind==='line'){let x1=pineX(d.x1,d.xloc),x2=pineX(d.x2,d.xloc);const y1=r.series.priceToCoordinate(Number(d.y1)),y2=r.series.priceToCoordinate(Number(d.y2));if(x1===null||x2===null||y1===null||y2===null)continue;if(String(d.extend).includes('left')||String(d.extend).includes('both'))x1=0;if(String(d.extend).includes('right')||String(d.extend).includes('both'))x2=w;items.push(<line key={'p-l-'+d.indicatorId+'-'+d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={cssColor(d.color,'#d7b46a')} strokeWidth={Math.max(1,Number(d.width)||1)} strokeDasharray={String(d.style).includes('dashed')?'6 4':String(d.style).includes('dotted')?'2 4':undefined}/>);}
    if(d.kind==='box'){const x1=pineX(d.left,d.xloc),x2=pineX(d.right,d.xloc),y1=r.series.priceToCoordinate(Number(d.top)),y2=r.series.priceToCoordinate(Number(d.bottom));if(x1===null||x2===null||y1===null||y2===null)continue;items.push(<g key={'p-b-'+d.indicatorId+'-'+d.id}><rect x={Math.min(x1,x2)} y={Math.min(y1,y2)} width={Math.max(1,Math.abs(x2-x1))} height={Math.max(1,Math.abs(y2-y1))} fill={cssColor(d.bgcolor,'transparent')} stroke={cssColor(d.border_color,'transparent')} strokeWidth={Number(d.border_width)||1}/>{d.text&&<text x={Math.min(x1,x2)+4} y={Math.min(y1,y2)+14} fill={cssColor(d.text_color,'#dbe4ef')} fontSize="11">{d.text}</text>}</g>);}
    if(d.kind==='label'){const x=pineX(d.x,d.xloc),y=r.series.priceToCoordinate(Number(d.y));if(x===null||y===null)continue;items.push(<g key={'p-t-'+d.indicatorId+'-'+d.id}><rect x={x-3} y={y-14} width={Math.max(10,String(d.text||'').length*6+8)} height={18} rx={3} fill={cssColor(d.color,'#1d2835cc')}/><text x={x+1} y={y-2} fill={cssColor(d.textcolor,'#ffffff')} fontSize={String(d.size).includes('tiny')?9:String(d.size).includes('small')?10:12}>{d.text||''}</text></g>);}
   }
-  return <svg key={viewTick} className="drawing-overlay" width={w} height={h}>{items}</svg>})();
+  return <svg key={viewTick} className="drawing-overlay" width={w} height={h}><defs><marker id="userArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" className="drawing-arrow-head"/></marker></defs>{items}</svg>})();
  const tables=pineTables.map(t=><div key={t.indicatorId+'-'+t.id} className={'pine-table pine-table-'+String(t.position||'top_right').replaceAll('_','-')} style={{background:cssColor(t.bgcolor,'#10151de6'),borderColor:cssColor(t.frame_color||t.border_color,'#334155')}}><small className="pine-table-name">{t.indicatorName}</small><table><tbody>{(t.cells||[]).map((row:any[],ri:number)=><tr key={ri}>{row.map((cell:any,ci:number)=><td key={ci} style={{background:cssColor(cell?.bgcolor,'transparent'),color:cssColor(cell?.text_color,'#dbe4ef'),textAlign:(cell?.text_halign||'left').replace('text.align_','') as any}} title={cell?.tooltip||''}>{cell?.text||''}</td>)}</tr>)}</tbody></table></div>);
- return <div className={'chart-stage'+(drawingMode?' drawing-active':'')}><div className="chart-canvas" ref={host} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}{tables}</div>;
+ return <div className={'chart-stage'+(drawingMode?' drawing-active':'')}><div className="chart-canvas" ref={host} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}{tradeLevels}{tables}</div>;
 }
