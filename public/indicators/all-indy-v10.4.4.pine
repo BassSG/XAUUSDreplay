@@ -937,9 +937,9 @@ f_s_request_0(string sourceTf) =>
         result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
     else if sourceSeconds == chartSec
         result := f_s_momentum(0)
-    else if alignedLower and perf_runtimeGuard
-        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
-    else
+    else if sourceSeconds < chartSec
+        // PineTS host compatibility: use the dedicated LTF API for lower-timeframe
+        // sampling. Select the final confirmed sample whose close is inside this chart bar.
         array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
         if array.size(samples) > 0
             for index = array.size(samples) - 1 to 0
@@ -957,9 +957,9 @@ f_s_request_1(string sourceTf) =>
         result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
     else if sourceSeconds == chartSec
         result := f_s_momentum(0)
-    else if alignedLower and perf_runtimeGuard
-        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
-    else
+    else if sourceSeconds < chartSec
+        // PineTS host compatibility: use the dedicated LTF API for lower-timeframe
+        // sampling. Select the final confirmed sample whose close is inside this chart bar.
         array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
         if array.size(samples) > 0
             for index = array.size(samples) - 1 to 0
@@ -977,9 +977,9 @@ f_s_request_2(string sourceTf) =>
         result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
     else if sourceSeconds == chartSec
         result := f_s_momentum(0)
-    else if alignedLower and perf_runtimeGuard
-        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
-    else
+    else if sourceSeconds < chartSec
+        // PineTS host compatibility: use the dedicated LTF API for lower-timeframe
+        // sampling. Select the final confirmed sample whose close is inside this chart bar.
         array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
         if array.size(samples) > 0
             for index = array.size(samples) - 1 to 0
@@ -997,9 +997,9 @@ f_s_request_3(string sourceTf) =>
         result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
     else if sourceSeconds == chartSec
         result := f_s_momentum(0)
-    else if alignedLower and perf_runtimeGuard
-        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
-    else
+    else if sourceSeconds < chartSec
+        // PineTS host compatibility: use the dedicated LTF API for lower-timeframe
+        // sampling. Select the final confirmed sample whose close is inside this chart bar.
         array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
         if array.size(samples) > 0
             for index = array.size(samples) - 1 to 0
@@ -1017,9 +1017,9 @@ f_s_request_4(string sourceTf) =>
         result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
     else if sourceSeconds == chartSec
         result := f_s_momentum(0)
-    else if alignedLower and perf_runtimeGuard
-        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
-    else
+    else if sourceSeconds < chartSec
+        // PineTS host compatibility: use the dedicated LTF API for lower-timeframe
+        // sampling. Select the final confirmed sample whose close is inside this chart bar.
         array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
         if array.size(samples) > 0
             for index = array.size(samples) - 1 to 0
@@ -1037,9 +1037,9 @@ f_s_request_5(string sourceTf) =>
         result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
     else if sourceSeconds == chartSec
         result := f_s_momentum(0)
-    else if alignedLower and perf_runtimeGuard
-        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
-    else
+    else if sourceSeconds < chartSec
+        // PineTS host compatibility: use the dedicated LTF API for lower-timeframe
+        // sampling. Select the final confirmed sample whose close is inside this chart bar.
         array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
         if array.size(samples) > 0
             for index = array.size(samples) - 1 to 0
@@ -1057,9 +1057,9 @@ f_s_request_6(string sourceTf) =>
         result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(1), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on, calc_bars_count=1200)
     else if sourceSeconds == chartSec
         result := f_s_momentum(0)
-    else if alignedLower and perf_runtimeGuard
-        result := request.security(syminfo.tickerid, sourceTf, f_s_momentum(0), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, calc_bars_count=1200)
-    else
+    else if sourceSeconds < chartSec
+        // PineTS host compatibility: use the dedicated LTF API for lower-timeframe
+        // sampling. Select the final confirmed sample whose close is inside this chart bar.
         array<s_Momentum> samples = request.security_lower_tf(syminfo.tickerid, sourceTf, f_s_momentum(0), ignore_invalid_timeframe=true, calc_bars_count=i_ltfBars)
         if array.size(samples) > 0
             for index = array.size(samples) - 1 to 0
