@@ -1,0 +1,82 @@
+{
+  "mode": "built-in image_gen",
+  "appIcon": {
+    "file": "public/brand/app-icon-original.png",
+    "width": 1254,
+    "height": 1254,
+    "prompt": "Use case: logo-brand\nAsset type: production PWA app icon, square full-bleed bitmap\nPrimary request: Create a premium original XAU REPLAY app icon for a gold trading replay and backtesting app. No text.\nScene/backdrop: solid deep near-black navy #0b1119 edge to edge; no outer rounded-square container, no border.\nSubject: one simple geometric warm-gold emblem combining a counterclockwise replay arc ending in a clear right-facing play triangle with three compact vertical candlestick bars. Keep the emblem bold and visually quiet, use only these essential elements.\nStyle/medium: precise flat vector-like brand design with beautifully crisp edges, restrained subtle metallic gold tonal variation and soft premium lighting. It must read clearly as a financial replay app at 32 pixels.\nComposition/framing: square 1:1, emblem centered, roughly 55–60 percent of canvas width, generous 20 percent safe padding on all sides for maskable mobile app icons.\nColor palette: deep navy #0b1119, warm satin gold #d7b36a, understated brighter highlights.\nConstraints: no text, no lettering, no mockup, no device, no visible frame, no decorative charts, no watermark, no excessive glow, no detailed textures. Make a polished final icon as a flat image, not a photograph."
+  },
+  "logo": {
+    "file": "public/brand/logo-original.png",
+    "width": 2172,
+    "height": 724,
+    "prompt": "Use case: logo-brand\nAsset type: transparent horizontal brand logo for a premium gold-market replay and backtesting web application\nPrimary request: Create a polished transparent brand logo based on the reference app icon. Keep the emblem's identity: a counterclockwise gold replay arrow around three gold candlesticks and a right-facing play triangle. Arrange a compact clean version of this emblem on the left, and a beautifully spaced uppercase modern sans-serif wordmark on the right.\nInput images: Image 1 is a reference for the same brand emblem and palette, not a background to preserve.\nText (verbatim): \"XAU REPLAY\". Spell exactly X A U space R E P L A Y. Single line. No other text.\nColor palette: restrained warm satin gold #d7b36a for both emblem and typography; suitable for a dark navy application header.\nStyle/medium: crisp precision vector-like brand artwork, subtle premium gold tonal variation only on the emblem, wordmark legible and almost flat. No mockup or photograph.\nComposition/framing: horizontal 3:1 composition, balanced emblem-to-wordmark scale, centered with generous transparent space, slim but readable modern geometric sans serif typography, subtle letter spacing.\nConstraints: genuinely transparent background with alpha channel, no dark rectangular background, no border, no watermarks, no tagline, no extraneous text, no glow. Consistent visual identity with the app icon."
+  },
+  "derivativeMode": "Sharp 0.35.4: resizing and PNG compression only; emblem and wordmark unchanged",
+  "derivatives": [
+    {
+      "file": "public/brand/app-icon-original.png",
+      "width": 1254,
+      "height": 1254,
+      "alpha": false,
+      "bytes": 1276259,
+      "sha256": "70ccbebb91fd58b390030f13c21ac5180730628aad3cfc86af8e4fa60b2aa455"
+    },
+    {
+      "file": "public/brand/logo-original.png",
+      "width": 2172,
+      "height": 724,
+      "alpha": true,
+      "bytes": 443637,
+      "sha256": "7f62323c02e07dbd19455f976582026c998f114f4be0a6ab8c8479db5e4eee58"
+    },
+    {
+      "file": "public/brand/logo.png",
+      "width": 900,
+      "height": 300,
+      "alpha": true,
+      "bytes": 103135,
+      "sha256": "d3ef0b265e9b805a8d1196651fd4cf44ebc39dda38985d850de5b6eda47076c1"
+    },
+    {
+      "file": "public/icons/icon-192.png",
+      "width": 192,
+      "height": 192,
+      "alpha": false,
+      "bytes": 29971,
+      "sha256": "4faf0c86d268fc28ec3792bb4b5588acb412e0fea5eb254958462e1a56964ab9"
+    },
+    {
+      "file": "public/icons/icon-512.png",
+      "width": 512,
+      "height": 512,
+      "alpha": false,
+      "bytes": 231857,
+      "sha256": "24e094ec4fd59bc7f5cb76cb8be01b52b41369e20b3347df3e4510104665e4fa"
+    },
+    {
+      "file": "public/icons/icon-maskable-512.png",
+      "width": 512,
+      "height": 512,
+      "alpha": false,
+      "bytes": 231857,
+      "sha256": "24e094ec4fd59bc7f5cb76cb8be01b52b41369e20b3347df3e4510104665e4fa"
+    },
+    {
+      "file": "public/icons/apple-touch-icon.png",
+      "width": 180,
+      "height": 180,
+      "alpha": false,
+      "bytes": 26761,
+      "sha256": "c10f544b0bf1c19e74d5a30610e9c8ca55cc55e9a76527c26b6af9a9ac1141fa"
+    },
+    {
+      "file": "public/icons/favicon-32.png",
+      "width": 32,
+      "height": 32,
+      "alpha": false,
+      "bytes": 1538,
+      "sha256": "5c62bb8cb30ff2340acb911cb6f58adb9f5691199cea1a7999e596034e8cde64"
+    }
+  ]
+}

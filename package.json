@@ -1,0 +1,38 @@
+{
+  "name": "xau-replay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5199",
+    "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 5199",
+    "test": "node --experimental-strip-types --test tests/engine.test.mjs tests/storage.test.mjs tests/pwa.test.mjs tests/pine.test.mjs",
+    "data:prepare": "node --experimental-strip-types scripts/prepare-data.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "lightweight-charts": "^5.0.0",
+    "lucide-react": "^1.31.0",
+    "papaparse": "^5.5.3",
+    "pinets": "0.11.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "fake-indexeddb": "^6.2.5",
+    "sharp": "^0.35.4",
+    "typescript": "5.9.3",
+    "vite": "8.0.13"
+  }
+}
