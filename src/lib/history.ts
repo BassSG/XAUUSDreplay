@@ -17,7 +17,10 @@ export function historyCatalog():Promise<Bundle[]>{
 async function chunkBars(c:ChunkDescriptor):Promise<Bar[]>{
  const key=c.file+':'+(c.contentSha256??c.sha256);
  if(!chunkCache.has(key))chunkCache.set(key,(async()=>{
-  const r=await fetch(baseURL()+c.file);if(!r.ok)throw Error('โหลดข้อมูลย้อนหลังไม่สำเร็จ');
+  const url=baseURL()+c.file;
+  let r=await fetch(url);
+  if(r.status===204)r=await fetch(url+'?retry=1',{cache:'no-store'});
+  if(!r.ok||r.status===204)throw Error('โหลดข้อมูลย้อนหลังไม่สำเร็จ');
   const v=JSON.parse(await decodeChunk(await r.arrayBuffer(),c));const rows:Bar[]=Array.isArray(v)?v:v.bars;
   if(rows.length!==c.count||rows[0]?.time!==c.start||rows.at(-1)?.time!==c.end)throw Error('ข้อมูลย้อนหลังไม่ตรงกับรายการ');
   return rows;

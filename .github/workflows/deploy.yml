@@ -28,6 +28,8 @@ jobs:
       - name: Verify replay, storage, and installation
         run: npm test
       - name: Build application
+        env:
+          VITE_XAU_LIVE_PUBLIC_ORIGIN: ${{ vars.XAU_LIVE_PUBLIC_ORIGIN || 'https://anything-mrna-work-voted.trycloudflare.com' }}
         run: npm run build
       - name: Upload website
         uses: actions/upload-pages-artifact@v5

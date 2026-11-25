@@ -1,0 +1,68 @@
+/* Hallmark · app: XAU Replay Live · theme: Replay slate and gold · v2.0.0 */
+/* The quote strip stays legible when disconnected, and the chart has room to work on a narrow screen. */
+:root {
+  --live-panel: #10151d;
+  --live-rail: #131b26;
+  --live-border: #2e394a;
+  --live-text: #edf0f5;
+  --live-muted: #a5b5ca;
+  --live-gold: #e2bb70;
+  --live-green: #8de3c6;
+  --live-selection: #322a1e;
+  --live-hover: #253144;
+}
+
+html, body { overflow-x: clip; }
+.live-workspace { width: min(100%, 1560px); margin: 0 auto; padding: 24px clamp(12px, 3vw, 40px); color: var(--live-text); }
+.live-header, .live-identity, .live-tape, .live-controls, .live-object { display: flex; align-items: center; gap: 12px; }
+.live-header { justify-content: space-between; margin-bottom: 16px; }
+.live-identity img { border-radius: 10px; }
+.live-identity h1 { color: var(--live-gold); font-size: 24px; line-height: 1.15; margin: 0; text-wrap: balance; }
+.live-identity p { color: var(--live-muted); margin: 4px 0 0; font-size: 12px; }
+.live-identity p span { padding: 0 4px; }
+.live-tape { background: var(--live-rail); border: 1px solid var(--live-border); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
+.live-feed { display: grid; gap: 4px; min-width: 146px; align-content: center; }
+.live-feed strong { color: var(--live-gold); font-size: 13px; }
+.live-feed[data-live=true] strong { color: var(--live-green); }
+.live-feed span, .live-quotes dt { color: var(--live-muted); font-size: 12px; }
+.live-quotes { display: flex; flex: 1; gap: clamp(12px, 4vw, 48px); margin: 0; }
+.live-quotes div { min-width: 0; }
+.live-quotes dd { margin: 4px 0 0; font-size: 19px; font-variant-numeric: tabular-nums; }
+.live-desk { border: 1px solid var(--live-border); border-radius: 8px; background: var(--live-panel); }
+.live-controls { flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--live-border); }
+.live-controls button, .live-tools button, .live-workspace .live-icon { min-height: 36px; padding: 4px 8px; }
+.live-workspace .live-icon { min-width: 36px; }
+.live-controls button:focus-visible, .live-tools button:focus-visible, .live-workspace .live-icon:focus-visible { outline: 2px solid var(--live-gold); outline-offset: 2px; }
+.live-workspace button[aria-pressed=true] { background: var(--live-selection); color: var(--live-gold); border-color: var(--live-gold); }
+.live-workspace button:active:not(:disabled) { background: var(--live-hover); }
+.live-periods, .live-studies, .live-drawing-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.live-studies { margin-left: auto; }
+.live-chart-layout { display: grid; grid-template-columns: max-content minmax(0, 1fr); }
+.live-tools { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--live-rail); border-right: 1px solid var(--live-border); }
+.live-tools > button { justify-content: flex-start; font-size: 12px; }
+.live-drawing-actions { display: grid; grid-template-columns: 1fr 1fr; margin-top: 8px; }
+.live-chart { min-width: 0; }
+.live-chart .chart-stage { margin: 0; }
+.live-chart .chart-stage:not(.chart-expanded) { height: auto; min-height: 0; max-height: none; overflow: visible !important; }
+.live-chart .chart-stage:not(.chart-expanded) .chart-scroll-content { min-height: clamp(430px, 65dvh, 640px); }
+.live-chart-empty { display: grid; place-items: center; min-height: 430px; padding: 20px; color: var(--live-muted); }
+.live-foot { color: var(--live-muted); font-size: 12px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; padding: 8px 16px; border-top: 1px solid var(--live-border); }
+.live-foot a { text-decoration: underline; text-underline-offset: 3px; }
+.live-object { flex-wrap: wrap; padding: 12px 0; }
+.live-object input { background: var(--live-rail); color: var(--live-text); border: 1px solid var(--live-border); border-radius: 6px; padding: 8px; }
+
+@media (max-width: 720px) {
+  .live-workspace { padding-top: 12px; }
+  .live-tape { flex-wrap: wrap; gap: 8px; padding: 8px; }
+  .live-quotes { order: 3; flex: 1 0 100%; justify-content: space-between; }
+  .live-tape > .live-icon { margin-left: auto; }
+  .live-controls { gap: 8px; }
+  .live-controls button, .live-tools button { min-height: 44px; }
+  .live-studies { margin-left: 0; }
+  .live-chart-layout { grid-template-columns: minmax(0, 1fr); }
+  .live-tools { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--live-border); }
+  .live-tools > button { flex-shrink: 0; }
+  .live-drawing-actions { display: flex; flex-wrap: nowrap; margin-top: 0; }
+  .live-chart .chart-stage:not(.chart-expanded) .chart-scroll-content { min-height: 0; }
+  .live-chart-empty { min-height: 290px; }
+}
