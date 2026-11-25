@@ -12,7 +12,7 @@
 
 เมื่อรัน `npm run dev` หรือสร้างแอปในเครื่องแล้วรัน `npm run preview` แอปจะดึงราคาผ่านตัวกลางของ Vite ตั้ง `XAU_LIVE_API_URL` เป็น HTTPS origin เพื่อเปลี่ยนที่อยู่ Bridge และตั้ง `XAU_LIVE_API_KEY` ใน environment ของเครื่องได้หาก Bridge ต้องยืนยันสิทธิ์
 
-GitHub Pages เรียก Bridge โดยตรงผ่าน HTTPS สำหรับราคาและแท่งเทียน โดย Bridge ต้องอนุญาต CORS จาก `https://basssg.github.io` ถ้าที่อยู่ Bridge เปลี่ยน ให้ตั้ง GitHub Actions repository variable `XAU_LIVE_PUBLIC_ORIGIN` เป็น HTTPS origin แล้วสั่ง Deploy XAU Replay อีกครั้ง ค่านี้เปิดดูได้ในหน้าเว็บจึงใช้สำหรับ URL เท่านั้น หาก Bridge ขัดข้อง แอปจะแสดงชุดย้อนหลังที่มากับแอปพร้อมวันที่ข้อมูล
+GitHub Pages เรียก Bridge โดยตรงผ่าน HTTPS สำหรับราคาและแท่งเทียน โดย Bridge ต้องอนุญาต CORS จาก `https://basssg.github.io` ถ้าที่อยู่ Bridge เปลี่ยน ให้อัปเดต `pagesBridge` ใน `src/lib/use-live-market.ts` แล้ว deploy ใหม่ สำหรับการ build ไปโฮสต์อื่น ตั้ง `VITE_XAU_LIVE_PUBLIC_ORIGIN` เป็น HTTPS origin ได้ หาก Bridge ขัดข้อง แอปจะแสดงชุดย้อนหลังที่มากับแอปพร้อมวันที่ข้อมูล
 
 1. เปิดแอปแล้วเลือกชุดข้อมูล วันที่เริ่ม และเงินตั้งต้นของรอบฝึก
 2. ตั้ง Stop Loss / Take Profit เลือกความเสี่ยงเป็นเปอร์เซ็นต์หรือกำหนด lot แล้วกด Buy / Sell

@@ -13,9 +13,12 @@ type Market = {
 
 const empty = (period: Period): Market => ({period, closed: [], open: null, quote: null, quoteError: false, barError: false});
 const now = () => Math.floor(Date.now() / 1000);
+const pagesOrigin = 'https://basssg.github.io';
+const pagesBridge = 'https://anything-mrna-work-voted.trycloudflare.com';
 
 async function request(route: string, signal: AbortSignal) {
-  const publicBridge = import.meta.env.VITE_XAU_LIVE_PUBLIC_ORIGIN;
+  const publicBridge = import.meta.env.VITE_XAU_LIVE_PUBLIC_ORIGIN ||
+    (location.origin === pagesOrigin ? pagesBridge : undefined);
   const suffix = route.startsWith('bars/') ? '?limit=1500&order=desc' : '';
   const url = publicBridge
     ? new URL('/api/' + route + suffix, publicBridge).href
