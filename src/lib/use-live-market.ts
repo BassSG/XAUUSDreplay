@@ -239,5 +239,5 @@ export function useLiveMarket(period: Period, retry: number, anchorTime: number 
     }
   }, [key, period, seconds, view.closed, view.historyStatus, serverNow]);
 
-  return {...view, bars, quote, quoteError, minuteError, minuteTime: minutes.at(-1)?.time, serverNow, loadOlder};
+  return {...view, bars, minutes, quote, quoteError, minuteError, minuteTime: minutes.at(-1)?.time, serverNow, loadOlder};
 }

@@ -3,6 +3,7 @@ import {decodeChunk} from './bundled-chunk.ts';
 import {drawingKinds, strokeMax} from './drawing-definitions.ts';
 import type { Bar, Session } from './engine';
 import type { Dataset } from './types';
+import type {LiveLayoutFile} from './live-layouts.ts';
 
 /** Every browser owns its journal. No account, token or remote writes are used. */
 export const DATABASE_NAME = 'xau-replay-v1';
@@ -43,8 +44,8 @@ const commandSchema = z.object({
  if ((v.type === 'cancel' || v.type === 'modify') && !v.orderId) ctx.addIssue({ code: 'custom', message: 'ไม่พบ Pending order' });
  if (v.type === 'open' && (v.orderType === 'limit' || v.orderType === 'stop') && !v.entry) ctx.addIssue({ code: 'custom', message: 'Pending order ต้องมี Entry' });
 });
-const indicatorSchema=z.object({id:uuid,name:z.string().trim().min(1).max(120),source:z.string().max(250000),enabled:z.boolean(),builtinId:z.string().optional(),inputs:z.record(z.union([z.string(),z.number(),z.boolean()])).optional()});
-const drawingSchema=z.object({id:uuid,kind:z.enum(drawingKinds),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(strokeMax),locked:z.boolean().optional(),text:z.string().max(1000).optional(),color:z.string().max(40).optional()});
+export const indicatorSchema=z.object({id:uuid,name:z.string().trim().min(1).max(120),source:z.string().max(250000),enabled:z.boolean(),builtinId:z.string().optional(),inputs:z.record(z.union([z.string(),z.number(),z.boolean()])).optional()});
+export const drawingSchema=z.object({id:uuid,kind:z.enum(drawingKinds),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(strokeMax),locked:z.boolean().optional(),text:z.string().max(1000).optional(),color:z.string().max(40).optional()});
 const sessionSchema = z.object({
  id: uuid, name: z.string().trim().min(1).max(120), dataset: safeId, from: z.number().int().positive(),
  cursor: z.number().int().min(0).max(999999), furthest: z.number().int().min(0).max(999999),
@@ -102,6 +103,37 @@ async function transaction<T>(names: string[], mode: IDBTransactionMode, work: (
  catch (error) { try { tx.abort(); } catch {} await done.catch(() => {}); throw friendly(error); }
 }
 export async function resetStorageConnection() { const db = await database?.catch(() => undefined); db?.close(); database = undefined; catalogRequest = undefined; }
+
+export type SavedLayout = {id: string; revision: number; updated: number; file: LiveLayoutFile};
+type LayoutRevision = Pick<SavedLayout, 'id' | 'revision'>;
+const layoutPrefix = 'live-layout/';
+export function listLiveLayouts(): Promise<SavedLayout[]> {
+ return transaction(['meta'], 'readonly', async tx => {
+  const range = IDBKeyRange.bound(layoutPrefix, layoutPrefix + '\uffff');
+  const records: SavedLayout[] = await request(tx.objectStore('meta').getAll(range));
+  return records.sort((a, b) => b.updated - a.updated);
+ });
+}
+async function checkLayoutRevision(store: IDBObjectStore, previous: LayoutRevision) {
+ const row: SavedLayout | undefined = await request(store.get(layoutPrefix + previous.id));
+ if (!row || row.revision !== previous.revision) throw new StorageError('เลย์เอาต์นี้เปลี่ยนไปแล้ว กรุณาเปิดรายการล่าสุด', 409);
+}
+export function saveLiveLayout(file: LiveLayoutFile, previous?: LayoutRevision): Promise<SavedLayout> {
+ return transaction(['meta'], 'readwrite', async tx => {
+  const store = tx.objectStore('meta');
+  if (previous) await checkLayoutRevision(store, previous);
+  const row = {id: previous?.id ?? crypto.randomUUID(), revision: (previous?.revision ?? 0) + 1, updated: Date.now(), file};
+  await request(store.put({...row, key: layoutPrefix + row.id}));
+  return row;
+ });
+}
+export function deleteLiveLayout(previous: LayoutRevision) {
+ return transaction(['meta'], 'readwrite', async tx => {
+  const store = tx.objectStore('meta');
+  await checkLayoutRevision(store, previous);
+  await request(store.delete(layoutPrefix + previous.id));
+ });
+}
 function baseURL() { return (import.meta as ImportMeta & { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/'; }
 async function cachedCatalog() {
  return transaction(['meta'], 'readonly', async tx => (await request<{ key: string; datasets: BundledDataset[] } | undefined>(tx.objectStore('meta').get('catalog')))?.datasets);

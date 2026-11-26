@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {
   Activity, BarChart3, ChartArea, ChartLine, ChartSpline, ChevronUp, CircleHelp, Gauge,
-  MoveVertical, Search, TrendingUp, Waves, X, type LucideIcon,
+  Code2, MoveVertical, Search, TrendingUp, Waves, X, type LucideIcon,
 } from 'lucide-react';
 import {studyDefinitions, studyLabel, studyLength, type LiveStudy, type LiveStudyLengths} from '../lib/live-indicators';
 import {useDialog} from '../lib/use-dialog';
@@ -12,6 +12,7 @@ type Props = {
   onToggle: (study: LiveStudy) => void;
   onLength: (study: LiveStudy, length: number) => void;
   onClose: () => void;
+  onPine: () => void;
 };
 
 const studies = Object.keys(studyDefinitions) as LiveStudy[];
@@ -22,7 +23,7 @@ const icons: Record<LiveStudy, LucideIcon> = {
   volume: BarChart3, obv: ChartArea,
 };
 
-export default function LiveStudyPanel({selected, lengths, onToggle, onLength, onClose}: Props) {
+export default function LiveStudyPanel({selected, lengths, onToggle, onLength, onClose, onPine}: Props) {
   const [query, setQuery] = useState('');
   const [help, setHelp] = useState<LiveStudy | null>(null);
   useDialog(true, onClose);
@@ -37,6 +38,7 @@ export default function LiveStudyPanel({selected, lengths, onToggle, onLength, o
         <h2 id="live-indicator-title">อินดิเคเตอร์</h2>
         <button type="button" className="live-icon" aria-label="ปิดอินดิเคเตอร์" onClick={onClose}><X size={18}/></button>
       </header>
+      <button className="study-pine-entry" type="button" onClick={onPine}><Code2 size={19}/><span><strong>Pine Editor</strong><small>วางสคริปต์หรือนำเข้าไฟล์ .pine</small></span></button>
       <div className="live-picker-search">
         <label><Search size={16}/><input type="search" aria-label="ค้นหาอินดิเคเตอร์" placeholder="ค้นหาชื่ออินดิเคเตอร์"
           value={query} onChange={event => setQuery(event.currentTarget.value)}/></label>

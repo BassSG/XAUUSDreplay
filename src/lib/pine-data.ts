@@ -26,11 +26,22 @@ export function aggregatePineBars(bars:Bar[],tf:string,calendar:CandleCalendar){
 export function toKlines(bars:Bar[],tf:string,calendar:CandleCalendar){
  return bars.map(b=>({openTime:b.time*1000,closeTime:periodEnd(b.time,tf,calendar)*1000-1,open:b.open,high:b.high,low:b.low,close:b.close,volume:b.volume,quoteAssetVolume:0,numberOfTrades:0,takerBuyBaseAssetVolume:0,takerBuyQuoteAssetVolume:0,ignore:0}));
 }
-export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:CandleCalendar,asOf:number,bundled:boolean,warnings:string[],injected?:Record<string,Bar[]>,primary?:{tf:string;bars:Bar[]}){
+export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:CandleCalendar,asOf:number,bundled:boolean,warnings:string[],injected?:Record<string,Bar[]>,primary?:{tf:string;bars:Bar[]},liveMinutes?:Bar[]){
  const cache=new Map<string,Promise<Bar[]>>();const baseTF=String(baseSeconds/60);const known=baseBars.filter(b=>periodEnd(b.time,baseTF,calendar)<=asOf);
  const getRows=(tf:string,limit=2000)=>{
   const key=tf+':'+limit;if(!cache.has(key))cache.set(key,(async()=>{
    const seconds=timeframeSeconds(tf);let rows:Bar[]=[];let sourceSeconds=baseSeconds;
+   if(liveMinutes && primary){
+    const usePrimary=seconds>=baseSeconds && seconds%baseSeconds===0;
+    const source=usePrimary?primary.bars:liveMinutes;
+    if(seconds<60 || !source.length){warnings.push('ไม่มีแท่งย้อนหลังสำหรับ '+tf+' ในช่วงที่เปิด');return [];}
+    const available=usePrimary?source:source.filter(b=>b.time+60<=asOf);
+    if(!usePrimary && (!available.length || available[0].time>primary.bars[0].time))
+     warnings.push('ประวัติข้ามไทม์เฟรม '+tf+' จำกัดตามแท่ง 1m ที่โหลดได้');
+    const aggregated=aggregatePineBars(available,tf,calendar);
+    // Drop a leading partial bucket. For lower-TF arrays use only closed intrabars.
+    return aggregated.filter(b=>b.time>=available[0]?.time && (seconds>=baseSeconds || periodEnd(b.time,tf,calendar)<=asOf)).slice(-limit);
+   }
    if(seconds===baseSeconds)rows=known;
    else if(injected?.[tf]){rows=injected[tf];sourceSeconds=seconds;}
    else if(bundled){

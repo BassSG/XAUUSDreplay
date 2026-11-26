@@ -258,6 +258,7 @@
 .live-object-color input { width: 44px; height: 40px; padding: 4px; }
 
 .live-workspace .modal-shade { z-index: 65; background: #040a11bc; }
+.live-workspace .modal-shade[data-chart-preview=true] { justify-content: flex-start; backdrop-filter: none; background: #07101a26; }
 .live-workspace .modal { border-color: #314157; background: #111b28; }
 .live-workspace .modal-head { margin-bottom: 10px; }
 .live-workspace .modal-head h2 { margin: 0; font-size: 19px; }
@@ -306,8 +307,71 @@
 .live-study-length { color: var(--live-muted); }
 .live-study-length input { width: 64px; padding: 8px; border: 1px solid var(--live-border); border-radius: 6px; background: var(--live-rail); color: var(--live-text); }
 
+.live-chart-settings { display: flex; align-items: center; gap: 3px; margin-inline-start: auto; }
+.live-chart-settings button { min-width: 38px; padding: 5px 8px; border-color: transparent; background: transparent; color: var(--live-muted); }
+.live-chart-settings .header-layout { gap: 7px; }
+.header-layout span { max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.live-header .live-replay { margin-inline-start: 0; border-inline-start: 1px solid var(--live-border); border-radius: 0; }
+.live-chart .live-ohlc, .live-chart .live-pane-title { background: color-mix(in srgb, var(--chart-bg) 92%, transparent); color: var(--chart-ink); }
+.live-chart .live-ohlc :is(time,small) { color: var(--chart-ink); }
+.live-chart .live-ohlc [data-price=close] { color: var(--chart-down); }
+.live-chart .live-ohlc[data-up=true] [data-price=close] { color: var(--chart-up); }
+.live-chart .live-study-legend button { background: var(--chart-bg); color: var(--chart-ink); border-color: color-mix(in srgb, var(--chart-ink) 35%, transparent); }
+.live-study-legend { display: flex; flex-wrap: wrap; gap: 4px; }
+.live-workspace .live-panel-wide { width: min(700px, 100%); }
+.chart-appearance, .layout-manager, .live-script-editor { display: grid; gap: 13px; }
+.chart-appearance fieldset { min-width: 0; margin: 0; border: 0; border-top: 1px solid var(--live-border); padding: 6px 0 0; }
+.chart-appearance legend, .layout-manager h3 { font-size: 13px; font-weight: 650; color: var(--live-gold); }
+.chart-appearance legend { padding-inline-end: 8px; }
+.layout-manager h3 { margin: 3px 0 -6px; }
+.chart-themes, .chart-checks, .layout-actions, .script-run, .script-file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chart-themes button, .layout-actions button, .script-file-actions button, .script-run button { min-height: 39px; gap: 6px; padding: 6px 10px; font-size: 13px; }
+.chart-themes i { width: 15px; height: 15px; border: 1px solid; border-radius: 50%; }
+.chart-color-row, .layout-row, .script-row { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.chart-color-row, .chart-candle-colors, .chart-checks { font-size: 13px; }
+.chart-color-row { min-height: 38px; }
+.chart-checks { gap: 8px 18px; }
+.chart-check, .script-row label { display: inline-flex; gap: 6px; align-items: center; min-height: 38px; cursor: pointer; }
+.chart-check input, .script-row input { accent-color: var(--live-gold); }
+.chart-candle-colors { display: grid; grid-template-columns: 1fr auto auto; gap: 3px 9px; align-items: center; }
+.chart-candle-colors small { color: var(--live-muted); text-align: center; }
+.chart-swatch { position: relative; display: inline-flex; align-items: center; gap: 5px; padding: 3px 5px; border: 1px solid var(--live-border); border-radius: 5px; background: var(--live-rail); }
+.chart-swatch input { width: 27px; height: 24px; padding: 0; border: 0; background: none; cursor: pointer; }
+.chart-swatch input:after { content: ''; position: absolute; inset: 0; }
+.chart-swatch span { font: 11px ui-monospace, monospace; color: var(--live-muted); }
+.chart-swatch:has(:disabled) { opacity: .4; }
+.chart-field { display: grid; gap: 4px; font-size: 13px; }
+.chart-field input, .script-source, .script-file-actions select { border: 1px solid var(--live-border); border-radius: 6px; background: #0c141f; color: var(--live-text); padding: 8px; min-width: 0; }
+.chart-field input { width: 100%; }
+.layout-list { display: grid; gap: 4px; }
+.layout-row, .script-row { border-bottom: 1px solid var(--live-border); }
+.layout-open { flex: 1; min-width: 0; justify-content: flex-start; text-align: start; background: transparent; border: 0; }
+.layout-open > span { display: grid; gap: 2px; min-width: 0; }
+.layout-open strong, .script-row label { overflow-wrap: anywhere; }
+.layout-open small, .chart-hint { color: var(--live-muted); font-size: 12px; }
+.chart-hint, .chart-feedback, .chart-error { margin: 0; line-height: 1.5; }
+.layout-transfer { padding-top: 10px; border-top: 1px solid var(--live-border); }
+.layout-transfer p { margin-bottom: 7px; }
+.chart-feedback, .chart-error { font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.chart-feedback { color: var(--live-green); }
+.chart-error { color: #ff9ca7; }
+.study-pine-entry { justify-content: flex-start; gap: 10px; text-align: start; margin-bottom: 10px; padding: 8px 10px; }
+.study-pine-entry svg, .script-source-label svg { color: var(--live-gold); }
+.study-pine-entry strong, .study-pine-entry small { display: block; }
+.study-pine-entry small { color: var(--live-muted); font-size: 12px; }
+.script-row label { flex: 1; min-width: 0; font-size: 13px; }
+.script-source-label { display: flex; align-items: center; gap: 6px; margin-bottom: -8px; font-size: 13px; }
+.script-source { width: 100%; min-height: 145px; height: clamp(150px, 29dvh, 320px); resize: vertical; line-height: 1.55; font: 13px/1.55 Consolas, ui-monospace, monospace; tab-size: 4; white-space: pre; }
+.script-run { justify-content: flex-end; }
+
 @media (max-width: 720px) {
   .live-header { min-height: 46px; padding-inline: 6px; gap: 8px; }
+  .live-chart-settings { gap: 0; }
+  .live-chart-settings button { min-width: 36px; min-height: 42px; padding-inline: 5px; }
+  .live-chart-settings .header-layout span, .live-header .live-replay span { display: none; }
+  .live-header .live-replay { min-width: 34px; }
+  .live-workspace .live-panel-wide { width: 100%; }
+  .chart-themes button, .layout-actions button, .script-file-actions button, .script-run button, .chart-check { min-height: 44px; }
   .live-replay { padding-inline: 5px; }
   .live-controls { min-height: 44px; padding: 0 4px; gap: 3px; }
   .live-controls button { min-height: 43px; }

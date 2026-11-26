@@ -3,14 +3,22 @@ import type {Bar,CandleCalendar} from './engine.ts';
 import {adaptPineSource,wrapPineContext,optimizePrepared,setPineMainTimeframe} from './pine-compat.ts';
 import {periodEnd,replayProvider} from './pine-data.ts';
 import {installReplaySnapshots} from './pine-stream.ts';
+import {checkPineIndicator,type LivePineFrame} from './live-pine.ts';
+import {sameMarketBar} from './live-market.ts';
 installReplaySnapshots();
 const secondaryRun=PineTS.prototype.runPretranspiled;
 const preparedSlices=new WeakMap<Function,Function>();
 PineTS.prototype.runPretranspiled=function(fn:Function,inputs?:Record<string,any>,periods?:number){let prepared=preparedSlices.get(fn);if(!prepared){prepared=wrapPineContext(optimizePrepared(fn));preparedSlices.set(fn,prepared);}return secondaryRun.call(this,prepared,inputs,periods)};
 const context=self as unknown as Worker;
 export type ScriptJob={id:string;name:string;source:string;inputs?:Record<string,string|number|boolean>;builtinId?:string};
-type Payload={id:number;key?:string;source?:string;bars:Bar[];baseBars?:Bar[];seconds:number;baseSeconds?:number;calendar?:CandleCalendar;scripts?:ScriptJob[];bundled?:boolean;history?:Record<string,Bar[]>;plotLimit?:number};
-type Compiled={source:string;indicator:Indicator;meta:any[];bridge:Map<string,Map<number,number>>;runtime?:{pine:any;raw:any;provider:{current:any};bars:Bar[];baseBars:Bar[];settings:string}};
+type Payload={id:number;key?:string;source?:string;bars:Bar[];baseBars?:Bar[];seconds:number;baseSeconds?:number;calendar?:CandleCalendar;scripts?:ScriptJob[];bundled?:boolean;history?:Record<string,Bar[]>;plotLimit?:number;live?:LivePineFrame};
+type Compiled={source:string;indicator:Indicator;meta:any[];bridge:Map<string,Map<number,number>>;runtime?:{pine:any;raw:any;provider:{current:any};bars:Bar[];baseBars:Bar[];minutes?:Bar[];settings:string}};
+function unchangedMinutes(previous?:Bar[],next?:Bar[]){
+ if(previous===next)return true;
+ if(!previous?.length||!next?.length)return !previous?.length&&!next?.length;
+ const start=previous.findIndex(b=>b.time===next[0].time);
+ return start>=0&&next.length>=previous.length-start&&previous.slice(start).every((b,i)=>sameMarketBar(b,next[i]));
+}
 const compiled=new Map<string,Compiled>();
 const results=new Map<string,any>();
 function latestObjects(raw:any,key:string){const data=raw.plots?.[key]?.data;return Array.isArray(data)&&data.length?(data.at(-1)?.value??[]):[];}
@@ -18,7 +26,7 @@ function color(v:any,fallback='#d7b46a'){return typeof v==='string'&&v&&v!=='na'
 function plain(value:any){return JSON.parse(JSON.stringify(value,(k,v)=>['context','_udt','_definition'].includes(k)||typeof v==='function'?undefined:v));}
 export const visibleDisplay=(v:unknown)=>v===undefined||v==='all'||typeof v==='string'&&v.includes('pane');
 context.onmessage=async(event:MessageEvent)=>{
- const {id,key,source,bars,baseBars=bars,seconds,baseSeconds=seconds,calendar='utc',scripts,bundled=false,history,plotLimit}=event.data as Payload;
+ const {id,key,source,bars,baseBars=bars,seconds,baseSeconds=seconds,calendar='utc',scripts,bundled=false,history,plotLimit,live}=event.data as Payload;
  // Keep the full runtime history for TA and MTF requests; transfer only the
  // chart's drawable window. This reduces worker serialization at high speeds.
  const outputFrom=plotLimit&&plotLimit>0?(bars[Math.max(0,bars.length-Math.floor(plotLimit))]?.time??0):0;
@@ -27,13 +35,15 @@ context.onmessage=async(event:MessageEvent)=>{
  const jobs=(scripts?.length?scripts:[{id:'legacy',name:'Pine',source:source||''}]).slice().sort((a,b)=>Number(b.source.includes('indicator("All Indy (EBW) V10.4.4'))-Number(a.source.includes('indicator("All Indy (EBW) V10.4.4')));
  const plots:any[]=[],shapes:any[]=[],drawings:any[]=[],tables:any[]=[],warnings:string[]=[],errors:string[]=[],studies:any[]=[];
  let bridge=new Map<string,Map<number,number>>();
- const asOf=baseBars.length?periodEnd(baseBars.at(-1)!.time,String(baseSeconds/60),calendar):0;
+ const asOf=live?.asOf??(baseBars.length?periodEnd(baseBars.at(-1)!.time,String(baseSeconds/60),calendar):0);
+ const timeframe=live && seconds===86400?'D':String(seconds/60);
  const realNow=Date.now;Date.now=()=>asOf*1000;
  try{for(const job of jobs){
-  setPineMainTimeframe(String(seconds/60));
+  setPineMainTimeframe(timeframe);
   const study={id:job.id,name:job.name,inputs:[] as any[],error:'',bridge:false,ms:0,mode:'initial'};const started=performance.now();
   context.postMessage({id,progress:job.name});
   try{
+   if(live)checkPineIndicator(job.source);
    const src=job.source;const executable=src.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,m=>' '.repeat(m.length));if(/\bstrategy\s*\(/.test(executable))throw Error('หน้านี้ใช้ indicator() · strategy() ยังไม่เชื่อมกับสมุดออเดอร์จำลอง');if(src.length>250000)throw Error('Pine Script ยาวเกิน 250,000 ตัวอักษร');
    if(/\bimport\b/.test(src.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,m=>' '.repeat(m.length))))throw Error('ยังไม่รองรับ Pine library import');
    let item=compiled.get(job.id);
@@ -52,19 +62,19 @@ context.onmessage=async(event:MessageEvent)=>{
    item.indicator.inputs={...job.inputs};item.bridge=bridge;study.inputs=item.meta;
    study.bridge=src.includes('indicator("EBW-Fibo 1.9')&&bridge.size===17;
    context.postMessage({id,progress:job.name,metadata:study});
-   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:String(seconds/60),bars});
+   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars},live?.minutes);
    const settings=JSON.stringify([seconds,baseSeconds,calendar,bundled,job.inputs]);const prior=item.runtime;
-   const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>{const n=next[i];return b.time===n.time&&b.open===n.open&&b.high===n.high&&b.low===n.low&&b.close===n.close&&b.volume===n.volume&&b.spread===n.spread;});
+   const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>sameMarketBar(b,next[i]));
    let raw:any;
-   if(prior&&prior.settings===settings&&prefix(prior.bars,bars)&&prefix(prior.baseBars,baseBars)){
+   if(prior&&prior.settings===settings&&prefix(prior.bars,bars)&&prefix(prior.baseBars,baseBars)&&unchangedMinutes(prior.minutes,live?.minutes)){
     study.mode='incremental';
     prior.provider.current=dataSource;prior.pine.eDate=asOf*1000;prior.raw.eDate=asOf*1000;
-    await prior.pine.updateTail(prior.raw);raw=prior.raw;prior.bars=bars;prior.baseBars=baseBars;
+    await prior.pine.updateTail(prior.raw);raw=prior.raw;prior.bars=bars;prior.baseBars=baseBars;prior.minutes=live?.minutes;
    }else{
     const provider={current:dataSource};const liveProvider={configure(){},getMarketData:(...args:any[])=>(provider.current.getMarketData as any)(...args),getSymbolInfo:()=>provider.current.getSymbolInfo()};
-    const pine=new PineTS(liveProvider as any,'XAUUSD',String(seconds/60),undefined,bars[0]?.time*1000,asOf*1000);
+    const pine=new PineTS(liveProvider as any,'XAUUSD',timeframe,undefined,bars[0]?.time*1000,asOf*1000);
     pine.setMaxLoops(100000);pine.setTimezone('Asia/Bangkok');raw=await pine.run(item.indicator) as any;
-    item.runtime={pine,raw,provider,bars,baseBars,settings};
+    item.runtime={pine,raw,provider,bars,baseBars,minutes:live?.minutes,settings};
    }
    if(src.includes('indicator("All Indy (EBW) V10.4.4')){
     bridge=new Map(Object.entries(raw.plots??{}).filter(([key,p]:any)=>/^ZB \d\d /.test(p.title||key)).map(([key,p]:any)=>[p.title||key,new Map<number,number>(p.data.map((d:any)=>[Math.floor(d.time/1000),Number(d.value)]))]));

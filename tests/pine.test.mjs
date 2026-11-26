@@ -10,6 +10,28 @@ await import('../src/lib/pine.worker.ts');
 const base=Array.from({length:2400},(_,i)=>({time:1700000100+i*60,open:2000+Math.sin(i/8)*3+i/100,high:2004+Math.sin(i/8)*3+i/100,low:1996+Math.sin(i/8)*3+i/100,close:2000.4+Math.sin(i/8)*3+i/100,volume:10+(i%7)}));
 async function run(source,{bars=base,baseBars=bars,seconds=60,scripts,plotLimit}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds:60,calendar:'utc',scripts,plotLimit}})});}
 const assertGood=r=>assert.deepEqual(r.errors,[],r.errors.join(' | '));
+test('external v5 indicators on a live hourly chart see only available Eightcap candles across timeframes', async () => {
+ const start = Date.UTC(2025,0,6,6)/1000;
+ const minutes = Array.from({length:145},(_,i)=>({time:start+i*60,open:2000+i,high:2002+i,low:1999+i,close:2001+i,volume:10}));
+ const bars = aggregate(minutes,3600,'eightcap');
+ const asOf = minutes.at(-1).time+60;
+ const source='//@version=5\nindicator("Imported hours",overlay=true)\nlength=input.int(2,"Length")\nplot(ta.sma(close,length),"SMA")\nlows=request.security_lower_tf(syminfo.tickerid,"1",low)\nplot(array.size(lows),"Minute count")';
+ const result=await new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,seconds:3600,calendar:'eightcap',live:{asOf,minutes}}})});
+ assertGood(result);
+ assert.equal(result.plots.find(p=>p.name==='SMA').data.at(-1).value,2132.5);
+ assert.equal(result.plots.find(p=>p.name==='Minute count').data.at(-1).value,25);
+ assert.equal(result.studies[0].inputs.length,1);
+});
+test('an Eightcap minute correction refreshes a lower-timeframe study on a live hourly chart', async () => {
+ const start=Date.UTC(2025,0,6,6)/1000;
+ const minutes=Array.from({length:150},(_,i)=>({time:start+i*60,open:2000,high:2100,low:1900,close:2000,volume:10}));
+ const bars=aggregate(minutes,3600,'eightcap'),asOf=start+150*60;
+ const scripts=[{id:'minute-revision',name:'First close',source:'//@version=6\nindicator("First close")\nvalues=request.security_lower_tf(syminfo.tickerid,"1",close)\nplot(array.size(values)>0?array.get(values,0):na,"First")'}];
+ const evaluate=rows=>new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,bars,seconds:3600,calendar:'eightcap',scripts,live:{asOf,minutes:rows}}})});
+ const initial=await evaluate(minutes);assertGood(initial);assert.equal(initial.plots[0].data[1].value,2000);
+ const revised=minutes.map((b,i)=>i===60?{...b,close:2010}:b);
+ const result=await evaluate(revised);assertGood(result);assert.equal(result.plots[0].data[1].value,2010);
+});
 test('windowed worker output retains full TA history and ten-candle batches match cold output',async()=>{
  const source='//@version=6\nindicator("Fast replay",overlay=true)\nvar array<float> values=array.new_float()\nvalues.push(close)\nplot(ta.ema(close,200),"EMA")\nplot(ta.rsi(close,14),"RSI")\nplot(array.size(values),"Count")\nplot(request.security(syminfo.tickerid,"15",ta.ema(close,8)),"HTF")';
  let warm;for(const n of [2300,2310,2320]){const b=base.slice(0,n);warm=await run('',{bars:b,scripts:[{id:'fast-live',name:'Fast',source}],plotLimit:2000});assertGood(warm);assert.equal(warm.studies[0].mode,n===2300?'initial':'incremental');assert.ok(warm.plots.every(p=>p.data.length===2000));}

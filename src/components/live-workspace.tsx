@@ -1,26 +1,31 @@
-import {useEffect, useId, useMemo, useRef, useState, type ReactNode} from 'react';
+import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {
   ArrowLeft, ChartSpline, ChevronDown, Download, Ellipsis, History, LockKeyhole, LockKeyholeOpen,
   Maximize2, Minimize2, Pencil, Radio, RefreshCw, ScanLine, SkipBack, SkipForward, Trash2, X,
+  Code2, PanelsTopLeft, Settings2,
 } from 'lucide-react';
 import ChartBoundary from './chart-boundary';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
 import LiveDrawingToolbar from './live-drawing-toolbar';
 import LiveStudyPanel from './live-study-panel';
+import LiveAppearance from './live-appearance';
+import LiveLayoutPanel, {type ActiveLayout} from './live-layout-panel';
+import LivePineEditor, {newScriptDraft, type ScriptDraft} from './live-pine-editor';
+import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readChartView, workspaceKey} from '../lib/live-layouts';
+import type {SavedLayout} from '../lib/storage';
+import {usePine} from '../lib/use-pine';
 import type {LiveViewport} from '../lib/chart-tools';
-import {drawingKinds, drawingTools, isStroke, strokeMax, variableDrawingsMax} from '../lib/drawing-definitions';
+import {drawingTools} from '../lib/drawing-definitions';
 import {positionMetrics} from '../lib/drawing-geometry';
-import type {Bar, Drawing, DrawingKind, Trade} from '../lib/engine';
+import type {Bar, Drawing, DrawingKind, IndicatorSpec, Trade} from '../lib/engine';
 import {historyCatalog, loadBefore} from '../lib/history';
 import {candleWindow, olderPageSize, periods, type Period} from '../lib/live-market';
-import {livePlots, studyDefinitions, studyLabel, studyLength, type LiveStudy, type LiveStudyLengths} from '../lib/live-indicators';
+import {livePlots, studyDefinitions, studyLabel, type LiveStudy} from '../lib/live-indicators';
 import {useLiveMarket} from '../lib/use-live-market';
 import {useDialog} from '../lib/use-dialog';
 import './live-workspace.css';
 
-const storageKey = 'xau-live-workspace-v1';
-const periodList = Object.keys(periods) as Period[];
-const studyList = Object.keys(studyDefinitions) as LiveStudy[];
+const cameraKey = workspaceKey + '-camera';
 const emptyBars: Bar[] = [];
 const noTrades: Trade[] = [];
 const price = new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -34,11 +39,11 @@ const historyDate = new Intl.DateTimeFormat('en-GB', {
 const counts = new Intl.NumberFormat('en-US');
 const shortClock = new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'});
 
-function LivePanel({title, onClose, children}: {title: string; onClose: () => void; children: ReactNode}) {
+function LivePanel({title, onClose, children, wide, previewChart}: {title: string; onClose: () => void; children: ReactNode; wide?: boolean; previewChart?: boolean}) {
   const id = useId();
   useDialog(true, onClose);
-  return <div className="modal-shade" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="modal live-panel" role="dialog" aria-modal="true" aria-labelledby={id}>
+  return <div className="modal-shade" data-chart-preview={previewChart} onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className={'modal live-panel' + (wide ? ' live-panel-wide' : '')} role="dialog" aria-modal="true" aria-labelledby={id}>
       <header className="modal-head">
         <h2 id={id}>{title}</h2>
         <button type="button" className="live-icon" aria-label="ปิดหน้าต่าง" onClick={onClose}><X size={19}/></button>
@@ -48,54 +53,39 @@ function LivePanel({title, onClose, children}: {title: string; onClose: () => vo
   </div>;
 }
 
-type Workspace = {
-  period: Period; drawings: Drawing[]; studies: LiveStudy[];
-  lengths: LiveStudyLengths; magnet: boolean; hiddenDrawings: boolean;
-};
-
-function loadWorkspace(): Workspace {
-  const defaults: Workspace = {period: '1m', drawings: [], studies: ['ema20'], lengths: {}, magnet: false, hiddenDrawings: false};
+function readWorkingChart() {
+  let raw, camera;
   try {
-    const stored = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
-    if (!stored) return defaults;
-    const lengths: LiveStudyLengths = {};
-    for (const study of studyList) {
-      const value = studyLength(study, stored.lengths?.[study]);
-      if (value !== null) lengths[study] = value;
-    }
-    return {
-      period: periodList.includes(stored.period) ? stored.period : defaults.period,
-      studies: Array.isArray(stored.studies) ? studyList.filter(s => stored.studies.includes(s)) : defaults.studies,
-      lengths,
-      magnet: stored.magnet === true,
-      hiddenDrawings: stored.hiddenDrawings === true,
-      drawings: Array.isArray(stored.drawings) ? stored.drawings.filter((d: Drawing | null) => {
-        if (!d || !drawingKinds.includes(d.kind) || typeof d.id !== 'string' || !Array.isArray(d.points)) return false;
-        const tool = drawingTools[d.kind];
-        const variable = tool.variable || isStroke(d.kind);
-        const max = isStroke(d.kind) ? strokeMax : tool.variable ? variableDrawingsMax : tool.points.length;
-        return d.points.length >= (variable ? 2 : max) && d.points.length <= max
-          && (d.text === undefined || typeof d.text === 'string') && (d.color === undefined || typeof d.color === 'string')
-          && d.points.every(p => p && Number.isSafeInteger(p.time) && p.time > 0 && p.time < 8640000000000
-            && Number.isFinite(p.price) && p.price > 0);
-      }).slice(0, 500) : [],
-    };
-  } catch {
-    return defaults;
-  }
+    raw = JSON.parse(localStorage.getItem(workspaceKey) ?? 'null');
+    camera = JSON.parse(localStorage.getItem(cameraKey) ?? 'null');
+  } catch { /* A fresh or private browser can still open the chart. */ }
+  const workspace = loadLiveWorkspace(raw);
+  const link = raw?.activeLayout;
+  const active: ActiveLayout | null = link && typeof link.id === 'string' && typeof link.name === 'string'
+    && Number.isInteger(link.revision) ? {id: link.id, name: link.name, revision: link.revision} : null;
+  const view = camera?.period === workspace.period && camera.active === (active?.id ?? null) ? readChartView(camera.view) : null;
+  return {workspace, active, view};
 }
 
 export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
-  const [workspace, setWorkspace] = useState(loadWorkspace);
-  const {period, studies, lengths, drawings, magnet, hiddenDrawings} = workspace;
+  const [initial] = useState(readWorkingChart);
+  const [workspace, setWorkspace] = useState(initial.workspace);
+  const {period, studies, lengths, drawings, magnet, hiddenDrawings, appearance, scripts} = workspace;
+  const [activeLayout, setActiveLayout] = useState(initial.active);
+  const [initialView, setInitialView] = useState(initial.view);
+  const [layoutVersion, setLayoutVersion] = useState(0);
+  const [draft, setDraft] = useState<ScriptDraft>(newScriptDraft);
+  const [trial, setTrial] = useState<IndicatorSpec | null>(null);
+  const [editorError, setEditorError] = useState('');
+  const [editorMessage, setEditorMessage] = useState('');
   const [mode, setMode] = useState<DrawingKind | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [follow, setFollow] = useState(true);
-  const [viewport, setViewport] = useState<LiveViewport | null>(null);
+  const [follow, setFollow] = useState(initial.view?.follow ?? true);
+  const [viewport, setViewport] = useState<LiveViewport | null>(initial.view?.follow ? null : initial.view?.viewport ?? null);
   const [retry, setRetry] = useState(0);
   const [backup, setBackup] = useState<{period: Period; bars: Bar[]; failed?: boolean}>();
   const [storageFailed, setStorageFailed] = useState(false);
-  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'studies' | null>(null);
+  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'studies' | 'appearance' | 'layouts' | 'pine' | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const chart = useRef<LiveChartActions>(null);
   const undo = useRef<Drawing[][]>([]);
@@ -114,12 +104,28 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(workspace));
+      localStorage.setItem(workspaceKey, JSON.stringify({...workspace, activeLayout}));
       setStorageFailed(false);
     } catch {
       setStorageFailed(true);
     }
-  }, [workspace]);
+  }, [workspace, activeLayout]);
+
+  function currentView() {
+    return chart.current?.captureView(follow) ?? {...(initialView ?? defaultChartView), follow, viewport: viewport ?? initialView?.viewport ?? null};
+  }
+  const saveCamera = useRef(() => {});
+  saveCamera.current = () => {
+    try { localStorage.setItem(cameraKey, JSON.stringify({period, active: activeLayout?.id ?? null, view: currentView()})); }
+    catch { /* Named layouts are stored independently in IndexedDB. */ }
+  };
+  useEffect(() => {
+    const save = () => saveCamera.current();
+    const onHidden = () => { if (document.hidden) save(); };
+    window.addEventListener('pagehide', save);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => { window.removeEventListener('pagehide', save); document.removeEventListener('visibilitychange', onHidden); };
+  }, []);
 
   useEffect(() => {
     if (!needsBackup) return;
@@ -141,7 +147,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
 
   const historical = needsBackup && backup?.period === period ? backup.bars : emptyBars;
   const bars = market.bars.length ? market.bars : historical;
-  const plots = useMemo(() => livePlots(bars, studies, lengths), [bars, studies, lengths]);
+  const builtInPlots = useMemo(() => livePlots(bars, studies, lengths), [bars, studies, lengths]);
+  const proposedScripts = useMemo(() => !trial ? scripts : scripts.some(s => s.id === trial.id)
+    ? scripts.map(s => s.id === trial.id ? trial : s) : [...scripts, trial], [scripts, trial]);
+  const jobs = useMemo(() => proposedScripts.filter(s => s.enabled), [proposedScripts]);
   const activeDrawing = drawings.find(d => d.id === selected);
   const activeMetrics = activeDrawing?.kind === 'long' || activeDrawing?.kind === 'short'
     ? positionMetrics(activeDrawing.kind, activeDrawing.points) : null;
@@ -157,12 +166,47 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const minuteBased = market.bars.length > market.closed.length;
   const last = minuteBased ? market.minuteTime : market.closed.at(-1)?.time;
   const through = last === undefined ? undefined : candleWindow(last, minuteBased ? 60 : periods[period]).close;
+  const pineFrame = {asOf: through ?? (bars.length ? candleWindow(bars.at(-1)!.time, periods[period]).close : 0),
+    minutes: market.archive || historical.length ? emptyBars : market.minutes};
+  const pine = usePine(undefined, jobs.length > 0, bars, periods[period], 'live-' + period, jobs,
+    bars, periods[period], 'eightcap', false, pineFrame);
+  const plots = useMemo(() => [...builtInPlots, ...pine.plots], [builtInPlots, pine.plots]);
+  const enabledScripts = scripts.filter(s => s.enabled);
+  const totalStudies = studies.length + enabledScripts.length;
+  useEffect(() => {
+    if (!trial) return;
+    const finished = pine.key ? pine.studies.find(s => s.id === trial.id) : undefined;
+    if (!finished && (!pine.error || pine.calculating)) return;
+    if (!finished || finished.error) {
+      setEditorError(finished?.error || pine.error);
+    } else {
+      setWorkspace(previous => ({...previous, scripts: proposedScripts}));
+      setDraft({id: trial.id, name: trial.name, source: trial.source});
+      setEditorMessage((scripts.some(s => s.id === trial.id) ? 'อัปเดต ' : 'เพิ่ม ') + trial.name + ' ลงกราฟแล้ว');
+    }
+    setTrial(null);
+  }, [trial, pine.key, pine.studies, pine.error, pine.calculating, proposedScripts, scripts]);
   const chartStatus = storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
     (market.windowUnavailable ? 'ไม่พบช่วงเวลาเดิมในไทม์เฟรมนี้' : market.archive ? 'มุมมองย้อนหลัง'
       : historical.length ? 'ข้อมูลสำรอง' : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
         : liveNow && through !== undefined ? 'OHLC ถึง ' + shortClock.format(through * 1000)
           : minuteBased ? 'OHLC จาก 1m ที่ปิดแล้ว' : '');
-  const viewportKey = period + (market.archive ? '-archive' : '-current');
+  const viewportKey = period + (market.archive ? '-archive' : '-current') + '-' + layoutVersion;
+
+  function rememberLayout(row: SavedLayout | null) {
+    setActiveLayout(row ? {id: row.id, name: row.file.name, revision: row.revision} : null);
+  }
+  function openLayout(row: SavedLayout) {
+    setWorkspace(row.file.workspace);
+    setFollow(row.file.view.follow);
+    setViewport(row.file.view.follow ? null : row.file.view.viewport);
+    setInitialView(row.file.view);
+    setLayoutVersion(v => v + 1);
+    rememberLayout(row);
+    undo.current = []; redo.current = [];
+    cancelDrawing(); setDraft(newScriptDraft); setTrial(null); setEditorError(''); setEditorMessage('');
+    closePanel();
+  }
 
   function cancelDrawing() {
     setMode(null);
@@ -189,6 +233,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
   function selectPeriod(value: Period) {
     if (value === period) return;
+    setInitialView(null);
     setViewport(follow ? null : chart.current?.viewport() ?? viewport);
     setWorkspace(current => ({...current, period: value}));
     cancelDrawing();
@@ -202,7 +247,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     void market.loadOlder(false);
   }
 
-  function closePanel() { setPanel(null); }
+  function closePanel() { setPanel(null); setTrial(null); }
   function reconnect() { setRetry(value => value + 1); }
   function goLatest() {
     if (!market.archive && !market.findingWindow) chart.current?.latest();
@@ -246,7 +291,13 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           <i aria-hidden="true"/><span role="status" aria-label={status}>{shortStatus}</span>
         </span>
       </div>
-      <button className="live-replay" type="button" aria-label="เปิด Replay" title="เปิด Replay" onClick={onReplay}>
+      <div className="live-chart-settings">
+        <button className="header-layout" type="button" aria-label="เลย์เอาต์" title="บันทึกและเปิดเลย์เอาต์"
+          aria-haspopup="dialog" onClick={() => setPanel('layouts')}><PanelsTopLeft size={18}/><span>{activeLayout?.name ?? 'เลย์เอาต์'}</span></button>
+        <button type="button" aria-label="ตั้งค่ารูปลักษณ์กราฟ" title="ตั้งค่ารูปลักษณ์กราฟ"
+          aria-haspopup="dialog" onClick={() => setPanel('appearance')}><Settings2 size={18}/></button>
+      </div>
+      <button className="live-replay" type="button" aria-label="เปิด Replay" title="เปิด Replay" onClick={() => { saveCamera.current(); onReplay(); }}>
         <ArrowLeft size={16}/><span>Replay</span>
       </button>
     </header>
@@ -259,7 +310,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       <button className="live-studies-button" type="button" aria-haspopup="dialog" aria-label="อินดิเคเตอร์"
         title="อินดิเคเตอร์" onClick={() => setPanel('studies')}>
         <ChartSpline size={19}/><span className="live-wide-label">อินดิเคเตอร์</span>
-        {studies.length > 0 && <span className="live-study-count" aria-label={studies.length + ' ตัวที่เปิดอยู่'}>{studies.length}</span>}
+        {totalStudies > 0 && <span className="live-study-count" aria-label={totalStudies + ' ตัวที่เปิดอยู่'}>{totalStudies}</span>}
       </button>
       <div className="live-view-actions">
         <button className="live-wide-action" type="button" aria-pressed={follow} title="ติดตามแท่งล่าสุด"
@@ -294,18 +345,21 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           <button className="live-dock-action" type="button" aria-label="ไปแท่งล่าสุด" title="ไปแท่งล่าสุด"
             data-following={follow} disabled={!bars.length && !viewport} onClick={goLatest}><SkipForward size={19}/><span>ล่าสุด</span></button>
         </>}/>
-      <div className="live-chart">
+      <div className="live-chart" style={{'--chart-bg': appearance.background, '--chart-ink': appearance.text,
+        '--chart-up': appearance.upColor, '--chart-down': appearance.downColor} as CSSProperties}>
         {bars.length ? <ChartBoundary resetKey={viewportKey}><ReplayChart live key={viewportKey} liveActions={chart}
-          liveViewport={viewport} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
+          liveViewport={viewport} initialView={initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
+          shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
           bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
           drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
           selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingCancel={cancelDrawing}
-          liveSelection={drawingStrip} liveLegend={studies.length > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
-            <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
-              <i style={{backgroundColor: studyDefinitions[studies[0]].color}} aria-hidden="true"/>
-              {studyLabel(studies[0], lengths)}
-              {studies.length > 1 && <span>+{studies.length - 1}</span>}
+          liveSelection={drawingStrip} liveLegend={totalStudies > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
+            <button type="button" onClick={() => setPanel(enabledScripts.length ? 'pine' : 'studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
+              <i style={{backgroundColor: studies.length ? studyDefinitions[studies[0]].color : pine.plots[0]?.color ?? '#e2bc73'}} aria-hidden="true"/>
+              {studies.length ? studyLabel(studies[0], lengths) : enabledScripts[0]?.name}
+              {totalStudies > 1 && <span>+{totalStudies - 1}</span>}
             </button>
+            {(pine.error || pine.warnings.length > 0) && <button type="button" onClick={() => setPanel('pine')} title={pine.error || pine.warnings.join(' · ')}>ดูข้อความ Pine</button>}
           </div>}
           onDrawing={drawing => { saveDrawings([...drawings, drawing]); setSelected(drawing.id); setMode(null); }}
           onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
@@ -343,6 +397,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
 
     {panel === 'view' && <LivePanel title="มุมมองกราฟ" onClose={closePanel}>
       <div className="live-panel-options">
+        <button type="button" onClick={() => setPanel('appearance')}><Settings2 size={18}/><span>ตั้งค่ารูปลักษณ์กราฟ</span></button>
+        <button type="button" onClick={() => setPanel('layouts')}><PanelsTopLeft size={18}/><span>เลย์เอาต์</span></button>
+        <button type="button" onClick={() => setPanel('pine')}><Code2 size={18}/><span>Pine Editor</span></button>
         <button type="button" aria-pressed={follow} onClick={() => { toggleFollow(); closePanel(); }}>
           <Radio size={18}/><span>ติดตามแท่งล่าสุด</span>
         </button>
@@ -396,7 +453,23 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       </div>
     </LivePanel>}
 
-    {panel === 'studies' && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy}
+    {panel === 'appearance' && <LivePanel title="รูปลักษณ์กราฟ" onClose={closePanel} previewChart>
+      <LiveAppearance value={appearance} onChange={next => setWorkspace(v => ({...v, appearance: next}))}/>
+    </LivePanel>}
+    {panel === 'layouts' && <LivePanel title="เลย์เอาต์" onClose={closePanel}>
+      <LiveLayoutPanel active={activeLayout} capture={name => makeLayoutFile(name, workspace, currentView())}
+        onSave={rememberLayout} onOpen={openLayout}/>
+    </LivePanel>}
+    {panel === 'pine' && <LivePanel title="Pine Editor" onClose={closePanel} wide>
+      <LivePineEditor scripts={scripts} studies={pine.studies} draft={draft} setDraft={v => {
+        setDraft(v); setEditorError(''); setEditorMessage('');
+      }} pending={Boolean(trial)} hasBars={bars.length > 0} status={trial ? 'กำลังทดสอบกับแท่ง ' + period :
+        pine.warnings.length ? pine.warnings.join(' · ') : editorMessage || pine.status}
+        error={editorError || pine.error} onApply={candidate => { setEditorError(''); setEditorMessage(''); setTrial(candidate); }}
+        onChange={next => { setEditorError(''); setEditorMessage(''); setWorkspace(v => ({...v, scripts: next})); }}
+        onRetry={pine.retry} onShowChart={closePanel}/>
+    </LivePanel>}
+    {panel === 'studies' && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy} onPine={() => setPanel('pine')}
       onLength={(study, length) => setWorkspace(value => ({...value, lengths: {...value.lengths, [study]: length}}))}
       onClose={closePanel}/>}
   </main>;
