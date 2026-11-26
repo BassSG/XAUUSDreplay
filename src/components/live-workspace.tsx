@@ -6,7 +6,7 @@ import LiveStudyPanel from './live-study-panel';
 import {drawingNames} from '../lib/chart-tools';
 import type {Bar, Drawing, DrawingKind, Trade} from '../lib/engine';
 import {historyCatalog, loadBefore} from '../lib/history';
-import {periods, type Period} from '../lib/live-market';
+import {olderPageSize, periods, type Period} from '../lib/live-market';
 import {livePlots, studyDefinitions, studyLabel, studyLength, type LiveStudy, type LiveStudyLengths} from '../lib/live-indicators';
 import {useLiveMarket} from '../lib/use-live-market';
 import './live-workspace.css';
@@ -22,6 +22,10 @@ const clock = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short',
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 });
+const historyDate = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+});
+const counts = new Intl.NumberFormat('en-US');
 
 type Workspace = {
   period: Period; drawings: Drawing[]; studies: LiveStudy[];
@@ -106,6 +110,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const quote = market.quote;
   const status = market.quoteError ? 'การเชื่อมต่อขัดข้อง' : quote?.status === 'live' ? 'ราคาสด'
     : quote?.status === 'closed' ? 'ตลาดปิด' : quote ? 'ราคาล่าช้า' : 'กำลังเชื่อมต่อ';
+  const historyLabel = market.historyStatus === 'loading' ? 'กำลังโหลดแท่งเก่า'
+    : market.historyStatus === 'error' ? 'โหลดแท่งเก่าไม่สำเร็จ'
+    : market.historyStatus === 'end' ? 'ถึงข้อมูลเก่าสุดที่ Eightcap ส่งมาแล้ว' : '';
 
   function cancelDrawing() {
     setMode(null);
@@ -138,6 +145,11 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   function toggleStudy(study: LiveStudy) {
     setWorkspace(value => ({...value, studies: value.studies.includes(study)
       ? value.studies.filter(s => s !== study) : [...value.studies, study]}));
+  }
+  function loadAtChartEdge() {
+    if (!market.closed.length) return;
+    setFollow(false);
+    void market.loadOlder(false);
   }
 
   return <main className="live-workspace">
@@ -201,11 +213,24 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
             onDrawing={drawing => { saveDrawings([...drawings, drawing]); setSelected(drawing.id); setMode(null); }}
             onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
             onDrawingUndo={() => restoreDrawing(undo.current, redo.current)}
+            onHistoryEdge={loadAtChartEdge}
             onDrawingRedo={() => restoreDrawing(redo.current, undo.current)}/></ChartBoundary>
             : <div className="live-chart-empty" role="status">{needsBackup && backup?.failed
               ? 'โหลดแท่งราคาไม่ได้ ลองเชื่อมต่อใหม่' : needsBackup ? 'กำลังโหลดข้อมูลย้อนหลังที่บันทึกไว้' : 'กำลังโหลดแท่งราคาจาก Eightcap'}</div>}
         </div>
       </div>
+      {bars.length > 0 && <div className="live-history" aria-label="แท่งเทียนย้อนหลัง">
+        <div>
+          <strong>ย้อนหลังถึง {historyDate.format(bars[0].time * 1000)}</strong>
+          <span>{counts.format(market.closed.length || historical.length)} แท่งปิด ในกราฟ</span>
+          <span role="status">{historyLabel}</span>
+        </div>
+        <button type="button" disabled={!market.closed.length || market.historyStatus === 'loading' || market.historyStatus === 'end'}
+          title={'โหลดครั้งละสูงสุด ' + counts.format(olderPageSize) + ' แท่ง'}
+          onClick={() => void market.loadOlder(true)}>
+          {market.historyStatus === 'error' ? 'ลองโหลดอีกครั้ง' : 'โหลดแท่งเก่า'}
+        </button>
+      </div>}
       <div className="live-foot">
         <span>{historical.length ? 'กราฟย้อนหลังถึง ' + clock.format(historical.at(-1)!.time * 1000)
           : market.barError && market.closed.length ? 'แสดงแท่งล่าสุดที่โหลดไว้' : market.open ? 'แท่งปัจจุบันใช้ Bid ที่แอปรับมา'

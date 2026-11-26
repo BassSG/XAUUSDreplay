@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {liveTailUpdate, mergeClosedBars, readBars, readQuote, sampleOpenBar} from '../src/lib/live-market.ts';
+import {
+  barsQuery, liveTailUpdate, mergeClosedBars, olderBarsEnd, prependOlderBars, readBars, readOlderBars, readQuote, sampleOpenBar,
+} from '../src/lib/live-market.ts';
 import {livePlots, studyLabel} from '../src/lib/live-indicators.ts';
 
 const now = 1795620180;
@@ -59,6 +61,30 @@ test('rolling broker requests preserve earlier candles until the workspace hits 
   assert.equal(mergeClosedBars(before, [{...last}]), before);
   assert.deepEqual(mergeClosedBars(before, [last, newest]), [first, second, last, newest]);
   assert.deepEqual(mergeClosedBars(before, [last, newest], 3), [second, last, newest]);
+});
+
+test('history query ends before the first candle in broker time through summer and winter', () => {
+  const utc = date => Date.parse(date) / 1000;
+  const summer = olderBarsEnd(utc('2026-08-24T11:00:00Z'));
+  const winter = olderBarsEnd(utc('2026-11-25T02:00:00Z'));
+  assert.equal(summer, utc('2026-08-24T13:59:59Z'));
+  assert.equal(winter, utc('2026-11-25T03:59:59Z'));
+  assert.equal(barsQuery(winter).toString(), 'limit=1000&order=desc&end=' + winter);
+});
+
+test('history prepends ordered, strictly older bars and preserves verified bars through quote refreshes', () => {
+  const latest = readBars([candle], 60, now);
+  const page = readOlderBars([
+    {...candle, time: minute - 60},
+    {...candle, time: minute - 120},
+  ], minute, 60, now);
+  assert.deepEqual(page.map(bar => bar.time), [minute - 120, minute - 60]);
+  const merged = prependOlderBars(latest, page);
+  assert.deepEqual(merged, [...page, ...latest]);
+  assert.equal(prependOlderBars(merged, page), merged);
+  assert.equal(mergeClosedBars(merged, latest, Infinity), merged);
+  assert.throws(() => readOlderBars([candle], minute, 60, now), /Bridge/);
+  assert.deepEqual(readOlderBars([], minute, 60, now), []);
 });
 
 test('live quote updates may edit the latest candle, while broker revisions refresh history', () => {

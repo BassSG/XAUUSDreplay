@@ -3,6 +3,7 @@ import {brokerTimeToUtc, utcToBrokerTime, type Bar} from './engine.ts';
 export const periods = {'1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400};
 export type Period = keyof typeof periods;
 export type Quote = {bid: number; ask: number; time: number; status: 'live' | 'closed' | 'stale'};
+export const olderPageSize = 1000;
 type Row = Record<string, unknown>;
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
 const epoch = (value: unknown): value is number => positive(value) && Number.isSafeInteger(value);
@@ -13,13 +14,39 @@ export function sameMarketBar(a: Bar, b: Bar) {
 }
 
 export function mergeClosedBars(previous: Bar[], snapshot: Bar[], capacity = 2500) {
-  if (!previous.length) return snapshot.slice(-capacity);
+  if (!previous.length) return snapshot.length <= capacity ? snapshot : snapshot.slice(-capacity);
   if (!snapshot.length || snapshot.at(-1)!.time < previous.at(-1)!.time) return previous;
   const overlap = previous.findIndex(bar => bar.time >= snapshot[0].time);
   const keep = overlap < 0 ? previous.length : overlap;
-  const bars = [...previous.slice(0, keep), ...snapshot].slice(-capacity);
-  return bars.length === previous.length && bars.every((bar, index) => sameMarketBar(bar, previous[index]))
-    ? previous : bars;
+  const length = keep + snapshot.length;
+  if (length === previous.length && length <= capacity &&
+      snapshot.every((bar, i) => sameMarketBar(bar, previous[keep + i]))) return previous;
+  const bars = [...previous.slice(0, keep), ...snapshot];
+  return length <= capacity ? bars : bars.slice(-capacity);
+}
+
+export function barsQuery(rawEnd?: number) {
+  const query = new URLSearchParams({limit: rawEnd === undefined ? '1500' : String(olderPageSize), order: 'desc'});
+  if (rawEnd !== undefined) query.set('end', String(rawEnd));
+  return query;
+}
+
+// GET /api/bars filters on the broker's clock, while chart bars are UTC.
+export function olderBarsEnd(before: number) {
+  return utcToBrokerTime(before) - 1;
+}
+
+export function readOlderBars(payload: unknown, before: number, seconds: number, now: number) {
+  if (Array.isArray(payload) && !payload.length) return [];
+  const bars = readBars(payload, seconds, now);
+  if (bars.at(-1)!.time >= before) throw Error('Bridge ส่งแท่งที่อยู่นอกช่วงย้อนหลัง');
+  return bars;
+}
+
+export function prependOlderBars(current: Bar[], older: Bar[]) {
+  if (!current.length || !older.length) return current;
+  const rows = older.filter(bar => bar.time < current[0].time);
+  return rows.length ? [...rows, ...current] : current;
 }
 
 export function liveTailUpdate(previous: Bar[], next: Bar[]) {
@@ -27,8 +54,12 @@ export function liveTailUpdate(previous: Bar[], next: Bar[]) {
   if (!previous.length || next.length < previous.length || next.length > previous.length + 1) return false;
   const append = next.length > previous.length;
   const prefix = append ? previous.length : previous.length - 1;
-  return (append ? next.at(-1)!.time > previous.at(-1)!.time : next.at(-1)!.time === previous.at(-1)!.time) &&
-    previous.slice(0, prefix).every((bar, index) => sameMarketBar(bar, next[index]));
+  const expectedTime = append ? next.at(-1)!.time > previous.at(-1)!.time : next.at(-1)!.time === previous.at(-1)!.time;
+  if (!expectedTime) return false;
+  for (let index = 0; index < prefix; index++) {
+    if (!sameMarketBar(previous[index], next[index])) return false;
+  }
+  return true;
 }
 
 export function readBars(payload: unknown, seconds: number, now: number): Bar[] {

@@ -1,4 +1,5 @@
 import type {Connect, Plugin} from 'vite';
+import {barsQuery} from '../src/lib/live-market';
 
 const prefix = '/api/xau-live/';
 const recentBars = /^bars\/(1m|5m|15m|1h|4h|1d)$/;
@@ -17,16 +18,21 @@ export function liveBridge(): Plugin {
 
   const handle: Connect.NextHandleFunction = async (req, res, next) => {
     if (!req.url?.startsWith(prefix)) return next();
-    const route = req.url.slice(prefix.length);
+    const [route, query] = req.url.slice(prefix.length).split('?', 2);
     const bars = recentBars.exec(route);
+    const params = new URLSearchParams(query);
+    const value = params.get('end');
+    const rawEnd = value === null ? undefined : Number(value);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    if (req.method !== 'GET' || (!bars && route !== 'quote')) {
+    if (req.method !== 'GET' || (!bars && route !== 'quote') ||
+        [...params].length > (bars && value !== null ? 1 : 0) ||
+        (value !== null && (!/^\d{1,12}$/.test(value) || rawEnd! <= 0))) {
       res.statusCode = 404;
       res.end(JSON.stringify({error: 'Unknown market data route'}));
       return;
     }
-    const endpoint = bars ? '/api/bars/' + bars[1] + '?limit=1500&order=desc' : '/api/quote';
+    const endpoint = bars ? '/api/bars/' + bars[1] + '?' + barsQuery(rawEnd).toString() : '/api/quote';
     try {
       const result = await fetch(new URL(endpoint, bridge), {
         headers, redirect: 'error', signal: AbortSignal.timeout(5500),

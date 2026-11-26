@@ -50,6 +50,11 @@ html, body { overflow-x: clip; }
 .live-chart-empty { display: grid; place-items: center; min-height: 430px; padding: 20px; color: var(--live-muted); }
 .live-foot { color: var(--live-muted); font-size: 12px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; padding: 8px 16px; border-top: 1px solid var(--live-border); }
 .live-foot a { text-decoration: underline; text-underline-offset: 3px; }
+.live-history { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 8px 16px; border-top: 1px solid var(--live-border); }
+.live-history > div { display: grid; gap: 4px; min-width: 0; }
+.live-history strong { font-size: 13px; font-weight: 600; }
+.live-history span { font-size: 12px; color: var(--live-muted); }
+.live-history span:empty { display: none; }
 .live-object { flex-wrap: wrap; padding: 12px 0; }
 .live-object input { background: var(--live-rail); color: var(--live-text); border: 1px solid var(--live-border); border-radius: 6px; padding: 8px; }
 .live-ohlc { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; padding: 4px 8px 8px; font-variant-numeric: tabular-nums; font-size: 13px; }
@@ -74,6 +79,7 @@ html, body { overflow-x: clip; }
   .live-studies-button { margin-left: 0; }
   .live-ohlc { gap: 4px 12px; }
   .live-ohlc time { flex-basis: 100%; }
+  .live-history button { min-height: 44px; }
   .live-chart-layout { grid-template-columns: minmax(0, 1fr); }
   .live-tools { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--live-border); }
   .live-tools > button { flex-shrink: 0; }
