@@ -522,7 +522,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     {panel === 'studies' && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy}
       message={editorMessage || (editorError ? 'Pine · ' + editorError : '')}
       scripts={mergeScripts(library.map(script => ({...script, enabled: false})), proposedScripts)} evaluations={pine.studies}
-      pendingId={trial?.id} onCancelApply={() => { setTrial(null); setPanel('pine'); }}
+      pendingId={trial?.id} pendingStatus={pine.status} onCancelApply={() => { setTrial(null); setPanel('pine'); }}
       onPine={() => { setDraft(newScriptDraft); setEditorError(''); setPanel('pine'); }}
       onEdit={script => { setDraft({id: script.id, name: script.name, source: script.source}); setEditorError(''); setPanel('pine'); }}
       onScriptChange={next => {

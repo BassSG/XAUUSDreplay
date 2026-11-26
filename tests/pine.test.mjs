@@ -5,12 +5,30 @@ import {createHash} from 'node:crypto';
 import {aggregate} from '../src/lib/engine.ts';
 import {replayProvider} from '../src/lib/pine-data.ts';
 import {adaptPineSource,optimizePrepared} from '../src/lib/pine-compat.ts';
-let callback,sequence=0;
-globalThis.self={postMessage:v=>{if(!v.progress)callback(v)}};
+let callback,progressCallback,sequence=0;
+globalThis.self={postMessage:value=>{
+ if(value.progress)progressCallback?.(value);
+ else callback(value);
+}};
 await import('../src/lib/pine.worker.ts');
 const base=Array.from({length:2400},(_,i)=>({time:1700000100+i*60,open:2000+Math.sin(i/8)*3+i/100,high:2004+Math.sin(i/8)*3+i/100,low:1996+Math.sin(i/8)*3+i/100,close:2000.4+Math.sin(i/8)*3+i/100,volume:10+(i%7)}));
 async function run(source,{bars=base,baseBars=bars,seconds=60,scripts,plotLimit}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds:60,calendar:'utc',scripts,plotLimit}})});}
 const assertGood=r=>assert.deepEqual(r.errors,[],r.errors.join(' | '));
+test('the live Pine worker reports candle execution before returning its plots',async()=>{
+ const progress=[];
+ const bars=base.slice(0,30);
+ progressCallback=value=>progress.push(value.progress);
+ try{
+  const source='//@version=6\nindicator("Tracked")\nplot(close,"Close")';
+  const result=await new Promise(resolve=>{callback=resolve;self.onmessage({data:{
+   id:++sequence,scripts:[{id:'tracked',name:'Tracked',source}],bars,seconds:60,
+   live:{asOf:bars.at(-1).time+60,minutes:bars},
+  }});});
+  assertGood(result);
+  assert.ok(progress.some(text=>text.startsWith('Tracked · ')&&text.endsWith('1/30')));
+  assert.equal(result.plots[0].data.at(-1).value,bars.at(-1).close);
+ }finally{progressCallback=undefined;}
+});
 test('All Indy 1.4.20 skips a missing lower-timeframe packet before reading its close time', async () => {
  const source=`//@version=6
 indicator("All Indy 1.4.20 • Zone Context")

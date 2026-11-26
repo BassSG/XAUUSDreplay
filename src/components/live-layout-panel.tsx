@@ -26,6 +26,7 @@ export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [removing, setRemoving] = useState('');
+  const [pastedLayout, setPastedLayout] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     let mounted = true;
@@ -51,12 +52,13 @@ export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props
       onSave(record); setName(file.name); setMessage('บันทึก ' + file.name + ' แล้ว');
     });
   }
-  async function importFile(file: File) {
+  async function importLayout(read: () => string | Promise<string>) {
     await act(async () => {
       let json: unknown;
-      try { json = JSON.parse(await file.text()); } catch { throw Error('อ่านไฟล์ JSON ไม่ได้'); }
+      try { json = JSON.parse(await read()); } catch { throw Error('อ่านข้อมูลเลย์เอาต์ JSON ไม่ได้'); }
       const imported = readLayoutFile(json);
       const saved = await saveLiveLayout(imported);
+      setPastedLayout('');
       setMessage('นำเข้า ' + saved.file.name + ' แล้ว กดชื่อเพื่อเปิด');
     });
   }
@@ -89,8 +91,17 @@ export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props
         <button onClick={() => downloadLayout(capture(name.trim() || 'XAUUSD'))}><Download size={16}/>ส่งออกกราฟนี้</button>
         <button disabled={busy} onClick={() => fileInput.current?.click()}><Upload size={16}/>นำเข้าเลย์เอาต์</button>
         <input type="file" hidden ref={fileInput} aria-label="ไฟล์เลย์เอาต์" accept=".json,application/json"
-          onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importFile(f); }}/>
+          onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importLayout(() => f.text()); }}/>
       </div>
+      <details className="layout-paste">
+        <summary>วางข้อมูลเลย์เอาต์</summary>
+        <label className="chart-field">ข้อมูลเลย์เอาต์ JSON
+          <textarea className="script-source" value={pastedLayout} spellCheck={false}
+            onChange={event => setPastedLayout(event.target.value)}/>
+        </label>
+        <button type="button" disabled={busy || !pastedLayout.trim()}
+          onClick={() => void importLayout(() => pastedLayout)}>นำเข้าข้อมูลที่วาง</button>
+      </details>
     </div>
     {message && <p role="status" className="chart-feedback">{message}</p>}
     {error && <p role="alert" className="chart-error">{error}</p>}

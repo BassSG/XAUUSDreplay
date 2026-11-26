@@ -20,6 +20,7 @@ type Props = {
   scripts: IndicatorSpec[];
   evaluations: StudyStatus[];
   pendingId?: string;
+  pendingStatus: string;
   onCancelApply: () => void;
   onEdit: (script: IndicatorSpec) => void;
   onScriptChange: (script: IndicatorSpec) => void;
@@ -35,7 +36,7 @@ const icons: Record<LiveStudy, LucideIcon> = {
 
 export default function LiveStudyPanel({
   selected, lengths, onToggle, onLength, onClose, onPine, message, scripts, evaluations,
-  pendingId, onCancelApply, onEdit, onScriptChange,
+  pendingId, pendingStatus, onCancelApply, onEdit, onScriptChange,
 }: Props) {
   const [query, setQuery] = useState('');
   const [help, setHelp] = useState<LiveStudy | null>(null);
@@ -80,7 +81,7 @@ export default function LiveStudyPanel({
                 disabled={Boolean(pendingId)} title="แก้ไขโค้ด" onClick={() => onEdit(script)}><Pencil size={16}/></button>
             </div>
             {pending && <div className="live-custom-progress">
-              <span role="status">กำลังคำนวณสคริปต์</span><button type="button" onClick={onCancelApply}>ยกเลิก</button>
+              <span role="status">{pendingStatus || 'กำลังคำนวณสคริปต์'}</span><button type="button" onClick={onCancelApply}>ยกเลิก</button>
             </div>}
             {script.enabled && evaluation?.error && <p role="alert">{evaluation.error}</p>}
             {inputsFor === script.id && (evaluation?.inputs.length

@@ -358,6 +358,9 @@
 .chart-hint, .chart-feedback, .chart-error { margin: 0; line-height: 1.5; }
 .layout-transfer { padding-top: 10px; border-top: 1px solid var(--live-border); }
 .layout-transfer p { margin-bottom: 7px; }
+.layout-paste { margin-top: 8px; }
+.layout-paste summary { cursor: pointer; color: var(--live-muted); font-size: 13px; padding-block: 6px; }
+.layout-paste .script-source { height: 84px; min-height: 84px; margin-bottom: 6px; }
 .chart-feedback, .chart-error { font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .chart-feedback { color: var(--live-green); }
 .chart-error { color: #ff9ca7; }

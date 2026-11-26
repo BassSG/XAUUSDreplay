@@ -8,8 +8,31 @@ import {sameMarketBar} from './live-market.ts';
 installReplaySnapshots();
 const secondaryRun=PineTS.prototype.runPretranspiled;
 const preparedSlices=new WeakMap<Function,Function>();
-PineTS.prototype.runPretranspiled=function(fn:Function,inputs?:Record<string,any>,periods?:number){let prepared=preparedSlices.get(fn);if(!prepared){prepared=wrapPineContext(optimizePrepared(fn));preparedSlices.set(fn,prepared);}return secondaryRun.call(this,prepared,inputs,periods)};
 const context=self as unknown as Worker;
+let activeCalculation: {id: number; name: string; nextSignal: number} | undefined;
+
+// PineTS can spend minutes inside one requested timeframe after its candles
+// arrive. Report actual candle execution so the host can distinguish work
+// that is advancing from a worker that has stopped answering.
+function reportCalculation(scope: {idx: number; length: number; timeframe?: string}) {
+ const calculation=activeCalculation;
+ if(!calculation||scope.idx%16!==0)return;
+ const now=performance.now();
+ if(now<calculation.nextSignal)return;
+ calculation.nextSignal=now+10000;
+ const detail=scope.length>0?' · '+(scope.timeframe??'')+' · '+(scope.idx+1)+'/'+scope.length:'';
+ context.postMessage({id:calculation.id,progress:calculation.name+detail});
+}
+
+PineTS.prototype.runPretranspiled=function(fn:Function,inputs?:Record<string,any>,periods?:number){
+ let prepared=preparedSlices.get(fn);
+ if(!prepared){
+  const optimized=optimizePrepared(fn);
+  prepared=wrapPineContext((scope:any)=>{reportCalculation(scope);return optimized(scope);});
+  preparedSlices.set(fn,prepared);
+ }
+ return secondaryRun.call(this,prepared,inputs,periods);
+};
 export type ScriptJob={id:string;name:string;source:string;inputs?:Record<string,string|number|boolean>;builtinId?:string};
 type Payload={id:number;key?:string;source?:string;bars:Bar[];baseBars?:Bar[];seconds:number;baseSeconds?:number;calendar?:CandleCalendar;scripts?:ScriptJob[];bundled?:boolean;history?:Record<string,Bar[]>;plotLimit?:number;live?:LivePineFrame};
 type Compiled={source:string;indicator:Indicator;meta:any[];bridge:Map<string,Map<number,number>>;runtime?:{pine:any;raw:any;provider:{current:any};bars:Bar[];baseBars:Bar[];minutes?:Bar[];settings:string}};
@@ -53,6 +76,7 @@ context.onmessage=async(event:MessageEvent)=>{
  const realNow=Date.now;Date.now=()=>asOf*1000;
  try{for(const job of jobs){
   setPineMainTimeframe(timeframe);
+  activeCalculation=live?{id,name:job.name,nextSignal:0}:undefined;
   const study={id:job.id,name:job.name,inputs:[] as any[],error:'',bridge:false,ms:0,mode:'initial'};const started=performance.now();
   context.postMessage({id,progress:job.name});
   try{
@@ -65,6 +89,7 @@ context.onmessage=async(event:MessageEvent)=>{
     bindAllIndyBasicRequests(src, prepared.ltfSlices as unknown as Record<string, Function> | undefined);
     item={source:src,indicator,meta:indicator.getInputsMeta(),bridge:new Map()};const entry=item,fn=optimizePrepared(prepared.fn);
     prepared.fn=wrapPineContext(async(ctx:any)=>{
+     reportCalculation(ctx);
      const t=Math.floor(ctx.marketData[ctx.idx]?.openTime/1000);
      for(const m of entry.meta.filter(m=>m.type==='source'&&/^ZB \d\d /.test(m.title||''))){
       if(entry.bridge.size)ctx.inputs[m.id]=entry.bridge.get(m.title)?.get(t)??NaN;
@@ -111,7 +136,7 @@ context.onmessage=async(event:MessageEvent)=>{
    warnings.push(...(raw.warnings??[]).slice(0,3).map((w:any)=>job.name+': '+String(w?.message??w)));
   }catch(e){const item=compiled.get(job.id);if(item)item.runtime=undefined;study.error=e instanceof Error?e.message:String(e);errors.push(job.name+': '+study.error);}
   study.ms=Math.round(performance.now()-started);studies.push(study);
- }}finally{Date.now=realNow;}
+ }}finally{activeCalculation=undefined;Date.now=realNow;}
  for(const key of compiled.keys())if(!jobs.some(j=>j.id===key))compiled.delete(key);
  const result={id,plots,shapes,drawings,tables,warnings:[...new Set(warnings)].slice(0,12),errors,studies};
  if(cacheKey&&!errors.length){results.set(cacheKey,result);while(results.size>8||[...results.values()].reduce((n,r)=>n+r.plots.reduce((v:number,p:any)=>v+p.data.length,0),0)>400000)results.delete(results.keys().next().value!);}

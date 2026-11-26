@@ -37,7 +37,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
   type Task={job:Job;resolve:((ready:boolean)=>void)[]};
   const queue:Task[]=[];let active:Task|null=null,dead=false,deadline:ReturnType<typeof setTimeout>|undefined;
   function fail(message:string){dead=true;clearTimeout(deadline);historyAbort.abort();worker.terminate();setError(message);active?.resolve.forEach(resolve=>resolve(false));for(const task of queue)task.resolve.forEach(resolve=>resolve(false));active=null;queue.length=0;}
-  const arm=()=>{clearTimeout(deadline);deadline=setTimeout(()=>fail('คำนวณอินดิเคเตอร์นานเกิน 180 วินาที กด Retry หรือปรับการตั้งค่าอินดิเคเตอร์'),180000)};
+  const arm=()=>{clearTimeout(deadline);deadline=setTimeout(()=>fail('ตัวประมวลผล Pine ไม่ตอบสนอง 180 วินาที กด Retry เพื่อลองใหม่'),180000)};
   function send(){if(dead||active||!queue.length)return;active=queue.shift()!;arm();worker.postMessage(active.job);}
   request.current=job=>{
    if(dead)return Promise.resolve(false);
@@ -58,7 +58,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
     return;
    }
    if(result.progress){arm();if(result.metadata)setMetadata(old=>[...old.filter(m=>m.id!==result.metadata.id),result.metadata]);
-    if(active.job.key===expected.current)setProgress({key:active.job.key,text:'กำลังคำนวณ '+result.progress});return;}
+    if(active.job.live||active.job.key===expected.current)setProgress({key:active.job.key,text:'กำลังคำนวณ '+result.progress});return;}
    clearTimeout(deadline);const finished=active;active=null;
    // Prepared frames stay private until the replay cursor selects their exact key.
    const frame:Snapshot={key:finished.job.key,plots:result.plots||[],shapes:result.shapes||[],drawings:result.drawings||[],tables:result.tables||[],studies:result.studies||[],errors:result.errors||[],warnings:result.warnings||[]};
@@ -80,7 +80,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  // No older or prefetched result can leak into a rewind or a forming candle.
  const current=needed?frames.current.get(key)??empty:empty,valid=current.key===key;
  const frameError=current.errors.join(' · ')||error;
- const status=!needed?'':valid?(current.warnings.join(' · ')||(frameError?'บางอินดิเคเตอร์มีข้อผิดพลาด':'Pine พร้อมใช้งาน')):progress.key===key?progress.text:'กำลังเตรียมอินดิเคเตอร์';
+ const status=!needed?'':valid?(current.warnings.join(' · ')||(frameError?'บางอินดิเคเตอร์มีข้อผิดพลาด':'Pine พร้อมใช้งาน')):(progress.key===key||live&&progress.text)?progress.text:'กำลังเตรียมอินดิเคเตอร์';
  const previous=lastLive.current;
  const display=needed&&!valid&&!frameError&&live&&previous?.scope===scope&&previous.through<=live.asOf?previous.frame:current;
  const completed=completedLive.current?.scope===scope?completedLive.current.frame:current;
