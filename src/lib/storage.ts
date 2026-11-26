@@ -45,7 +45,27 @@ const commandSchema = z.object({
  if (v.type === 'open' && (v.orderType === 'limit' || v.orderType === 'stop') && !v.entry) ctx.addIssue({ code: 'custom', message: 'Pending order ต้องมี Entry' });
 });
 export const indicatorSchema=z.object({id:uuid,name:z.string().trim().min(1).max(120),source:z.string().max(250000),enabled:z.boolean(),builtinId:z.string().optional(),inputs:z.record(z.union([z.string(),z.number(),z.boolean()])).optional()});
-export const drawingSchema=z.object({id:uuid,kind:z.enum(drawingKinds),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(strokeMax),locked:z.boolean().optional(),text:z.string().max(1000).optional(),color:z.string().max(40).optional(),fillColor:z.string().regex(/^#[0-9a-f]{6}$/i).optional(),textColor:z.string().regex(/^#[0-9a-f]{6}$/i).optional()});
+const drawingColor = z.string().regex(/^#[0-9a-f]{6}$/i);
+const drawingStyle = z.object({
+ width:z.number().int().min(1).max(8),line:z.enum(['solid','dashed','dotted']),
+ opacity:z.number().min(0).max(1),fillOpacity:z.number().min(0).max(1),
+ extendLeft:z.boolean(),extendRight:z.boolean(),middle:z.boolean(),
+ showText:z.boolean(),textSize:z.number().int().min(8).max(30),
+ textAlign:z.enum(['start','center','end']),bold:z.boolean(),italic:z.boolean(),
+}).partial();
+const drawingFib = z.object({
+ levels:z.array(z.object({value:z.number().finite().min(-1000000).max(1000000),enabled:z.boolean(),
+  color:drawingColor.optional(),opacity:z.number().min(0).max(1).optional(),text:z.string().max(120).optional()})).max(24),
+ reverse:z.boolean().optional(),showPrice:z.boolean().optional(),format:z.enum(['ratio','percent','none']).optional(),
+ showTrend:z.boolean().optional(),
+ labelPosition:z.enum(['left','center','right']).optional(),backgroundOpacity:z.number().min(0).max(1).optional(),
+});
+export const drawingSchema=z.object({
+ id:uuid,kind:z.enum(drawingKinds),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(strokeMax),
+ locked:z.boolean().optional(),text:z.string().max(1000).optional(),color:z.string().max(40).optional(),
+ fillColor:drawingColor.optional(),textColor:drawingColor.optional(),style:drawingStyle.optional(),
+ visiblePeriods:z.array(z.enum(['1m','5m','15m','1h','4h','1d'])).max(6).optional(),fib:drawingFib.optional(),
+});
 const sessionSchema = z.object({
  id: uuid, name: z.string().trim().min(1).max(120), dataset: safeId, from: z.number().int().positive(),
  cursor: z.number().int().min(0).max(999999), furthest: z.number().int().min(0).max(999999),

@@ -7,6 +7,7 @@ import {
 import ChartBoundary from './chart-boundary';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
 import LiveDrawingToolbar from './live-drawing-toolbar';
+import LiveDrawingSettings, {drawingInputColor} from './live-drawing-settings';
 import LiveStudyPanel from './live-study-panel';
 import LiveAppearance from './live-appearance';
 import LiveLayoutPanel, {type ActiveLayout} from './live-layout-panel';
@@ -15,7 +16,7 @@ import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readCha
 import {saveLiveAutoSave, saveLiveLayout, type SavedLayout} from '../lib/storage';
 import {usePine} from '../lib/use-pine';
 import type {LiveViewport} from '../lib/chart-tools';
-import {drawingTools, isLabelBox} from '../lib/drawing-definitions';
+import {drawingTools} from '../lib/drawing-definitions';
 import {positionMetrics} from '../lib/drawing-geometry';
 import type {Bar, Drawing, DrawingKind, IndicatorSpec, Trade} from '../lib/engine';
 import {historyCatalog, loadBefore} from '../lib/history';
@@ -77,10 +78,6 @@ function readWorkingChart() {
   return {workspace, active, view: view?.follow ? view : null, library};
 }
 
-function inputColor(value: string | undefined, fallback = '#d7b46a') {
-  return value && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
-}
-
 export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [initial] = useState(readWorkingChart);
   const [workspace, setWorkspace] = useState(initial.workspace);
@@ -103,7 +100,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [retry, setRetry] = useState(0);
   const [backup, setBackup] = useState<{period: Period; bars: Bar[]; failed?: boolean}>();
   const [storageFailed, setStorageFailed] = useState(false);
-  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'studies' | 'appearance' | 'layouts' | 'pine' | null>(null);
+  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'objects' | 'studies' | 'appearance' | 'layouts' | 'pine' | null>(null);
+  const [editingDrawing, setEditingDrawing] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const [historyDay, setHistoryDay] = useState('');
   const [fitHistory, setFitHistory] = useState(false);
@@ -212,7 +210,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const proposedScripts = useMemo(() => !trial ? scripts : scripts.some(s => s.id === trial.id)
     ? scripts.map(s => s.id === trial.id ? trial : s) : [...scripts, trial], [scripts, trial]);
   const jobs = useMemo(() => proposedScripts.filter(s => s.enabled), [proposedScripts]);
-  const activeDrawing = drawings.find(d => d.id === selected);
+  const visibleDrawings = useMemo(() => drawings.filter(d => !d.visiblePeriods || d.visiblePeriods.includes(period)), [drawings, period]);
+  const activeDrawing = visibleDrawings.find(d => d.id === selected);
+  const drawingToEdit = editingDrawing ? drawings.find(d => d.id === editingDrawing) : undefined;
   const activeMetrics = activeDrawing?.kind === 'long' || activeDrawing?.kind === 'short'
     ? positionMetrics(activeDrawing.kind, activeDrawing.points) : null;
   const quote = market.quote;
@@ -335,7 +335,13 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setPanel(current => current === 'history' ? null : current);
   }
 
-  function closePanel() { setPanel(null); setEditorMessage(''); }
+  function closePanel() { setPanel(null); setEditingDrawing(null); setEditorMessage(''); }
+  function editDrawing(id: string) {
+    setMode(null);
+    setSelected(id);
+    setEditingDrawing(id);
+    setPanel('drawing');
+  }
   function reconnect() { setRetry(value => value + 1); }
   function goLatest() {
     if (!market.archive && !market.findingWindow) chart.current?.latest();
@@ -349,8 +355,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
 
   const drawingStrip = activeDrawing && <section className="live-object-strip" aria-label="แก้ไขวัตถุที่เลือก">
     <button type="button" className="live-object-name" title="แก้สีและข้อความของวัตถุ" aria-haspopup="dialog"
-      onClick={() => setPanel('drawing')}><Pencil size={15}/><span>{drawingTools[activeDrawing.kind].name}</span>
-      <i className="live-object-swatch" style={{background: inputColor(activeDrawing.color)}} aria-hidden="true"/></button>
+      onClick={() => editDrawing(activeDrawing.id)}><Pencil size={15}/><span>{drawingTools[activeDrawing.kind].name}</span>
+      <i className="live-object-swatch" style={{background: drawingInputColor(activeDrawing.color)}} aria-hidden="true"/></button>
     {activeMetrics && <span className="live-object-ratio">R/R {activeMetrics.ratio.toFixed(2)}</span>}
     <div className="live-object-actions">
       <button type="button" className="live-icon" aria-label={activeDrawing.locked ? 'ปลดล็อกวัตถุ' : 'ล็อกวัตถุ'}
@@ -452,8 +458,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           liveViewport={viewport} initialView={initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
           fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
           bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
-          drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
-          selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingCancel={cancelDrawing}
+          drawings={visibleDrawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
+          selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingEdit={editDrawing} onDrawingCancel={cancelDrawing}
           liveSelection={drawingStrip} liveLegend={totalStudies > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
             <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
               <i style={{backgroundColor: studies.length ? studyDefinitions[studies[0]].color : pine.plots[0]?.color ?? '#e2bc73'}} aria-hidden="true"/>
@@ -504,6 +510,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       <div className="live-panel-options">
         <button type="button" onClick={() => setPanel('appearance')}><Settings2 size={18}/><span>ตั้งค่ารูปลักษณ์กราฟ</span></button>
         <button type="button" onClick={() => setPanel('layouts')}><PanelsTopLeft size={18}/><span>เลย์เอาต์</span></button>
+        <button type="button" onClick={() => setPanel('objects')}><Pencil size={18}/><span>วัตถุบนกราฟ</span></button>
         <button type="button" onClick={() => setPanel('pine')}><Code2 size={18}/><span>Pine Editor</span></button>
         <button type="button" aria-pressed={follow} onClick={() => { toggleFollow(); closePanel(); }}>
           <Radio size={18}/><span>ติดตามแท่งล่าสุด</span>
@@ -554,43 +561,19 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       </div>
     </LivePanel>}
 
-    {panel === 'drawing' && activeDrawing && <LivePanel title={drawingTools[activeDrawing.kind].name} onClose={closePanel}>
-      <form className="live-object" key={activeDrawing.id} onSubmit={event => {
-        event.preventDefault();
-        if (activeDrawing.locked) return;
-        const next = {...activeDrawing};
-        let changed = false;
-        for (const field of ['color', 'fillColor', 'textColor', 'text'] as const) {
-          const input = event.currentTarget.elements.namedItem(field);
-          if ((input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) && input.value !== input.defaultValue) {
-            next[field] = input.value;
-            changed = true;
-          }
-        }
-        if (changed) changeDrawing(next);
-        closePanel();
-      }}>
-        {activeMetrics && <span>Reward/Risk {activeMetrics.ratio.toFixed(2)} · ระยะ TP {price.format(activeMetrics.reward)} USD · ระยะ SL {price.format(activeMetrics.risk)} USD</span>}
-        <div className="live-object-palette">
-          <label className="live-object-color">สีเส้น <input name="color" type="color" disabled={activeDrawing.locked}
-            defaultValue={inputColor(activeDrawing.color)}/></label>
-          {isLabelBox(activeDrawing.kind) && <>
-            <label className="live-object-color">สีพื้น <input name="fillColor" type="color" disabled={activeDrawing.locked}
-              defaultValue={inputColor(activeDrawing.fillColor, inputColor(activeDrawing.color))}/></label>
-            <label className="live-object-color">สีข้อความ <input name="textColor" type="color" disabled={activeDrawing.locked}
-              defaultValue={inputColor(activeDrawing.textColor, '#e7edf5')}/></label>
-          </>}
-        </div>
-        {isLabelBox(activeDrawing.kind) ? <label className="live-object-text">ข้อความในกล่อง
-          <textarea name="text" rows={3} maxLength={1000} placeholder="เช่น โซนรอราคา" defaultValue={activeDrawing.text} disabled={activeDrawing.locked}/>
-        </label> : drawingTools[activeDrawing.kind].text && <label className="live-object-text">ข้อความบนกราฟ
-          <input name="text" maxLength={1000} defaultValue={activeDrawing.text} disabled={activeDrawing.locked}/>
-        </label>}
-        <div className="layout-actions">
-          <button type="submit" className="primary" disabled={activeDrawing.locked}>บันทึก</button>
-          <button type="button" onClick={closePanel}>ยกเลิก</button>
-        </div>
-      </form>
+    {panel === 'objects' && <LivePanel title="วัตถุบนกราฟ" onClose={closePanel}>
+      <div className="live-drawing-list">
+        {drawings.length === 0 && <p className="chart-hint">ยังไม่มีวัตถุที่วาด</p>}
+        {drawings.map(drawing => <button type="button" key={drawing.id} onClick={() => editDrawing(drawing.id)}>
+          {drawing.locked ? <LockKeyhole size={14}/> : <Pencil size={14}/>}
+          <span>{drawingTools[drawing.kind].name}{drawing.text?.trim() ? ' · ' + drawing.text.trim().slice(0, 90) : ''}
+            {drawing.visiblePeriods && !drawing.visiblePeriods.includes(period) ? ' · ซ่อนใน ' + period : ''}</span>
+        </button>)}
+      </div>
+    </LivePanel>}
+
+    {panel === 'drawing' && drawingToEdit && <LivePanel title={drawingTools[drawingToEdit.kind].name} onClose={closePanel} wide>
+      <LiveDrawingSettings key={drawingToEdit.id} drawing={drawingToEdit} onSave={changeDrawing} onClose={closePanel}/>
     </LivePanel>}
 
     {panel === 'appearance' && <LivePanel title="รูปลักษณ์กราฟ" onClose={closePanel} previewChart>

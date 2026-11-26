@@ -14,11 +14,16 @@ type Props = {
   drawings: Drawing[]; mode: DrawingKind | null; hidden: boolean; magnet: boolean;
   selected: string | null; pricePicking: boolean;
   onSelect: (id: string | null) => void; onCreate: (d: Drawing) => void; onChange: (d: Drawing) => void;
+  onEdit?: (id: string) => void;
   onCancel: () => void; onDelete: () => void; onUndo: () => void; onRedo: () => void;
   onDragStart: () => void; onDragEnd: () => void;
 };
 type Draft = {anchors: DrawingPoint[]; candidate: DrawingPoint | null; hover: DrawingPoint | null; price: string};
-type DrawingDrag = {original: Drawing; start: DrawingPoint; handle: number | null; target: Element; pointerId: number};
+type DrawingDrag = {
+  original: Drawing; start: DrawingPoint; handle: number | null; target: Element; pointerId: number;
+  clientX: number; clientY: number; moved: boolean;
+};
+type DrawingPress = {id: string; pointerId: number; x: number; y: number};
 type Stroke = {pointerId: number; x: number; y: number};
 const emptyDraft: Draft = {anchors: [], candidate: null, hover: null, price: ''};
 const gold = '#d7b46a';
@@ -28,31 +33,39 @@ const dateTime = new Intl.DateTimeFormat('en-GB', {
 });
 
 function projectedMark(mark: DrawingMark, drawing: Drawing, selected: boolean, hit: boolean) {
-  const stroke = mark.kind === 'label' && mark.centered ? mark.color ?? gold
+  const visual = drawing.style;
+  const stroke = mark.kind === 'label' && mark.customText
+    ? drawing.textColor ?? mark.color ?? (drawingTools[drawing.kind].text ? drawing.color ?? gold : '#e7edf5')
+    : drawing.fib && mark.color ? mark.color
     : (drawing.kind === 'long' || drawing.kind === 'short' ? mark.color : drawing.color) ?? mark.color ?? drawing.color ?? gold;
-  const strokeWidth = mark.width ?? (selected ? 2 : 1.5);
+  const strokeWidth = visual?.width ?? mark.width ?? (selected ? 2 : 1.5);
+  const strokeDasharray = visual?.line === 'solid' ? undefined : visual?.line === 'dashed' ? '6 4' : visual?.line === 'dotted' ? '1 4' : mark.dash;
   const style = hit ? {
     stroke: 'transparent', strokeWidth: Math.max(17, strokeWidth), fill: mark.fill ? 'transparent' : 'none',
     pointerEvents: mark.fill ? 'all' : 'stroke',
   } : {
-    stroke, strokeWidth, fill: mark.fill ? drawing.fillColor ?? stroke : 'none', fillOpacity: mark.fill, opacity: mark.opacity,
-    strokeDasharray: mark.dash, vectorEffect: 'non-scaling-stroke', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+    stroke: mark.noStroke ? 'none' : stroke, strokeWidth, fill: mark.fill ? drawing.fillColor ?? stroke : 'none',
+    fillOpacity: mark.fill ? mark.noStroke ? mark.fill : visual?.fillOpacity ?? mark.fill : undefined,
+    strokeOpacity: visual?.opacity, opacity: mark.opacity,
+    strokeDasharray, vectorEffect: 'non-scaling-stroke', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
   };
   if (mark.kind === 'label') {
     const {x, y} = mark.at;
-    if (mark.centered) {
-      if (hit) return null;
-      const lines = mark.value.split('\n');
-      return <text x={x} y={y - (lines.length - 1) * 7} textAnchor="middle" dominantBaseline="central"
-        fontFamily="Segoe UI, sans-serif" fontSize={12} fill={stroke}>
-        {lines.map((line, index) => <tspan key={index} x={x} dy={index ? 14 : 0}>{line || '\u00a0'}</tspan>)}
-      </text>;
-    }
-    const width = Math.max(26, mark.value.length * 6.2 + 10);
-    if (hit) return <rect x={x - 4} y={y - 13} width={width} height={20} fill="transparent" pointerEvents="all"/>;
+    const lines = mark.value.split(/\r?\n/);
+    const size = mark.customText ? visual?.textSize ?? 12 : 11;
+    const step = size + 3;
+    const baseline = mark.centered ? y + size * .33 - (lines.length - 1) * step / 2 : y;
+    const width = Math.max(26, ...lines.map(line => line.length * size * .63 + 10));
+    const left = mark.centered ? x - width / 2 : x - 4;
+    if (hit) return mark.centered ? null : <rect x={left} y={baseline - size - 2} width={width}
+      height={step * lines.length + 5} fill="transparent" pointerEvents="all"/>;
     return <>
-      {mark.background && <rect x={x - 4} y={y - 12} width={width} height={16} rx={3} fill="#10151d" fillOpacity={.92}/>}
-      <text x={x} y={y} fontFamily="Segoe UI, sans-serif" fontSize={11} fill={stroke}>{mark.value}</text>
+      {mark.background && <rect x={left} y={baseline - size} width={width} height={step * lines.length + 1} rx={3} fill="#10151d" fillOpacity={.92}/>}
+      <text x={x} y={baseline} textAnchor={mark.centered ? 'middle' : 'start'} fontFamily="Segoe UI, sans-serif"
+        fontSize={size} fontWeight={mark.customText && visual?.bold ? 700 : undefined}
+        fontStyle={mark.customText && visual?.italic ? 'italic' : undefined} fill={stroke}>
+        {lines.map((line, index) => <tspan key={index} x={x} dy={index ? step : 0}>{line || '\u00a0'}</tspan>)}
+      </text>
     </>;
   }
   if (mark.kind === 'curve') return <path d={mark.d} {...style}/>;
@@ -79,6 +92,8 @@ export default function ChartDrawings(props: Props) {
   const draftRef = useRef(draft);
   const movingRef = useRef(moving);
   const active = useRef<DrawingDrag | null>(null);
+  const press = useRef<DrawingPress | null>(null);
+  const lastTap = useRef<{id: string; x: number; y: number; at: number} | null>(null);
   const candidateDrag = useRef<number | null>(null);
   const stroke = useRef<Stroke | null>(null);
   const clipId = useId();
@@ -151,7 +166,7 @@ export default function ChartDrawings(props: Props) {
     active.current = null;
     if (drag) {
       if (drag.target.hasPointerCapture(drag.pointerId)) drag.target.releasePointerCapture(drag.pointerId);
-      state.current.onDragEnd();
+      if (drag.moved) state.current.onDragEnd();
     }
     setMovingDrawing(null);
   }
@@ -195,7 +210,7 @@ export default function ChartDrawings(props: Props) {
 
   useEffect(() => {
     resetDraft();
-    cancelDrag();
+    cancelPress();
   }, [props.mode, props.hidden, props.seconds]);
 
   useEffect(() => {
@@ -329,34 +344,59 @@ export default function ChartDrawings(props: Props) {
     event.preventDefault();
     event.stopPropagation();
     p.onSelect(drawing.id);
+    press.current = {id: drawing.id, pointerId: event.pointerId, x:event.clientX, y:event.clientY};
     if (drawing.locked) return;
     const point = eventPoint(event);
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    p.onDragStart();
-    active.current = {original: drawing, start: point, handle, target: event.currentTarget, pointerId: event.pointerId};
-    setMovingDrawing(drawing);
+    active.current = {original: drawing, start: point, handle, target: event.currentTarget, pointerId: event.pointerId,
+      clientX: event.clientX, clientY: event.clientY, moved:false};
   }
 
   function dragDrawing(event: ReactPointerEvent<SVGGElement>) {
     const drag = active.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) < 4) return;
     const end = eventPoint(event);
     if (!end) return;
     const p = state.current;
+    if (!drag.moved) {
+      drag.moved = true;
+      lastTap.current = null;
+      p.onDragStart();
+    }
     const next = moveDrawing(drag.original, drag.start, end, drag.handle, p.timeline, p.seconds);
-    if (confirmPlacement && placementError(next.kind, next.points, p.timeline, indexAt)) return;
+    if (p.confirmPlacement && placementError(next.kind, next.points, p.timeline, indexAt)) return;
     setMovingDrawing(next);
   }
 
   function endMove(event: ReactPointerEvent<SVGGElement>) {
+    const pending = press.current;
+    press.current = null;
     const drag = active.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const next = movingRef.current;
-    cancelDrag();
-    if (next && next.points.some((p, i) => p.time !== drag.original.points[i].time || p.price !== drag.original.points[i].price)) {
-      state.current.onChange(next);
+    if (drag?.pointerId === event.pointerId) {
+      const next = movingRef.current;
+      cancelDrag();
+      if (next && next.points.some((p, i) => p.time !== drag.original.points[i].time || p.price !== drag.original.points[i].price)) {
+        state.current.onChange(next);
+      }
     }
+    const {onEdit} = state.current;
+    if (!onEdit || !pending || pending.pointerId !== event.pointerId || drag?.moved
+      || Math.hypot(pending.x - event.clientX, pending.y - event.clientY) > 7) return;
+    const previous = lastTap.current;
+    const at = performance.now();
+    if (previous?.id === pending.id && at - previous.at <= 450
+      && Math.hypot(previous.x - pending.x, previous.y - pending.y) <= 20) {
+      lastTap.current = null;
+      onEdit(pending.id);
+    } else lastTap.current = {...pending, at};
+  }
+
+  function cancelPress() {
+    press.current = null;
+    lastTap.current = null;
+    cancelDrag();
   }
 
   function moveCandidate(event: ReactPointerEvent<HTMLDivElement>) {
@@ -487,7 +527,8 @@ export default function ChartDrawings(props: Props) {
       ? [0, drawing.points.length - 1].filter((index, i, self) => self.indexOf(index) === i)
       : drawing.points.map((_, i) => i);
     return <g key={drawing.id} data-drawing-id={preview ? undefined : drawing.id} data-kind={drawing.kind}
-      data-selected={selected || undefined} data-drawing-interaction={preview ? 'preview' : undefined} opacity={preview ? .78 : 1}>
+      data-selected={selected || undefined} data-drawing-interaction={preview ? 'preview' : undefined}
+      opacity={preview ? .78 : 1}>
       {captionClip && body?.kind === 'path' && <clipPath id={captionClip}>
         <polygon points={body.points.map(({x, y}) => x + ',' + y).join(' ')}/>
       </clipPath>}
@@ -497,8 +538,13 @@ export default function ChartDrawings(props: Props) {
       </g>)}</g>
       {interactive && <g data-drawing-interaction="body" className={drawing.locked ? 'drawing-locked' : 'drawing-hit'}
         onPointerDown={event => beginMove(event, drawing, null)} onPointerMove={dragDrawing}
-        onPointerUp={endMove} onPointerCancel={cancelDrag} onLostPointerCapture={() => { if (active.current) cancelDrag(); }}>
+        onPointerUp={endMove} onPointerCancel={cancelPress} onLostPointerCapture={() => { if (active.current) cancelPress(); }}>
         {marks.map((mark, index) => <g key={index}>{projectedMark(mark, drawing, selected, true)}</g>)}
+        {!marks.length && drawing.points.slice(0, 3).map((point, index) => {
+          const {x, y} = xy(point);
+          return Number.isFinite(x) && Number.isFinite(y)
+            ? <circle key={index} cx={x} cy={y} r={10} fill="transparent" pointerEvents="all"/> : null;
+        })}
       </g>}
       {(selected || preview) && handles.map(i => {
         if (preview && cursor && i === drawing.points.length - 1 && !freehand) return null;
@@ -507,8 +553,8 @@ export default function ChartDrawings(props: Props) {
         const cx = drawing.kind === 'hline' ? Math.max(10, Math.min(width - 10, x)) : x;
         const cy = drawing.kind === 'vline' ? Math.max(10, Math.min(height - 10, y)) : y;
         return <g key={i} data-drawing-interaction="handle" data-handle={i} onPointerDown={event => beginMove(event, drawing, i)}
-          onPointerMove={dragDrawing} onPointerUp={endMove} onPointerCancel={cancelDrag}
-          onLostPointerCapture={() => { if (active.current) cancelDrag(); }}>
+          onPointerMove={dragDrawing} onPointerUp={endMove} onPointerCancel={cancelPress}
+          onLostPointerCapture={() => { if (active.current) cancelPress(); }}>
           <circle cx={cx} cy={cy} r={selected ? 5 : 4} fill="#10151d" stroke={color} strokeWidth="2"/>
           <circle cx={cx} cy={cy} r="14" fill="transparent"
             pointerEvents={selected && !drawing.locked && interactive ? 'all' : 'none'} className="drawing-anchor"/>

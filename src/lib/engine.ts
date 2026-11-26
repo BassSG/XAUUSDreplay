@@ -5,8 +5,20 @@ export type OrderType='market'|'limit'|'stop';
 export type IndicatorSpec={id:string;name:string;source:string;enabled:boolean;builtinId?:string;inputs?:Record<string,string|number|boolean>};
 export type {DrawingKind} from './drawing-definitions.ts';
 import type {DrawingKind} from './drawing-definitions.ts';
+import type {Period} from './live-market.ts';
 export type DrawingPoint={time:number;price:number};
-export type Drawing={id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;text?:string;color?:string;fillColor?:string;textColor?:string};
+export type FibLevel={value:number;enabled:boolean;color?:string;opacity?:number;text?:string};
+export type DrawingStyle={
+ width?:number;line?:'solid'|'dashed'|'dotted';opacity?:number;fillOpacity?:number;
+ extendLeft?:boolean;extendRight?:boolean;middle?:boolean;
+ showText?:boolean;textSize?:number;textAlign?:'start'|'center'|'end';bold?:boolean;italic?:boolean;
+};
+export type Drawing={
+ id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;text?:string;color?:string;fillColor?:string;textColor?:string;
+ style?:DrawingStyle;visiblePeriods?:Period[];
+ fib?:{levels:FibLevel[];reverse?:boolean;showPrice?:boolean;format?:'ratio'|'percent'|'none';showTrend?:boolean;
+  labelPosition?:'left'|'center'|'right';backgroundOpacity?:number};
+};
 export type Command={
  id:string;at:number;type:'open'|'close'|'stop'|'protect'|'cancel'|'modify';
  side?:Side;lots?:number;sl?:number;tp?:number;tradeId?:string;orderId?:string;fraction?:number;

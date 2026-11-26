@@ -1,13 +1,13 @@
 import {rayEnd, type XY} from './chart-tools.ts';
-import {drawingTools, isStroke} from './drawing-definitions.ts';
-import type {Bar, Drawing, DrawingKind, DrawingPoint} from './engine.ts';
+import {drawingTools, fibDefaults, isLabelBox, isStroke} from './drawing-definitions.ts';
+import type {Bar, Drawing, DrawingKind, DrawingPoint, FibLevel} from './engine.ts';
 
-type Style = {color?: string; fill?: number; width?: number; opacity?: number; dash?: string};
+type Style = {color?: string; fill?: number; width?: number; opacity?: number; dash?: string; noStroke?: boolean};
 export type DrawingMark = Style & (
   | {kind: 'path'; points: XY[]; closed?: boolean}
   | {kind: 'curve'; d: string}
   | {kind: 'ellipse'; center: XY; rx: number; ry: number}
-  | {kind: 'label'; at: XY; value: string; background?: boolean; centered?: boolean}
+  | {kind: 'label'; at: XY; value: string; background?: boolean; centered?: boolean; customText?: boolean}
 );
 export type DrawingView = {
   width: number; height: number; bars: Bar[]; visibleFrom: number; visibleTo: number;
@@ -18,13 +18,23 @@ export type DrawingView = {
 
 function boxCaption(drawing: Drawing, a: XY, b: XY): DrawingMark[] {
   const value = drawing.text?.trim();
-  if (!value) return [];
-  return [{kind: 'label', at: {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2},
-    value, centered: true, color: drawing.textColor ?? '#e7edf5'}];
+  if (!value || drawing.style?.showText === false) return [];
+  const fraction = drawing.style?.textAlign === 'start' ? .2 : drawing.style?.textAlign === 'end' ? .8 : .5;
+  return [{kind: 'label', at: {x: Math.min(a.x, b.x) + Math.abs(a.x - b.x) * fraction, y: (a.y + b.y) / 2},
+    value, centered: true, customText: true, color: drawing.textColor ?? '#e7edf5'}];
 }
 
-const retracements = [0, .236, .382, .5, .618, .786, 1];
-const extensions = [0, .382, .618, 1, 1.272, 1.618, 2, 2.618];
+export function drawingFibLevels(drawing: Drawing): FibLevel[] {
+  return drawing.fib?.levels ?? (fibDefaults[drawing.kind] ?? []).map(value => ({value, enabled: true}));
+}
+
+function fibCaption(drawing: Drawing, level: FibLevel, price?: number): string {
+  const format = drawing.fib?.format ?? (drawing.kind === 'fibTime' ? 'ratio' : 'percent');
+  const value = format === 'ratio' ? String(level.value) : format === 'percent'
+    ? (Math.round(level.value * 100000) / 1000) + '%' : '';
+  const showPrice = drawing.fib?.showPrice ?? (drawing.kind === 'fib' || drawing.kind === 'fibExtension');
+  return [value, showPrice && price !== undefined ? money(price) : '', level.text?.trim()].filter(Boolean).join(' · ');
+}
 const gannRatios = [.125, .25, .33333333, .5, 1, 2, 3, 4, 8];
 const success = '#5cdbad';
 const loss = '#ee8190';
@@ -172,44 +182,65 @@ function regression(view: DrawingView, times: number[]) {
     line(view.atIndex(first, startPrice), view.atIndex(last, endPrice), dash)];
 }
 
-function timeZones(kind: 'fibTime' | 'cycle', first: number, step: number, view: DrawingView) {
+function timeZones(drawing: Drawing, first: number, step: number, view: DrawingView) {
   if (step < 1) return [];
   const marks: DrawingMark[] = [];
-  const mark = (offset: number, name: string) => {
+  const mark = (offset: number, name: string, color?: string, opacity?: number) => {
     const x = view.atIndex(first + offset * step, 1).x;
-    if (isVisible(x, view)) marks.push(line(point(x, 0), point(x, view.height), dash), label(point(x + 4, 16), name));
+    if (!isVisible(x, view)) return;
+    marks.push(line(point(x, 0), point(x, view.height), {...dash, color, opacity}));
+    if (name) marks.push(label(point(x + 4, 16), name, false, {color}));
   };
-  if (kind === 'cycle') {
+  if (drawing.kind === 'cycle') {
     const start = Math.max(0, Math.ceil((view.visibleFrom - first) / step));
     const end = Math.floor((view.visibleTo - first) / step);
     const stride = Math.max(1, Math.ceil((end - start) * 12 / Math.max(1, view.width)));
     for (let i = start; i <= end; i += stride) mark(i, String(i));
   } else {
-    let a = 1, b = 2;
-    mark(0, '0');
-    while (first + a * step <= view.visibleTo) {
-      mark(a, String(a));
-      [a, b] = [b, a + b];
+    for (const level of drawingFibLevels(drawing)) if (level.enabled) {
+      mark(level.value * (drawing.fib?.reverse ? -1 : 1), fibCaption(drawing, level), level.color, level.opacity);
     }
   }
   return marks;
 }
 
-export function drawingGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
+function toolGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
   const {kind, points} = drawing;
   const projected = points.map(view.at);
   const [a, b, c, d] = projected;
   if (!a || !projected.every(finitePoint)) return [];
   const {width, height} = view;
-  const text = drawing.text || 'Note';
-  const levels = (left: number, right: number, start: number, delta: number, ratios: number[], time: number) =>
-    ratios.flatMap(ratio => {
-      const price = start + delta * ratio;
+  const text = drawing.text ?? 'Note';
+  const annotation = (at: XY, background = false): DrawingMark[] => drawing.style?.showText !== false && text
+    ? [{kind:'label', at, value:text, background, customText:true}] : [];
+  const fibLevels = drawingFibLevels(drawing).filter(level => level.enabled);
+  const direction = drawing.fib?.reverse ? -1 : 1;
+  const fibTrend = (anchors: XY[]) => drawing.fib?.showTrend ? [path(anchors, dash)] : [];
+  const levels = (left: number, right: number, start: number, delta: number, time: number) => {
+    const from = drawing.style?.extendLeft ? Math.min(0, left) : left;
+    const end = drawing.style?.extendRight ? Math.max(width, right) : right;
+    const projectedLevels = fibLevels.flatMap(level => {
+      const price = start + delta * level.value;
+      if (price <= 0) return [];
       const {y} = view.at({time, price});
-      if (!Number.isFinite(y)) return [];
-      const tag = Math.round(ratio * 1000) / 10 + '% · ' + money(price);
-      return [line(point(left, y), point(right, y), dash), label(point(Math.max(3, Math.min(width - 97, right + 5)), y - 3), tag, true)];
+      return Number.isFinite(y) ? [{level, y, price}] : [];
     });
+    const sorted = [...projectedLevels].sort((a,b) => a.y - b.y);
+    const fill = drawing.fib?.backgroundOpacity ?? 0;
+    const bands = fill > 0 ? sorted.slice(0, -1).map(({level, y}, index) =>
+      box(point(from, y), point(end, sorted[index+1].y), {color:level.color, fill, noStroke:true})) : [];
+    const visibleLeft = Math.max(3, from);
+    const visibleRight = Math.min(width - 3, end);
+    const x = drawing.fib?.labelPosition === 'left' ? visibleLeft + 3
+      : drawing.fib?.labelPosition === 'center' ? (visibleLeft + visibleRight) / 2
+      : Math.max(3, Math.min(width - 140, end + 5));
+    return [...bands, ...projectedLevels.flatMap(({level, y, price}) => {
+      const marks = [line(point(from, y), point(end, y), {...dash, color:level.color, opacity:level.opacity})];
+      const tag = fibCaption(drawing, level, price);
+      if (tag && visibleLeft < visibleRight) marks.push(label(point(x, Math.max(11, y - 3)), tag, true, {color:level.color}));
+      return marks;
+    })];
+  };
   const xLabel = (x: number, length: number) => Math.max(4, Math.min(width - length, x));
 
   switch (kind) {
@@ -217,8 +248,8 @@ export function drawingGeometry(drawing: Drawing, view: DrawingView): DrawingMar
     case 'hray': return [line(a, point(width, a.y)), label(point(Math.max(a.x + 5, width - 75), a.y - 5), money(points[0].price), true)];
     case 'vline': return [line(point(a.x, 0), point(a.x, height))];
     case 'cross': return [line(point(a.x, 0), point(a.x, height)), line(point(0, a.y), point(width, a.y))];
-    case 'text': return [label(shift(a, 6, -8), text)];
-    case 'note': return [label(shift(a, 6, -8), text, true)];
+    case 'text': return annotation(shift(a, 6, -8));
+    case 'note': return annotation(shift(a, 6, -8), true);
     case 'priceLabel': return [line(a, shift(a, 12, 0)), label(point(xLabel(a.x + 14, 65), a.y + 4), money(points[0].price), true)];
     case 'flag': return [line(a, shift(a, 0, -24)), path([shift(a, 0, -24), shift(a, 18, -20), shift(a, 0, -14)], {fill: .4}, true)];
     case 'markUp': return arrow(shift(a, 0, 19), a, [line(shift(a, 0, 19), a)]);
@@ -243,36 +274,53 @@ export function drawingGeometry(drawing: Drawing, view: DrawingView): DrawingMar
     return [path(projected, {}, kind === 'xabcd' && projected.length === 5), ...marks];
   }
   switch (kind) {
-    case 'trend': case 'polyline': return [path(projected)];
+    case 'trend': {
+      const from = drawing.style?.extendLeft ? rayEnd(b, a, width, height) : a;
+      const to = drawing.style?.extendRight ? rayEnd(a, b, width, height) : b;
+      return [line(from, to)];
+    }
+    case 'polyline': return [path(projected)];
     case 'ray': return [line(a, rayEnd(a, b, width, height))];
     case 'extended': return [line(rayEnd(b, a, width, height), rayEnd(a, b, width, height))];
     case 'arrow': return arrow(a, b, [line(a, b)]);
     case 'info': return [line(a, b), label(point(xLabel(b.x + 6, 162), b.y - 6), priceDelta, true),
       label(point(xLabel(b.x + 6, 162), b.y + 12), timeDelta(), true)];
-    case 'rect': return [box(a, b), ...boxCaption(drawing, a, b)];
+    case 'rect': {
+      const x1 = drawing.style?.extendLeft ? Math.min(0, left) : left;
+      const x2 = drawing.style?.extendRight ? Math.max(width, right) : right;
+      const marks = [box(point(x1, top), point(x2, bottom)), ...boxCaption(drawing, a, b)];
+      if (drawing.style?.middle) marks.push(line(point(x1, (top + bottom) / 2), point(x2, (top + bottom) / 2), dash));
+      return marks;
+    }
     case 'circle': return [{kind: 'ellipse', center: a, rx: Math.hypot(dx, dy), ry: Math.hypot(dx, dy), fill: .08}];
     case 'ellipse': return [{kind: 'ellipse', center: shift(a, dx / 2, dy / 2), rx: Math.abs(dx) / 2, ry: Math.abs(dy) / 2, fill: .08}];
     case 'triangle': return [path(projected, {fill: .12}, Boolean(c))];
     case 'curve': return c ? [{kind: 'curve', d: `M ${a.x} ${a.y} Q ${c.x} ${c.y} ${b.x} ${b.y}`}] : [line(a, b, dash)];
     case 'doubleCurve': return c && d ? [{kind: 'curve', d: `M ${a.x} ${a.y} C ${c.x} ${c.y} ${d.x} ${d.y} ${b.x} ${b.y}`}] : [path([a, ...(c ? [c] : []), b], dash)];
     case 'arc': return [c ? arcThrough(a, b, c) : line(a, b, dash)];
-    case 'callout': return [...arrow(b, a, [line(b, a)]), label(shift(b, 6, -7), text, true)];
-    case 'fib': return levels(left, Math.max(right, left + 38), first.price, change, retracements, first.time);
+    case 'callout': return [...arrow(b, a, [line(b, a)]), ...annotation(shift(b, 6, -7), true)];
+    case 'fib': return [...fibTrend([a, b]), ...levels(left, Math.max(right, left + 38),
+      direction === 1 ? first.price : second.price, change * direction, first.time)];
     case 'fibExtension': return c
-      ? [path([a, b, c], dash), ...levels(c.x, Math.max(c.x + 50, width - 105), third.price, change, extensions, third.time)]
+      ? [...(drawing.fib?.showTrend !== false ? [path([a, b, c], dash)] : []),
+        ...levels(c.x, Math.max(c.x + 50, width - 105), third.price, change * direction, third.time)]
       : [line(a, b, dash)];
     case 'fibTime': case 'cycle': {
       const start = Math.round(view.index(first.time));
-      return timeZones(kind, start, Math.abs(Math.round(view.index(second.time)) - start), view);
+      return [...fibTrend([a, b]), ...timeZones(drawing, start, Math.abs(Math.round(view.index(second.time)) - start), view)];
     }
     case 'fibFan': case 'gannFan': {
-      const ratios = kind === 'fibFan' ? retracements.slice(1) : gannRatios;
-      return ratios.flatMap(ratio => {
-        const p = view.at({time: second.time, price: first.price + change * ratio});
+      const rows: FibLevel[] = kind === 'fibFan' ? fibLevels : gannRatios.map(value => ({value, enabled:true}));
+      return [...fibTrend([a, b]), ...rows.flatMap(level => {
+        const ratio = level.value;
+        const price = first.price + change * ratio * direction;
+        if (price <= 0) return [];
+        const p = view.at({time: second.time, price});
         if (!finitePoint(p)) return [];
-        const name = kind === 'fibFan' ? (ratio * 100).toFixed(1) + '%' : ratio >= 1 ? Math.round(ratio) + '×1' : '1×' + Math.round(1 / ratio);
-        return [line(a, rayEnd(a, p, width, height), ratio === 1 ? {} : dash), label(shift(p, 4, -3), name)];
-      });
+        const name = kind === 'fibFan' ? fibCaption(drawing, level, price) : ratio >= 1 ? Math.round(ratio) + '×1' : '1×' + Math.round(1 / ratio);
+        return [line(a, rayEnd(a, p, width, height), {...(ratio === 1 ? {} : dash), color:level.color, opacity:level.opacity}),
+          ...(name ? [label(shift(p, 4, -3), name, false, {color:level.color})] : [])];
+      })];
     }
     case 'gannBox': {
       const marks = [box(a, b), line(a, b, dash), line(point(a.x, b.y), point(b.x, a.y), dash)];
@@ -291,10 +339,13 @@ export function drawingGeometry(drawing: Drawing, view: DrawingView): DrawingMar
       const marks = [path([a, b, shift(b, x, y), shift(a, x, y)], {fill: .11}, true)];
       if (kind === 'rotated') return [...marks, ...boxCaption(drawing, a, shift(b, x, y))];
       if (kind === 'channel') marks.push(line(shift(a, x / 2, y / 2), shift(b, x / 2, y / 2), dash));
-      if (kind === 'fibChannel') for (const ratio of [...retracements.slice(1), 1.618, 2.618]) {
+      if (kind === 'fibChannel') return [...fibTrend([a,b,c]), ...fibLevels.flatMap(level => {
+        const ratio = level.value * direction;
         const end = shift(b, x * ratio, y * ratio);
-        marks.push(line(shift(a, x * ratio, y * ratio), end, dash), label(shift(end, 4, -3), Math.round(ratio * 1000) / 10 + '%'));
-      }
+        const name = fibCaption(drawing, level);
+        return [line(shift(a, x * ratio, y * ratio), end, {...dash, color:level.color, opacity:level.opacity}),
+          ...(name ? [label(shift(end, 4, -3), name, false, {color:level.color})] : [])];
+      })];
       return marks;
     }
     case 'pitchfork': {
@@ -338,4 +389,31 @@ export function drawingGeometry(drawing: Drawing, view: DrawingView): DrawingMar
     }
     default: return [];
   }
+}
+
+export function drawingGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
+  const marks = toolGeometry(drawing, view);
+  const text = drawing.text?.trim();
+  if (!text || drawing.style?.showText === false || drawingTools[drawing.kind].text || isLabelBox(drawing.kind)) return marks;
+  const first = drawing.points[0];
+  if (!first) return marks;
+  const a = view.at(first);
+  const b = drawing.points[1] ? view.at(drawing.points[1]) : a;
+  if (!finitePoint(a) || !finitePoint(b)) return marks;
+  const fraction = drawing.style?.textAlign === 'start' ? .15 : drawing.style?.textAlign === 'end' ? .85 : .5;
+  const [left, right] = a.x <= b.x ? [a, b] : [b, a];
+  let x = left.x + (right.x - left.x) * fraction;
+  let y = left.y + (right.y - left.y) * fraction - 12;
+  if (drawing.kind === 'hline' || drawing.kind === 'hray') {
+    x = (drawing.kind === 'hray' ? Math.max(0, a.x) : 0) * (1 - fraction) + view.width * fraction;
+  }
+  if (drawing.kind === 'vline' || drawing.kind === 'cross') {
+    x = a.x + 8;
+    y = view.height * fraction;
+  }
+  const isHorizontal = drawing.kind === 'hline' || drawing.kind === 'hray';
+  if (!isHorizontal && (right.x < 0 || left.x > view.width)) return marks;
+  if (y < -12 || y > view.height) return marks;
+  return [...marks, {kind:'label', at:point(Math.max(4, Math.min(view.width - 80, x)), Math.max(14, y)),
+    value:text, background:true, customText:true}];
 }

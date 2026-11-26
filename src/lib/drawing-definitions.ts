@@ -67,6 +67,12 @@ export type DrawingKind = keyof typeof drawingTools;
 export const drawingKinds = Object.keys(drawingTools) as [DrawingKind, ...DrawingKind[]];
 export const isStroke = (kind: DrawingKind) => kind === 'brush' || kind === 'highlighter';
 export const isLabelBox = (kind: DrawingKind) => kind === 'rect' || kind === 'rotated' || kind === 'gannBox' || kind === 'position';
+const fibRatios = [0, .236, .382, .5, .618, .786, 1];
+export const fibDefaults: Partial<Record<DrawingKind, readonly number[]>> = {
+  fib: fibRatios, fibExtension: [0, .382, .618, 1, 1.272, 1.618, 2, 2.618],
+  fibChannel: [...fibRatios, 1.618, 2.618], fibFan: fibRatios.slice(1),
+  fibTime: [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584],
+};
 export const variableDrawingsMax = 64;
 export const strokeMax = 160;
 
