@@ -131,8 +131,10 @@ export function wrapPineContext(fn:Function,owner?:any):Function {
 export function adaptPineSource(source:string):string {
  if(source.includes('indicator("All Indy (EBW) V10.4.4')) {
   source=source.replace('string key = p.id + ":" + p.status','string key = na(p) ? "" : p.id + ":" + p.status')
-   .replace('string message = key != previous and p.id != "" ?','string message = not na(p) and key != previous and p.id != "" ?')
-   .replace('if sample.closedAt <= time_close','if not na(sample) and sample.closedAt <= time_close');
+   .replace('string message = key != previous and p.id != "" ?','string message = not na(p) and key != previous and p.id != "" ?');
+ }
+ if(source.includes('indicator("All Indy (EBW) V10.4.4') || source.includes('indicator("All Indy 1.4.20 • Zone Context')) {
+  source=source.replace('if sample.closedAt <= time_close','if not na(sample) and sample.closedAt <= time_close');
  }
  if(source.includes('indicator("EBW-Fibo 1.9')) {
   source=source.replace('if not na(packet.asof) and packet.asof <= timenow','if not na(packet) and not na(packet.asof) and packet.asof <= timenow')

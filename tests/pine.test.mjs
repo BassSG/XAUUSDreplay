@@ -4,13 +4,33 @@ import test from 'node:test';
 import {createHash} from 'node:crypto';
 import {aggregate} from '../src/lib/engine.ts';
 import {replayProvider} from '../src/lib/pine-data.ts';
-import {optimizePrepared} from '../src/lib/pine-compat.ts';
+import {adaptPineSource,optimizePrepared} from '../src/lib/pine-compat.ts';
 let callback,sequence=0;
 globalThis.self={postMessage:v=>{if(!v.progress)callback(v)}};
 await import('../src/lib/pine.worker.ts');
 const base=Array.from({length:2400},(_,i)=>({time:1700000100+i*60,open:2000+Math.sin(i/8)*3+i/100,high:2004+Math.sin(i/8)*3+i/100,low:1996+Math.sin(i/8)*3+i/100,close:2000.4+Math.sin(i/8)*3+i/100,volume:10+(i%7)}));
 async function run(source,{bars=base,baseBars=bars,seconds=60,scripts,plotLimit}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds:60,calendar:'utc',scripts,plotLimit}})});}
 const assertGood=r=>assert.deepEqual(r.errors,[],r.errors.join(' | '));
+test('All Indy 1.4.20 skips a missing lower-timeframe packet before reading its close time', async () => {
+ const source=`//@version=6
+indicator("All Indy 1.4.20 • Zone Context")
+type s_Momentum
+    int closedAt = na
+    float value = na
+array<s_Momentum> samples = array.new<s_Momentum>(2)
+array.set(samples, 0, s_Momentum.new(time_close, 42.0))
+float result = na
+for index = array.size(samples) - 1 to 0
+    s_Momentum sample = array.get(samples, index)
+    if sample.closedAt <= time_close
+        result := sample.value
+        break
+plot(result, "Last closed sample")`;
+ assert.match(adaptPineSource(source),/if not na\(sample\) and sample\.closedAt <= time_close/);
+ const result=await run(source,{bars:base.slice(0,30)});
+ assertGood(result);
+ assert.equal(result.plots[0].data.at(-1).value,42);
+});
 test('live Pine can read native lower-timeframe history earlier than the in-memory minute window', async () => {
  const start=Date.UTC(2025,0,6,6)/1000;
  const asOf=start+90*60;
