@@ -46,11 +46,15 @@ export function candleWindow(time: number, seconds: number) {
 // The bridge publishes settled candles. Derive the remaining higher-timeframe
 // candles from the same settled M1 stream, starting only where it covers the open.
 export function candlesFromMinutes(closed: Bar[], minutes: Bar[], seconds: number): Bar[] {
+  if (seconds === periods['1m'] || !minutes.length) return closed;
   const last = closed.at(-1);
-  if (seconds === periods['1m'] || !last || !minutes.length) return closed;
-  const nextOpen = candleWindow(last.time, seconds).close;
-  if (minutes[0].time > nextOpen || minutes.at(-1)!.time < nextOpen) return closed;
-  const tail = aggregate(minutes.slice(minutes.findIndex(bar => bar.time >= nextOpen)), seconds, 'eightcap');
+  const firstMinute = minutes[0].time;
+  const firstWindow = candleWindow(firstMinute, seconds);
+  const firstCovered = firstMinute === firstWindow.open ? firstWindow.open : firstWindow.close;
+  const nextOpen = last ? candleWindow(last.time, seconds).close : 0;
+  const first = minutes.findIndex(bar => bar.time >= Math.max(firstCovered, nextOpen));
+  if (first < 0) return closed;
+  const tail = aggregate(minutes.slice(first), seconds, 'eightcap');
   return [...closed, ...tail];
 }
 
@@ -75,16 +79,16 @@ export function recordBidMinute(sampled: Bar[], quote: Pick<Quote, 'time' | 'bid
 export function candlesWithBid(base: Bar[], lastClosed: Bar | undefined, lastMinute: number | undefined,
   sampled: Bar[], seconds: number): Bar[] {
   const last = base.at(-1);
-  if (!last || !sampled.length) return base;
+  if (!sampled.length) return base;
   const confirmedThrough = Math.max(
     lastClosed ? candleWindow(lastClosed.time, seconds).close : 0,
     lastMinute === undefined ? 0 : lastMinute + 60,
   );
   const tail = aggregate(sampled.filter(bar => bar.time >= confirmedThrough), seconds, 'eightcap')
-    .filter(bar => bar.time >= last.time);
+    .filter(bar => !last || bar.time >= last.time);
   if (!tail.length) return base;
   const first = tail[0];
-  if (first.time > last.time) return [...base, ...tail];
+  if (!last || first.time > last.time) return [...base, ...tail];
   const merged = {...last, high: Math.max(last.high, first.high), low: Math.min(last.low, first.low), close: first.close};
   return [...base.slice(0, -1), merged, ...tail.slice(1)];
 }

@@ -12,7 +12,7 @@ type Market = ReturnType<typeof useLiveMarket>;
 
 export function useLiveBars(period: Period, market: Market, retry: number, anchored = false) {
   const [backup, setBackup] = useState<{period: Period; bars: Bar[]; failed?: boolean}>();
-  const needsBackup = !anchored && market.barError && market.closed.length === 0;
+  const needsBackup = !anchored && market.barError && market.bars.length === 0;
 
   useEffect(() => {
     if (!needsBackup) return;

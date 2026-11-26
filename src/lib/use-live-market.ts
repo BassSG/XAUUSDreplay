@@ -202,12 +202,13 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
   }, [key, period, minutes, minuteError, data.findingWindow]);
 
   const view = data.key === key ? data : restoreHistory(key, period, anchorTime, cache.current.get(period));
-  const studyBars = useMemo(() => view.archive ? view.closed : candlesFromMinutes(view.closed, minutes, seconds),
-    [view.archive, view.closed, minutes, seconds]);
+  const useArchiveBars = view.archive || view.findingWindow;
+  const studyBars = useMemo(() => useArchiveBars ? view.closed : candlesFromMinutes(view.closed, minutes, seconds),
+    [useArchiveBars, view.closed, minutes, seconds]);
   const minuteTime = minutes.at(-1)?.time;
   const lastClosed = view.closed.at(-1);
-  const bars = useMemo(() => view.archive ? studyBars : candlesWithBid(studyBars, lastClosed, minuteTime, sampled, seconds),
-    [view.archive, studyBars, lastClosed, minuteTime, sampled, seconds]);
+  const bars = useMemo(() => useArchiveBars ? studyBars : candlesWithBid(studyBars, lastClosed, minuteTime, sampled, seconds),
+    [useArchiveBars, studyBars, lastClosed, minuteTime, sampled, seconds]);
 
   const loadOlder = useCallback(async (byUser: boolean, limit = olderPageSize) => {
     const run = active.current;

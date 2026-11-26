@@ -181,3 +181,16 @@ test('live Bid updates higher timeframes using their authentic open and broker b
   assert.deepEqual(candlesWithBid([prior,native], native, openTime+seconds-60, sampled, seconds),
     [prior,native,{time:openTime+seconds,open:4011,high:4011,low:4011,close:4011,volume:0}]);
 });
+
+test('a slow native timeframe uses covered broker minutes and never substitutes an old snapshot for live Bid', () => {
+  const openTime = Date.parse('2026-11-26T10:00:00Z') / 1000;
+  const minute = (offset, price) => ({time:openTime+offset*60, open:price,high:price+1,low:price-1,close:price,volume:10});
+  const minutes = [minute(-2,3998),minute(-1,3999),minute(0,4000),minute(1,4004)];
+  const derived = candlesFromMinutes([],minutes,900);
+  assert.deepEqual(derived,[{time:openTime,open:4000,high:4005,low:3999,close:4004,volume:20}]);
+  assert.deepEqual(candlesFromMinutes([],minutes.slice(-1),900),[], 'the earlier open is not known');
+  const sample = recordBidMinute([], {time:openTime+122,bid:4010,status:'live'});
+  assert.equal(candlesWithBid(derived,undefined,minutes.at(-1).time,sample,900).at(-1).close,4010);
+  assert.deepEqual(candlesWithBid([],undefined,undefined,sample,900),
+    [{time:openTime,open:4010,high:4010,low:4010,close:4010,volume:0}]);
+});

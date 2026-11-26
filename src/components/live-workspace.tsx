@@ -267,8 +267,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }, [trial, pine.completed, pine.error, pine.calculating, proposedScripts, scripts]);
   const chartStatus = storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
     (market.windowUnavailable ? 'ไม่พบช่วงเวลาเดิมในไทม์เฟรมนี้' : market.archive ? 'มุมมองย้อนหลัง'
-      : historical.length ? 'ข้อมูลสำรอง' : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
-        : liveNow && market.provisional ? 'OHLC กำลังก่อตัวจาก Bid สด'
+      : historical.length ? 'ข้อมูลสำรอง' : liveNow && market.provisional ? 'OHLC กำลังก่อตัวจาก Bid สด'
+        : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
           : liveNow && through !== undefined ? 'OHLC ถึง ' + shortClock.format(through * 1000)
           : minuteBased ? 'OHLC จาก 1m ที่ปิดแล้ว' : '');
   const viewportKey = period + (market.archive ? '-archive' : '-current') + '-' + layoutVersion;
