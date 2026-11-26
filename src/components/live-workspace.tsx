@@ -220,7 +220,6 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
   function loadAtChartEdge() {
     if (!market.closed.length) return;
-    setFollow(false);
     void market.loadOlder(false);
   }
 
