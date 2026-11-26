@@ -5,6 +5,17 @@ export type XY={x:number;y:number};
 export type LiveViewport={time:number;span:number};
 export const drawingNames=Object.fromEntries(drawingKinds.map(kind=>[kind,drawingTools[kind].name])) as Record<DrawingKind,string>;
 
+// Lightweight Charts returns x=0 for fractional logical indexes. Project the
+// enclosing integer slots, including slots in the empty space after the candle.
+export function coordinateAtLogical(index: number, barX: (slot: number) => number | null) {
+ if (!Number.isFinite(index)) return null;
+ const lower = Math.floor(index);
+ const left = barX(lower);
+ if (left === null || index === lower) return left;
+ const right = barX(lower + 1);
+ return right === null ? null : left + (right - left) * (index - lower);
+}
+
 // Fractional logical coordinates preserve anchors between candles and in empty
 // space. Only revealed timestamps are used; no future market data is consulted.
 export function logicalAtTime(time:number,bars:Pick<Bar,'time'>[],seconds:number){

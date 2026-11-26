@@ -1,10 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {captureLiveViewport,logicalAtTime,restoreLiveViewport,timeAtLogical,moveDrawing,rayEnd,replayBatch,replayRange} from '../src/lib/chart-tools.ts';
+import {captureLiveViewport,coordinateAtLogical,logicalAtTime,restoreLiveViewport,timeAtLogical,moveDrawing,rayEnd,replayBatch,replayRange} from '../src/lib/chart-tools.ts';
 import {drawingGeometry, positionMetrics, placementError} from '../src/lib/drawing-geometry.ts';
 import {drawingGroups,drawingKinds} from '../src/lib/drawing-definitions.ts';
 
 const timeline=[{time:1700000000},{time:1700000300},{time:1700000600},{time:1700259900},{time:1700260200}];
+
+test('All Indy box spans a 5m origin and a millisecond projection on a 15m chart', () => {
+ const last = 1795678200;
+ const bars = Array.from({length: 32}, (_, i) => ({time: last - (31-i)*900}));
+ const barX = slot => {
+  assert.ok(Number.isInteger(slot), 'the chart only accepts whole logical slots');
+  return 100 + (slot-31)*6;
+ };
+ const x = ms => coordinateAtLogical(logicalAtTime(ms/1000, bars, 900), barX);
+ assert.ok(Math.abs(x(1795656300000) - (100-24*6-2)) < .001);
+ assert.ok(Math.abs(x(1795685399992) - (100+8*6)) < .001);
+ assert.equal(x(last*1000), 100);
+ assert.equal(coordinateAtLogical(-2.5, slot => slot*10), -25);
+ assert.equal(coordinateAtLogical(.5, slot => slot === 0 ? 0 : null), null);
+});
 
 test('switching a panned chart between timeframes preserves the visible time under its center', () => {
  const start=1700000000;

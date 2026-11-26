@@ -6,7 +6,7 @@ import {PineBandLayer} from './pine-band-layer';
 import {PineBox,PineLabel,pineDash,pineStroke} from './pine-annotations';
 import type {PineBand} from '../lib/pine-bands';
 import {LivePriceCountdown,LivePriceMarker} from './live-price-marker';
-import {captureLiveViewport,logicalAtTime,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
+import {captureLiveViewport,coordinateAtLogical,logicalAtTime,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
 import {liveTailUpdate, sameMarketBar} from '../lib/live-market';
 import type {Bar,Trade,Drawing,DrawingKind} from '../lib/engine';
 import type {ChartAppearance,ChartView} from '../lib/live-layouts';
@@ -219,15 +219,18 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   if(!r||!host.current||!pineDrawings.length)return null;
   const scale=(r.chart as IChartApi).timeScale();
   const w=scale.width(),h=host.current.clientHeight;
+  const barX = (slot: number) => scale.logicalToCoordinate(slot as Logical);
   function pineX(value:unknown,xloc:unknown): number|null {
    if(value==null)return null;
    const x=Number(value);
    if(!Number.isFinite(x))return null;
    const location=String(xloc??'').toLowerCase();
-   if(!location.includes('time')&&location!=='bt')return scale.logicalToCoordinate((x-barIndexOffset) as Logical);
+   if(!location.includes('time')&&location!=='bt')return coordinateAtLogical(x-barIndexOffset,barX);
    if(!timeline.length)return null;
    const time=(x>=1e12?x/1000:x) as UTCTimestamp;
-   return scale.timeToCoordinate(time)??scale.logicalToCoordinate((logicalAtTime(time,timeline,seconds)-barIndexOffset) as Logical);
+   const exact = scale.timeToCoordinate(time);
+   if (exact !== null) return exact;
+   return coordinateAtLogical(logicalAtTime(time,timeline,seconds)-barIndexOffset,barX);
   }
   const items:any[]=[];
   for(const d of [...pineDrawings.filter(d=>d.kind==='linefill'),...pineDrawings.filter(d=>d.kind!=='linefill')]){if(d.overlay===false)continue;
