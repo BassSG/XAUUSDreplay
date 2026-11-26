@@ -1,9 +1,9 @@
 'use client';
 import {useEffect,useImperativeHandle,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
-import {createChart,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers,type IChartApi} from 'lightweight-charts';
+import {createChart,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers,type IChartApi,type Logical,type UTCTimestamp} from 'lightweight-charts';
 import ChartDrawings from './chart-drawings';
 import {LivePriceCountdown,LivePriceMarker} from './live-price-marker';
-import {captureLiveViewport,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
+import {captureLiveViewport,logicalAtTime,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
 import {liveTailUpdate, sameMarketBar} from '../lib/live-market';
 import type {Bar,Trade,Drawing,DrawingKind} from '../lib/engine';
 import type {ChartAppearance,ChartView} from '../lib/live-layouts';
@@ -158,7 +158,22 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
    for(let i=1;i<r.chart.panes().length;i++)r.chart.panes()[i].setHeight(150);
   }
  setPaneCount(Math.max(0,r.chart.panes().length-1));setViewTick(v=>v+1);},[plots,paneStudies,calculating,showPineText,live]);
- const overlay=(()=>{const r=ref.current;if(!r||!host.current)return null;const w=host.current.clientWidth,h=host.current.clientHeight;const pineX=(x:any,xloc:any)=>{const n=Number(x);if(!Number.isFinite(n))return null;const isTime=String(xloc||'').toLowerCase().includes('time')||String(xloc||'')==='bt';const t=isTime?Math.floor(n>1e12?n/1000:n):(bars[Math.trunc(n)-barIndexOffset]?.time);return t?r.chart.timeScale().timeToCoordinate(t as any):!isTime?r.chart.timeScale().logicalToCoordinate(n-barIndexOffset):null};const items:any[]=[];
+ const overlay=(()=>{
+  const r=ref.current;
+  if(!r||!host.current||!pineDrawings.length)return null;
+  const scale=(r.chart as IChartApi).timeScale();
+  const w=scale.width(),h=host.current.clientHeight;
+  function pineX(value:unknown,xloc:unknown): number|null {
+   if(value==null)return null;
+   const x=Number(value);
+   if(!Number.isFinite(x))return null;
+   const location=String(xloc??'').toLowerCase();
+   if(!location.includes('time')&&location!=='bt')return scale.logicalToCoordinate((x-barIndexOffset) as Logical);
+   if(!timeline.length)return null;
+   const time=(x>=1e12?x/1000:x) as UTCTimestamp;
+   return scale.timeToCoordinate(time)??scale.logicalToCoordinate((logicalAtTime(time,timeline,seconds)-barIndexOffset) as Logical);
+  }
+  const items:any[]=[];
   for(const d of [...pineDrawings.filter(d=>d.kind==='linefill'),...pineDrawings.filter(d=>d.kind!=='linefill')]){if(d.overlay===false)continue;
    if(d.kind==='linefill'&&d.line1&&d.line2&&!d.line1._deleted&&!d.line2._deleted){const points=[d.line1,d.line2].map(line=>{let ax=pineX(line.x1,line.xloc),bx=pineX(line.x2,line.xloc),ay=r.series.priceToCoordinate(Number(line.y1)),by=r.series.priceToCoordinate(Number(line.y2));if(ax===null||bx===null||ay===null||by===null)return null;const slope=(by-ay)/(bx-ax||1);if(['l','b','left','both'].includes(String(line.extend))){ay+=slope*(0-ax);ax=0;}if(['r','b','right','both'].includes(String(line.extend))){by+=slope*(w-bx);bx=w;}return [[ax,ay],[bx,by]];});if(points.every(Boolean)){const [a,b]=points as number[][][];items.push(<polygon key={'p-f-'+d.indicatorId+'-'+d.id} points={[...a,...b.slice().reverse()].map(p=>p.join(',')).join(' ')} fill={cssColor(d.color)}/>);}}
 
