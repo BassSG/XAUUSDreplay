@@ -2,14 +2,18 @@
 import {useEffect,useImperativeHandle,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
 import {createChart,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers,type IChartApi,type Logical,type UTCTimestamp} from 'lightweight-charts';
 import ChartDrawings from './chart-drawings';
+import {PineBandLayer} from './pine-band-layer';
+import {PineBox,PineLabel,pineDash,pineStroke} from './pine-annotations';
+import type {PineBand} from '../lib/pine-bands';
 import {LivePriceCountdown,LivePriceMarker} from './live-price-marker';
 import {captureLiveViewport,logicalAtTime,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
 import {liveTailUpdate, sameMarketBar} from '../lib/live-market';
 import type {Bar,Trade,Drawing,DrawingKind} from '../lib/engine';
 import type {ChartAppearance,ChartView} from '../lib/live-layouts';
 export type ChartLevel={id:string;price:number;kind:'entry'|'sl'|'tp';label:string;color:string;draft?:boolean;tradeId?:string;orderId?:string;editable:boolean;pending?:boolean};
-export type PinePlot={name:string;style:string;overlay:boolean;color:string;width:number;indicatorId?:string;indicatorName?:string;data:{time:number;value:number|null;color?:string}[]};
+export type PinePlot={name:string;style:string;lineStyle?:string;overlay:boolean;color:string;width:number;indicatorId?:string;indicatorName?:string;data:{time:number;value:number|null;color?:string}[]};
 const noLevels: ChartLevel[] = [];
+const noFills: PineBand[] = [];
 export type PineShape={indicatorId:string;indicatorName:string;time:number;shape:string;location:string;color:string;text:string;textcolor:string;size:string};
 export type PineDrawing={kind:'line'|'box'|'label'|'linefill';indicatorId:string;indicatorName:string;overlay?:boolean;[key:string]:any};
 export type PineTable={indicatorId:string;indicatorName:string;position:string;columns:number;rows:number;cells:any[][];bgcolor?:string;frame_color?:string;frame_width?:number;border_color?:string;border_width?:number;[key:string]:any};
@@ -19,9 +23,10 @@ const tickDate=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-d
 const ohlcNumber=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const prices=[['open','O','เปิด'],['high','H','สูงสุด'],['low','L','ต่ำสุด'],['close','C','ปิด']] as const;
 function latestLiveRange(count:number,width:number){
- const visible=Math.max(24,Math.min(110,Math.floor(width/8)));
- const room=Math.max(5,Math.round(visible/12));
- return {from:Math.max(0,count-visible+room),to:count+room};
+ const visible=Math.max(30,Math.round(width/(width<600?6.5:5.8)));
+ const room=Math.max(6,Math.round(visible*.1));
+ const to=count-1+room;
+ return {from:to-visible,to};
 }
 const markerShape=(s:string)=>{const v=(s||'').toLowerCase();return v.includes('up')?'arrowUp':v.includes('down')?'arrowDown':v.includes('square')?'square':'circle'};
 const markerPosition=(s:string)=>{const v=(s||'').toLowerCase();return v.includes('below')?'belowBar':v.includes('above')?'aboveBar':'inBar'};
@@ -31,12 +36,13 @@ export type LiveChartActions = {
  fit: () => void;
  first: () => void;
  latest: () => void;
+ resetView: () => void;
  viewport: () => LiveViewport | null;
  captureView: (follow: boolean) => ChartView | null;
  exportPng: () => Promise<void>;
 };
 
-export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,hiddenDrawings=false,live=false,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;hiddenDrawings?:boolean;live?:boolean;liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
+export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,hiddenDrawings=false,live=false,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;hiddenDrawings?:boolean;live?:boolean;liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
  const [expanded,setExpanded]=useState(false),[paneCount,setPaneCount]=useState(0),[focus,setFocus]=useState('draft');
  const [cursorTime,setCursorTime]=useState<number|null>(null);
  const livePriceMarker=useRef<LivePriceMarker|null>(null);
@@ -60,7 +66,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   if(!host.current)return;
   const chart=createChart(host.current,{autoSize:true,layout:{background:{type:ColorType.Solid,color:live?'#0d141e':'#10151d'},textColor:live?'#93a4ba':'#8f9caf',fontSize:12,fontFamily:"'Segoe UI',sans-serif",panes:{separatorColor:'#2b3442',separatorHoverColor:'#46546a',enableResize:true}},grid:{vertLines:{color:live?'#1a2635':'#19212c'},horzLines:{color:live?'#1a2635':'#19212c'}},crosshair:{mode:0,vertLine:{color:'#778495',labelBackgroundColor:'#344155'},horzLine:{color:'#778495',labelBackgroundColor:'#344155'}},timeScale:{timeVisible:true,secondsVisible:false,tickMarkFormatter:(t:any,type:number)=>{const d=typeof t==='number'?new Date(t*1000):new Date(Date.UTC(t.year,t.month-1,t.day));return type>=3?tickTime.format(d):tickDate.format(d)},borderColor:'#293241',rightOffset:35,barSpacing:7,minBarSpacing:live?.001:.5,shiftVisibleRangeOnNewBar:false,allowShiftVisibleRangeOnWhitespaceReplacement:false},rightPriceScale:{minimumWidth:live?66:0,borderColor:'#293241',scaleMargins:{top:.12,bottom:.1}},localization:{priceFormatter:(v:number)=>v.toFixed(2),timeFormatter:(t:any)=>dateFmt.format(new Date(Number(t)*1000))}});
   const series=chart.addSeries(CandlestickSeries,{upColor:'#35c4a0',downColor:'#ef6b79',wickUpColor:'#35c4a0',wickDownColor:'#ef6b79',borderVisible:false,priceFormat:{type:'price',precision:2,minMove:.01}});
-  const markers=createSeriesMarkers(series,[]);ref.current={chart,series,markers,lines:[],studies:new Map(),count:0};
+  const markers=createSeriesMarkers(series,[]);ref.current={chart,series,markers,lines:[],studies:new Map(),horizontals:new Map(),count:0};
   const priceMarker=live?new LivePriceMarker():null;
   if(priceMarker)series.attachPrimitive(priceMarker);
   livePriceMarker.current=priceMarker;
@@ -145,11 +151,41 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   const times=bars.map(b=>b.time);const mapped=markerData.map(m=>{let i=times.length-1;while(i>=0&&times[i]>m.time)i--;return i>=0?{...m,time:times[i]}:null}).filter(Boolean).sort((a:any,b:any)=>a.time-b.time);r.markers.setMarkers(mapped);
  },[trades,bars,shapes,levels,preview,focus,showPineText]);
  useEffect(()=>{const r=ref.current;if(!r)return;const visible=new Set<string>();const panes=paneStudies.map(([id])=>id);const previousPanes=r.chart.panes().length;
-  for(const p of plots){const key=(p.indicatorId||'legacy')+'|'+p.name+'|'+p.style+'|'+(p.overlay?'1':'0');visible.add(key);let s=r.studies.get(key);
-   if(!s){const type=['style_histogram','style_columns'].includes(p.style)?HistogramSeries:p.style==='style_area'?AreaSeries:LineSeries;const c=typeof p.color==='string'?p.color:'#d7b46a';const options:any={title:showPineText?p.name:'',color:c,lineColor:c,topColor:c,bottomColor:'#10151d00',lineWidth:p.width,priceLineVisible:false,lastValueVisible:true};if(type!==AreaSeries){delete options.topColor;delete options.bottomColor;delete options.lineColor;}s=r.chart.addSeries(type,options,p.overlay?0:panes.indexOf(p.indicatorId||'legacy')+1);r.studies.set(key,s);}
-   s.moveToPane(p.overlay?0:panes.indexOf(p.indicatorId||'legacy')+1);s.applyOptions({title:showPineText?p.name:'',color:p.color,lineWidth:p.width,lastValueVisible:false});s.setData(p.data.map(d=>d.value===null?{time:d.time}:{...d,value:d.value}));
+  for(const p of plots){
+   const id=p.indicatorId||'legacy', key=[id,p.name,p.style,p.overlay?'1':'0'].join('|');
+   const pane=p.overlay?0:panes.indexOf(id)+1;
+   const horizontal=p.style==='hline', pattern=pineStroke(p.lineStyle), lineStyle=pattern==='dotted'?1:pattern==='dashed'?2:0;
+   // Lightweight Charts draws a scale title even with lastValueVisible=false.
+   // Pine captions belong on their drawings; display.pane plots need a clean scale.
+   const title=live||horizontal?'':showPineText?p.name:'';
+   visible.add(key);
+   let series=r.studies.get(key);
+   if(!series){
+    const type=['style_histogram','style_columns'].includes(p.style)?HistogramSeries:p.style==='style_area'?AreaSeries:LineSeries;
+    const options={title,color:p.color,lineWidth:p.width,priceLineVisible:false,lastValueVisible:false,
+     ...(type===AreaSeries?{lineColor:p.color,topColor:p.color,bottomColor:'#10151d00'}:{}),
+     ...(horizontal?{lineVisible:false,crosshairMarkerVisible:false}:{})};
+    series=r.chart.addSeries(type,options,pane);
+    r.studies.set(key,series);
+   }
+   series.moveToPane(pane);
+   series.applyOptions({title,color:p.color,lineWidth:p.width,lineStyle,lastValueVisible:false});
+   series.setData(p.data.map(d=>d.value===null?{time:d.time}:{...d,value:d.value}));
+   if(horizontal){
+    const price=p.data.at(-1)?.value, existing=r.horizontals.get(key);
+    if(price!=null){
+     const options={price,color:p.color,lineWidth:p.width,lineStyle,axisLabelVisible:false,title:''};
+     if(existing)existing.applyOptions(options);
+     else r.horizontals.set(key,series.createPriceLine(options));
+    }else if(existing){series.removePriceLine(existing);r.horizontals.delete(key);}
+   }
   }
-  for(const [key,s] of r.studies)if(!visible.has(key)){if(calculating)s.setData([]);else{r.chart.removeSeries(s);r.studies.delete(key);}}
+  for(const [key,series] of r.studies)if(!visible.has(key)){
+   const line=r.horizontals.get(key);
+   if(line){series.removePriceLine(line);r.horizontals.delete(key);}
+   if(calculating)series.setData([]);
+   else{r.chart.removeSeries(series);r.studies.delete(key);}
+  }
   if(r.chart.panes().length!==previousPanes&&live){
    const panes:ReturnType<IChartApi['panes']>=r.chart.panes();
    panes[0].setStretchFactor(initialView?.paneSizes.price??3);
@@ -158,6 +194,23 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
    for(let i=1;i<r.chart.panes().length;i++)r.chart.panes()[i].setHeight(150);
   }
  setPaneCount(Math.max(0,r.chart.panes().length-1));setViewTick(v=>v+1);},[plots,paneStudies,calculating,showPineText,live]);
+ useEffect(()=>{
+  const r=ref.current;
+  if(!r||!fills.length)return;
+  const layers:PineBandLayer[]=[];
+  const hosts=new Map<PineBandLayer, typeof r.series>();
+  const groups=new Map<typeof r.series,PineBand[]>();
+  for(const fill of fills){
+   const plot=plots.find(p=>p.indicatorId===fill.indicatorId&&p.overlay===fill.overlay);
+   const series=fill.overlay?r.series:plot&&r.studies.get([plot.indicatorId,plot.name,plot.style,'0'].join('|'));
+   if(series)groups.set(series,[...(groups.get(series)??[]),fill]);
+  }
+  for(const [series,bands] of groups){
+   const layer=new PineBandLayer(bands);
+   series.attachPrimitive(layer);layers.push(layer);hosts.set(layer,series);
+  }
+  return ()=>{if(ref.current===r)for(const layer of layers)hosts.get(layer).detachPrimitive(layer);};
+ },[fills,plots]);
  const overlay=(()=>{
   const r=ref.current;
   if(!r||!host.current||!pineDrawings.length)return null;
@@ -177,9 +230,17 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   for(const d of [...pineDrawings.filter(d=>d.kind==='linefill'),...pineDrawings.filter(d=>d.kind!=='linefill')]){if(d.overlay===false)continue;
    if(d.kind==='linefill'&&d.line1&&d.line2&&!d.line1._deleted&&!d.line2._deleted){const points=[d.line1,d.line2].map(line=>{let ax=pineX(line.x1,line.xloc),bx=pineX(line.x2,line.xloc),ay=r.series.priceToCoordinate(Number(line.y1)),by=r.series.priceToCoordinate(Number(line.y2));if(ax===null||bx===null||ay===null||by===null)return null;const slope=(by-ay)/(bx-ax||1);if(['l','b','left','both'].includes(String(line.extend))){ay+=slope*(0-ax);ax=0;}if(['r','b','right','both'].includes(String(line.extend))){by+=slope*(w-bx);bx=w;}return [[ax,ay],[bx,by]];});if(points.every(Boolean)){const [a,b]=points as number[][][];items.push(<polygon key={'p-f-'+d.indicatorId+'-'+d.id} points={[...a,...b.slice().reverse()].map(p=>p.join(',')).join(' ')} fill={cssColor(d.color)}/>);}}
 
-   if(d.kind==='line'){let x1=pineX(d.x1,d.xloc),x2=pineX(d.x2,d.xloc),y1=r.series.priceToCoordinate(Number(d.y1)),y2=r.series.priceToCoordinate(Number(d.y2));if(x1===null||x2===null||y1===null||y2===null)continue;const ax=x1,ay=y1,bx=x2,by=y2;const slope=(by-ay)/(bx-ax||1);if(['l','b','left','both'].includes(String(d.extend))){x1=0;y1=ay+slope*(x1-ax);}if(['r','b','right','both'].includes(String(d.extend))){x2=w;y2=ay+slope*(x2-ax);}items.push(<line key={'p-l-'+d.indicatorId+'-'+d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={cssColor(d.color,'#d7b46a')} strokeWidth={Math.max(1,Number(d.width)||1)} strokeDasharray={['dashed','d'].includes(String(d.style))?'6 4':['dotted','o'].includes(String(d.style))?'2 4':undefined}/>);}
-   if(d.kind==='box'){const x1=pineX(d.left,d.xloc),x2=pineX(d.right,d.xloc),y1=r.series.priceToCoordinate(Number(d.top)),y2=r.series.priceToCoordinate(Number(d.bottom));if(x1===null||x2===null||y1===null||y2===null)continue;items.push(<g key={'p-b-'+d.indicatorId+'-'+d.id}><rect x={Math.min(x1,x2)} y={Math.min(y1,y2)} width={Math.max(1,Math.abs(x2-x1))} height={Math.max(1,Math.abs(y2-y1))} fill={cssColor(d.bgcolor,'transparent')} stroke={cssColor(d.border_color,'transparent')} strokeWidth={Number(d.border_width)||1}/>{showPineText&&d.text&&<text x={Math.min(x1,x2)+4} y={Math.min(y1,y2)+14} fill={cssColor(d.text_color,'#dbe4ef')} fontSize="11">{d.text}</text>}</g>);}
-   if(d.kind==='label'&&showPineText){const x=pineX(d.x,d.xloc),y=r.series.priceToCoordinate(Number(d.y));if(x===null||y===null)continue;items.push(<g key={'p-t-'+d.indicatorId+'-'+d.id}><rect x={x-3} y={y-14} width={Math.max(10,String(d.text||'').length*6+8)} height={18} rx={3} fill={cssColor(d.color,'#1d2835cc')}/><text x={x+1} y={y-2} fill={cssColor(d.textcolor,'#ffffff')} fontSize={String(d.size).includes('tiny')?9:String(d.size).includes('small')?10:12}>{d.text||''}</text></g>);}
+   if(d.kind==='line'){let x1=pineX(d.x1,d.xloc),x2=pineX(d.x2,d.xloc),y1=r.series.priceToCoordinate(Number(d.y1)),y2=r.series.priceToCoordinate(Number(d.y2));if(x1===null||x2===null||y1===null||y2===null)continue;const ax=x1,ay=y1,bx=x2,by=y2;const slope=(by-ay)/(bx-ax||1);if(['l','b','left','both'].includes(String(d.extend))){x1=0;y1=ay+slope*(x1-ax);}if(['r','b','right','both'].includes(String(d.extend))){x2=w;y2=ay+slope*(x2-ax);}items.push(<line key={'p-l-'+d.indicatorId+'-'+d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={cssColor(d.color,'#d7b46a')} strokeWidth={Math.max(1,Number(d.width)||1)} strokeDasharray={pineDash(d.style)}/>);}
+   if(d.kind==='box'){
+    const left=pineX(d.left,d.xloc),right=pineX(d.right,d.xloc);
+    if(left===null||right===null||!Number.isFinite(d.top)||!Number.isFinite(d.bottom))continue;
+    const top=r.series.priceToCoordinate(d.top),bottom=r.series.priceToCoordinate(d.bottom);
+    if(top!==null&&bottom!==null)items.push(<PineBox key={'p-b-'+d.indicatorId+'-'+d.id} d={d} left={left} right={right} top={top} bottom={bottom} paneWidth={w} showText={showPineText}/>);
+   }
+   if(d.kind==='label'&&showPineText&&Number.isFinite(d.y)){
+    const x=pineX(d.x,d.xloc),y=r.series.priceToCoordinate(d.y);
+    if(x!==null&&y!==null)items.push(<PineLabel key={'p-t-'+d.indicatorId+'-'+d.id} d={d} x={x} y={y}/>);
+   }
   }
   return <svg className="drawing-overlay" width={w} height={h}><defs><clipPath id="pricePaneClip"><rect width={w} height={r.chart.panes()[0].getHeight()}/></clipPath></defs><g clipPath="url(#pricePaneClip)">{items}</g></svg>})();
  const priceAt=(clientY:number)=>{const r=ref.current;if(!r||!host.current)return null;const y=clientY-host.current.getBoundingClientRect().top;if(y<0||y>r.chart.panes()[0].getHeight())return null;const value=r.series.coordinateToPrice(y);return value===null?null:Math.round(value*100)/100;};
@@ -195,13 +256,21 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   ref.current?.chart.timeScale().setVisibleLogicalRange({from:0,to:Math.min(count,bars.length)});
  }
  function goLatest(){
-  const range=live?latestLiveRange(bars.length,host.current?.clientWidth??700):replayRange(null,0,bars.length,0,true);
+  const range=live?latestLiveRange(bars.length,ref.current?.chart.timeScale().width()||host.current?.clientWidth||700):replayRange(null,0,bars.length,0,true);
   ref.current?.chart.timeScale().setVisibleLogicalRange(range);
  }
  useImperativeHandle(liveActions,()=>({
   fit:()=>ref.current?.chart.timeScale().setVisibleLogicalRange({from:-1,to:bars.length+4}),
   first:goFirst,
   latest:goLatest,
+  resetView:()=>{
+   const r=ref.current;
+   if(!r)return;
+   r.series.priceScale().applyOptions({autoScale:true});
+   const panes:ReturnType<IChartApi['panes']>=r.chart.panes();
+   panes.forEach((pane,i)=>pane.setStretchFactor(i?1:3));
+   goLatest();
+  },
   viewport:()=>{
    const range=ref.current?.chart.timeScale().getVisibleLogicalRange();
    return range&&bars.length?captureLiveViewport(range,bars,seconds):null;

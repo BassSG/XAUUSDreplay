@@ -19,15 +19,22 @@ const allIndyRequestGuards: Record<string, string> = {
  f_previousVolumeProfile: 'useVolumeProfile',
 };
 
-export function bindAllIndyBasicRequests(source: string, slices?: Record<string, Function>) {
- if (!slices || !/\bindicator\s*\(\s*["']All Indy \d+\.\d+\.\d+\s*·\s*Basic\b/.test(source)) return;
+export function bindBasicRequests(source: string, slices?: Record<string, Function>) {
+ const family = source.match(/\bindicator\s*\(\s*["'](All Indy|EBW-Fibo) \d+\.\d+\.\d+\s*·\s*Basic\b/)?.[1];
+ if (!slices || !family) return;
+ // Both Fibo scan functions depend on definitions above the first chart
+ // request. Their enclosing loop and barstate conditions select calls only
+ // in the chart context, and must not gate the secondary candle history.
+ const guards: Record<string, string> = family === 'EBW-Fibo'
+  ? {f_confirmedLevels: '(?:useParent|useSecond|scanAll)', f_lowerSet: '(?:useParent|useSecond|scanAll)'}
+  : allIndyRequestGuards;
 
  for (const [parameter, slice] of Object.entries(slices)) {
   const code = slice.toString();
   const lines = code.split('\n');
   const expression = lines.find(line => line.trimStart().startsWith('const ' + parameter + ' = request.param($.call(f_'));
   const name = expression?.match(/\$\.call\((f_\w+),/)?.[1];
-  const guard = name ? allIndyRequestGuards[name] : undefined;
+  const guard = name ? guards[name] : undefined;
   if (!expression || !guard) continue;
 
   // PineTS 0.11 copies the chart-side guard into the secondary program.
@@ -50,6 +57,13 @@ export function wrapPineContext(fn:Function,owner?:any):Function {
   if(owner)ctx.pineTSCode=owner;
   if(!patched.has(ctx)){
    patched.add(ctx);
+   // PineTS leaves bar_index as a Series in compound history subscripts,
+   // e.g. rsi[bar_index - swing.i]. Numeric coercion must use this candle's
+   // index; NaN would silently turn the subscript into a lookback of zero.
+   const index = ctx.pine.bar_index;
+   if (index && typeof index.get === 'function') {
+    Object.defineProperty(index, 'valueOf', {configurable: true, value: () => index.get(0)});
+   }
    // main_period stays the chart's timeframe inside request contexts. PineTS
    // 0.11 aliases it to period, which changes dynamic request branches.
    Object.defineProperty(ctx.pine.timeframe,'main_period',{get:()=>mainTimeframe});

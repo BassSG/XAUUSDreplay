@@ -51,6 +51,22 @@ test('the live Pine worker reports candle execution before returning its plots',
   assert.equal(result.plots[0].data.at(-1).value,bars.at(-1).close);
  }finally{progressCallback=undefined;}
 });
+test('EBW Basic builds the requested tuple history even when its chart guard would be false on the requested timeframe', async () => {
+ const source=`//@version=6
+indicator("EBW-Fibo 1.10.32 · Basic")
+f_confirmedLevels() =>
+    [high[1], low[1]]
+bool useParent = timeframe.in_seconds() < 900
+float priorHigh = na
+if useParent
+    [hi, lo] = request.security(syminfo.tickerid, "15", f_confirmedLevels(), lookahead=barmerge.lookahead_on, calc_bars_count=240)
+    priorHigh := hi
+plot(priorHigh, "Previous high")`;
+ const result = await run(source);
+ assertGood(result);
+ const complete = aggregate(base,900);
+ assert.ok(Math.abs(result.plots[0].data.at(-1).value-complete.at(-2).high)<1e-8);
+});
 test('All Indy 1.4.20 skips a missing lower-timeframe packet before reading its close time', async () => {
  const source=`//@version=6
 indicator("All Indy 1.4.20 • Zone Context")
@@ -70,6 +86,50 @@ plot(result, "Last closed sample")`;
  const result=await run(source,{bars:base.slice(0,30)});
  assertGood(result);
  assert.equal(result.plots[0].data.at(-1).value,42);
+});
+test('live higher-timeframe requests include the developing bucket built from revealed chart candles', async () => {
+ const start=Date.UTC(2025,0,6,6)/1000;
+ const bars=Array.from({length:6},(_,i)=>({time:start+i*900,open:100+i,high:103+i,low:98+i,close:101+i,volume:10}));
+ const asOf=start+6*900;
+ const native=aggregate(bars.slice(0,4),3600,'eightcap');
+ const provider=replayProvider(bars,900,'eightcap',asOf,false,[],undefined,{tf:'15',bars},[],async()=>native);
+ const rows=await provider.getMarketData('XAUUSD','60',240);
+ assert.equal(rows.length,2);
+ const last=rows.at(-1);
+ assert.deepEqual([last.openTime,last.open,last.high,last.low,last.close,last.volume],[(start+3600)*1000,104,108,102,106,20]);
+});
+test('Pine hline bands carry their bounds, line styles and enabled fill colour to the chart',async()=>{
+ const source=`//@version=6
+indicator("Oscillator")
+a=hline(80,"Upper",linestyle=hline.style_dotted)
+b=hline(20,"Lower",linestyle=hline.style_solid)
+fill(a,b,color.new(#FF0000,90),title="Band")
+plot(close,"Pane",display=display.pane)`;
+ const bars=base.slice(0,30);
+ const result=await run(source,{bars});
+ assertGood(result);
+ assert.equal(result.plots.find(p=>p.name==='Upper').lineStyle,'dotted');
+ assert.equal(result.fills.length,1);
+ const [band]=result.fills;
+ assert.equal(band.overlay,false);
+ assert.deepEqual(band.runs,[{color:'#FF00001A',points:[[bars[0].time,80,20],[bars.at(-1).time,80,20]]}]);
+});
+test('an oscillator indexed by bar_index minus a stored swing index reads the anchor candle',async()=>{
+ const bars=base.slice(0,40);
+ const source=`//@version=6
+indicator("Swing oscillator")
+type Swing
+    int index
+    float momentum = na
+f_value(float oscillator, Swing anchor) =>
+    Swing swing = anchor
+    swing.momentum := oscillator[bar_index - swing.index]
+    swing.momentum
+var Swing a=Swing.new(7)
+plot(f_value(close,a),"Anchor")`;
+ const result=await run(source,{bars});
+ assertGood(result);
+ assert.ok(Math.abs(result.plots[0].data.at(-1).value-bars[7].close)<1e-8);
 });
 test('live Pine can read native lower-timeframe history earlier than the in-memory minute window', async () => {
  const start=Date.UTC(2025,0,6,6)/1000;

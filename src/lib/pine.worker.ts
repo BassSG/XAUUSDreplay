@@ -1,10 +1,11 @@
 import {PineTS,Indicator} from 'pinets';
 import type {Bar,CandleCalendar} from './engine.ts';
-import {adaptPineSource,bindAllIndyBasicRequests,wrapPineContext,optimizePrepared,setPineMainTimeframe} from './pine-compat.ts';
+import {adaptPineSource,bindBasicRequests,wrapPineContext,optimizePrepared,setPineMainTimeframe} from './pine-compat.ts';
 import {periodEnd,replayProvider} from './pine-data.ts';
 import {installReplaySnapshots} from './pine-stream.ts';
 import {checkPineIndicator,type LivePineFrame,type PineHistoryLoader} from './live-pine.ts';
 import {sameMarketBar} from './live-market.ts';
+import {readPineBand,type PineBand} from './pine-bands.ts';
 installReplaySnapshots();
 const secondaryRun=PineTS.prototype.runPretranspiled;
 const preparedSlices=new WeakMap<Function,Function>();
@@ -65,6 +66,7 @@ context.onmessage=async(event:MessageEvent)=>{
  if(cacheKey&&results.has(cacheKey)){context.postMessage({...results.get(cacheKey),id});return;}
  const jobs=(scripts?.length?scripts:[{id:'legacy',name:'Pine',source:source||''}]).slice().sort((a,b)=>Number(b.source.includes('indicator("All Indy (EBW) V10.4.4'))-Number(a.source.includes('indicator("All Indy (EBW) V10.4.4')));
  const plots:any[]=[],shapes:any[]=[],drawings:any[]=[],tables:any[]=[],warnings:string[]=[],errors:string[]=[],studies:any[]=[];
+ const fills:PineBand[]=[];
  let bridge=new Map<string,Map<number,number>>();
  const asOf=live?.asOf??(baseBars.length?periodEnd(baseBars.at(-1)!.time,String(baseSeconds/60),calendar):0);
  const liveHistory:PineHistoryLoader|undefined=live?.nativeHistory?query=>new Promise(resolve=>{
@@ -86,7 +88,7 @@ context.onmessage=async(event:MessageEvent)=>{
    let item=compiled.get(job.id);
    if(!item||item.source!==src){
     const indicator=new Indicator(adaptPineSource(src)),prepared=indicator.prepare();
-    bindAllIndyBasicRequests(src, prepared.ltfSlices as unknown as Record<string, Function> | undefined);
+    bindBasicRequests(src, prepared.ltfSlices as unknown as Record<string, Function> | undefined);
     item={source:src,indicator,meta:indicator.getInputsMeta(),bridge:new Map()};const entry=item,fn=optimizePrepared(prepared.fn);
     prepared.fn=wrapPineContext(async(ctx:any)=>{
      reportCalculation(ctx);
@@ -121,13 +123,18 @@ context.onmessage=async(event:MessageEvent)=>{
    for(const [key,value] of Object.entries(raw.plots??{})){
     if(key.startsWith('__'))continue;const p=value as any;if(!Array.isArray(p?.data)||!visibleDisplay(p.options?.display))continue;
     const style=p.options?.style??'style_line',overlay=!!(p.options?.force_overlay||p.options?.overlay||raw.indicator?.overlay);
+    if(style==='fill'){
+     const band=readPineBand(p,raw.plots,job.id,overlay,outputFrom);
+     if(band)fills.push(band);
+     continue;
+    }
     if(style==='shape'||style==='char'){
      for(const d of p.data){if(!d?.options||!d.value||d.time<outputFrom*1000)continue;shapes.push({indicatorId:job.id,indicatorName:job.name,time:Math.floor(d.time/1000),shape:d.options.shape||style,location:d.options.location||'abovebar',color:color(d.options.color),text:d.options.text||d.options.char||'',textcolor:color(d.options.textcolor,'#ffffff'),size:d.options.size||'small'});}continue;
     }
     if(['background','barcolor','bar','candle'].includes(style)){warnings.push(job.name+': '+style+' ยังไม่แสดงในกราฟ');continue;}
     if(!['style_line','style_linebr','style_stepline','line','hline','style_histogram','style_columns','style_area'].includes(style))continue;
     let lo=0,hi=p.data.length;while(lo<hi){const mid=(lo+hi)>>>1;if(p.data[mid].time<outputFrom*1000)lo=mid+1;else hi=mid;}
-    plots.push({indicatorId:job.id,indicatorName:job.name,name:p.title||key,style,overlay,color:color(p.options?.color),width:Math.max(1,Math.min(4,p.options?.linewidth||1)),data:p.data.slice(lo).map((d:any)=>({time:Math.floor(d.time/1000),value:Number.isFinite(d.value)?d.value:null,color:typeof d.options?.color==='string'?d.options.color:undefined}))});
+    plots.push({indicatorId:job.id,indicatorName:job.name,name:p.title||key,style,overlay,lineStyle:p.options?.linestyle??(style==='hline'?'dashed':'solid'),color:color(p.options?.color),width:Math.max(1,Math.min(4,p.options?.linewidth||1)),data:p.data.slice(lo).map((d:any)=>({time:Math.floor(d.time/1000),value:Number.isFinite(d.value)?d.value:null,color:typeof d.options?.color==='string'?d.options.color:undefined}))});
    }
    for(const [kind,key,overlay] of [['line','__lines__',false],['line','__lines_overlay__',true],['box','__boxes__',false],['box','__boxes_overlay__',true],['label','__labels__',false],['label','__labels_overlay__',true],['linefill','__linefills__',false],['linefill','__linefills_overlay__',true]] as const){
     for(const d of latestObjects(raw,key)??[])if(d&&!d._deleted)drawings.push(plain({...d,kind,overlay:overlay||d.force_overlay||raw.indicator?.overlay,indicatorId:job.id,indicatorName:job.name}));
@@ -137,11 +144,11 @@ context.onmessage=async(event:MessageEvent)=>{
   }catch(e){const item=compiled.get(job.id);if(item)item.runtime=undefined;study.error=e instanceof Error?e.message:String(e);errors.push(job.name+': '+study.error);}
   study.ms=Math.round(performance.now()-started);studies.push(study);
   if(live&&studies.length<jobs.length){
-   context.postMessage({id,partial:true,plots,shapes,drawings,tables,studies,errors,warnings:[...new Set(warnings)].slice(0,12)});
+   context.postMessage({id,partial:true,plots,fills,shapes,drawings,tables,studies,errors,warnings:[...new Set(warnings)].slice(0,12)});
   }
  }}finally{activeCalculation=undefined;Date.now=realNow;}
  for(const key of compiled.keys())if(!jobs.some(j=>j.id===key))compiled.delete(key);
- const result={id,plots,shapes,drawings,tables,warnings:[...new Set(warnings)].slice(0,12),errors,studies};
+ const result={id,plots,fills,shapes,drawings,tables,warnings:[...new Set(warnings)].slice(0,12),errors,studies};
  if(cacheKey&&!errors.length){results.set(cacheKey,result);while(results.size>8||[...results.values()].reduce((n,r)=>n+r.plots.reduce((v:number,p:any)=>v+p.data.length,0),0)>400000)results.delete(results.keys().next().value!);}
  context.postMessage(result);
 };

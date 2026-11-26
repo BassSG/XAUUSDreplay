@@ -387,7 +387,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         '--chart-up': appearance.upColor, '--chart-down': appearance.downColor} as CSSProperties}>
         {bars.length ? <ChartBoundary resetKey={viewportKey}><ReplayChart live key={viewportKey} liveActions={chart}
           liveViewport={viewport} initialView={initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
-          shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
+          fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
           bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
           drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
           selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingCancel={cancelDrawing}
@@ -441,6 +441,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         <button type="button" aria-pressed={follow} onClick={() => { toggleFollow(); closePanel(); }}>
           <Radio size={18}/><span>ติดตามแท่งล่าสุด</span>
         </button>
+        <button type="button" disabled={!bars.length} onClick={() => {
+          setInitialView(null); setFollow(true); setViewport(null); chart.current?.resetView(); closePanel();
+        }}><ScanLine size={18}/><span>รีเซ็ตมุมมองกราฟ</span></button>
         <button type="button" disabled={!bars.length} onClick={() => { setFollow(false); chart.current?.fit(); closePanel(); }}>
           <ScanLine size={18}/><span>พอดีช่วงที่โหลด</span>
         </button>

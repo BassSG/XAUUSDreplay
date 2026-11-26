@@ -55,6 +55,18 @@ export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:Candle
       if(remote.length||missing===0){
        const byTime=new Map([...remote,...local].filter(bar=>bar.time<before).map(bar=>[bar.time,bar]));
        const history=[...byTime.values()].sort((a,b)=>a.time-b.time);
+       // security() locates a chart bar inside a requested candle, even for
+       // close[1] + lookahead_on. Supply the open native candle using only
+       // bars already revealed at this frame. Never use a future native close.
+       if(seconds>baseSeconds){
+        const useChart=sourceSeconds>=baseSeconds&&sourceSeconds%baseSeconds===0;
+        const fine=useChart?primary.bars:liveMinutes;
+        if(fine.length&&fine[0].time<=before){
+         const tail=fine.filter(b=>b.time>=before&&(useChart?b.time<asOf:b.time+60<=asOf));
+         const forming=aggregatePineBars(tail,sourceTF,calendar)[0];
+         if(forming?.time===before)history.push(forming);
+        }
+       }
        const output=seconds===sourceSeconds?history:aggregatePineBars(history,tf,calendar)
         .filter(bar=>bar.time>=history[0].time&&(seconds>=baseSeconds||periodEnd(bar.time,tf,calendar)<=asOf));
        return output.slice(-limit);

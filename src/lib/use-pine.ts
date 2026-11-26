@@ -4,17 +4,18 @@ import {createPineHistoryLoader} from './live-feed';
 import type {LivePineFrame,PineHistoryQuery} from './live-pine';
 import type {Bar,CandleCalendar} from './engine';
 import type {ScriptJob} from './pine.worker';
+import type {PineBand} from './pine-bands';
 import type {PinePlot,PineShape,PineDrawing,PineTable} from '../components/replay-chart';
 export type StudyStatus={id:string;name:string;inputs:any[];error:string;bridge:boolean;ms:number;mode?:'initial'|'incremental'};
 type Job={id:number;key:string;source:string;bars:Bar[];baseBars:Bar[];seconds:number;baseSeconds:number;calendar:CandleCalendar;scripts?:ScriptJob[];bundled:boolean;plotLimit:number;live?:LivePineFrame};
-type Snapshot={key:string;plots:PinePlot[];shapes:PineShape[];drawings:PineDrawing[];tables:PineTable[];studies:StudyStatus[];errors:string[];warnings:string[]};
-const empty:Snapshot={key:'',plots:[],shapes:[],drawings:[],tables:[],studies:[],errors:[],warnings:[]};
+type Snapshot={key:string;plots:PinePlot[];fills:PineBand[];shapes:PineShape[];drawings:PineDrawing[];tables:PineTable[];studies:StudyStatus[];errors:string[];warnings:string[]};
+const empty:Snapshot={key:'',plots:[],fills:[],shapes:[],drawings:[],tables:[],studies:[],errors:[],warnings:[]};
 function mergePartial(previous:Snapshot, current:Snapshot):Snapshot {
  const updated=new Set(current.studies.map(study=>study.id));
  function merge<T extends {indicatorId?:string}>(old:T[],fresh:T[]){
   return [...fresh,...old.filter(item=>!updated.has(item.indicatorId??'legacy'))];
  }
- return {...current,plots:merge(previous.plots,current.plots),shapes:merge(previous.shapes,current.shapes),
+ return {...current,plots:merge(previous.plots,current.plots),fills:merge(previous.fills,current.fills),shapes:merge(previous.shapes,current.shapes),
   drawings:merge(previous.drawings,current.drawings),tables:merge(previous.tables,current.tables)};
 }
 function hash(s:string){let h=2166136261;for(let i=0;i<s.length;i++)h=Math.imul(h^s.charCodeAt(i),16777619);return (h>>>0).toString(36)+':'+s.length;}
@@ -71,7 +72,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
    if(result.progress){arm();if(result.metadata)setMetadata(old=>[...old.filter(m=>m.id!==result.metadata.id),result.metadata]);
     if(active.job.live||active.job.key===expected.current)setProgress({key:active.job.key,text:'กำลังคำนวณ '+result.progress});return;}
    const finished=active;
-   const frame:Snapshot={key:finished.job.key,plots:result.plots||[],shapes:result.shapes||[],drawings:result.drawings||[],tables:result.tables||[],studies:result.studies||[],errors:result.errors||[],warnings:result.warnings||[]};
+   const frame:Snapshot={key:finished.job.key,plots:result.plots||[],fills:result.fills||[],shapes:result.shapes||[],drawings:result.drawings||[],tables:result.tables||[],studies:result.studies||[],errors:result.errors||[],warnings:result.warnings||[]};
    if(result.partial){
     if(!finished.job.live)return;
     arm();
