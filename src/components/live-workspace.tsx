@@ -180,7 +180,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const through = last === undefined ? undefined : candleWindow(last, minuteBased ? 60 : periods[period]).close;
   const pineFrame = {asOf: through ?? (bars.length ? candleWindow(bars.at(-1)!.time, periods[period]).close : 0),
     minutes: market.archive || historical.length ? emptyBars : market.minutes, nativeHistory: true};
-  const pine = usePine(undefined, jobs.length > 0, bars, periods[period], 'live-' + period, jobs,
+  const pineSession = ['live', market.key, market.archive, Boolean(historical.length)].join(':');
+  const pine = usePine(undefined, jobs.length > 0, bars, periods[period], pineSession, jobs,
     bars, periods[period], 'eightcap', false, pineFrame);
   const plots = useMemo(() => [...builtInPlots, ...pine.plots], [builtInPlots, pine.plots]);
   const enabledScripts = scripts.filter(s => s.enabled);

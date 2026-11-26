@@ -9,6 +9,14 @@ export type StudyStatus={id:string;name:string;inputs:any[];error:string;bridge:
 type Job={id:number;key:string;source:string;bars:Bar[];baseBars:Bar[];seconds:number;baseSeconds:number;calendar:CandleCalendar;scripts?:ScriptJob[];bundled:boolean;plotLimit:number;live?:LivePineFrame};
 type Snapshot={key:string;plots:PinePlot[];shapes:PineShape[];drawings:PineDrawing[];tables:PineTable[];studies:StudyStatus[];errors:string[];warnings:string[]};
 const empty:Snapshot={key:'',plots:[],shapes:[],drawings:[],tables:[],studies:[],errors:[],warnings:[]};
+function mergePartial(previous:Snapshot, current:Snapshot):Snapshot {
+ const updated=new Set(current.studies.map(study=>study.id));
+ function merge<T extends {indicatorId?:string}>(old:T[],fresh:T[]){
+  return [...fresh,...old.filter(item=>!updated.has(item.indicatorId??'legacy'))];
+ }
+ return {...current,plots:merge(previous.plots,current.plots),shapes:merge(previous.shapes,current.shapes),
+  drawings:merge(previous.drawings,current.drawings),tables:merge(previous.tables,current.tables)};
+}
 function hash(s:string){let h=2166136261;for(let i=0;i<s.length;i++)h=Math.imul(h^s.charCodeAt(i),16777619);return (h>>>0).toString(36)+':'+s.length;}
 function frameKey(scope:string,bars:Bar[],baseBars:Bar[],live?:LivePineFrame,revision=0){return [scope,bars.length,baseBars.length,JSON.stringify(bars.at(-1)),JSON.stringify(baseBars.at(-1)),live?.asOf,revision].join('|');}
 export function usePine(source:string|undefined,enabled:boolean|undefined,bars:Bar[],seconds:number,sessionId:string|undefined,scripts?:ScriptJob[],baseBars:Bar[]=bars,baseSeconds=seconds,calendar:CandleCalendar='utc',bundled=false,live?:LivePineFrame){
@@ -26,7 +34,10 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  const revision=live?liveData.current!.revision:0;
  const request=useRef<((job:Job)=>Promise<boolean>)|null>(null);
  const scriptKey=useMemo(()=>hash(JSON.stringify(scripts?.length?scripts:source)??''),[scripts,source]);
- const scope=[sessionId,seconds,baseSeconds,calendar,bundled,!!live,bars[0]?.time,baseBars[0]?.time,scriptKey,run].join('|');
+ // A Live history prepend queues a new snapshot without cancelling work on
+ // the already loaded bars. Replay still keys caches by the revealed start.
+ const replayStart=live?'':[bars[0]?.time,baseBars[0]?.time].join(':');
+ const scope=[sessionId,seconds,baseSeconds,calendar,bundled,!!live,replayStart,scriptKey,run].join('|');
  const key=frameKey(scope,bars,baseBars,live,revision),expected=useRef(key);expected.current=key;
  const needed=!!enabled&&!!(source||scripts?.length);
  const params=useRef({scope,source:source||'',seconds,baseSeconds,calendar,scripts,bundled,needed,live,revision});params.current={scope,source:source||'',seconds,baseSeconds,calendar,scripts,bundled,needed,live,revision};
@@ -59,11 +70,23 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
    }
    if(result.progress){arm();if(result.metadata)setMetadata(old=>[...old.filter(m=>m.id!==result.metadata.id),result.metadata]);
     if(active.job.live||active.job.key===expected.current)setProgress({key:active.job.key,text:'กำลังคำนวณ '+result.progress});return;}
-   clearTimeout(deadline);const finished=active;active=null;
-   // Prepared frames stay private until the replay cursor selects their exact key.
+   const finished=active;
    const frame:Snapshot={key:finished.job.key,plots:result.plots||[],shapes:result.shapes||[],drawings:result.drawings||[],tables:result.tables||[],studies:result.studies||[],errors:result.errors||[],warnings:result.warnings||[]};
+   if(result.partial){
+    if(!finished.job.live)return;
+    arm();
+    const previous=lastLive.current;
+    const through=finished.job.live.asOf;
+    const visible=previous?.scope===scope&&previous.through<=through?mergePartial(previous.frame,frame):frame;
+    lastLive.current={scope,through,frame:visible};
+    completedLive.current={scope,frame};
+    refresh(v=>v+1);
+    return;
+   }
+   clearTimeout(deadline);active=null;
+   // Prepared frames stay private until the replay cursor selects their exact key.
    frames.current.set(frame.key,frame);
-   if(finished.job.live){completedLive.current={scope,frame};if(!frame.errors.length)lastLive.current={scope,through:finished.job.live.asOf,frame};}
+   if(finished.job.live){completedLive.current={scope,frame};lastLive.current={scope,through:finished.job.live.asOf,frame};}
    const points=()=>[...frames.current.values()].reduce((n,f)=>n+f.plots.reduce((sum,p)=>sum+p.data.length,0),0);
    while(frames.current.size>6||frames.current.size>2&&points()>400000){const oldest=[...frames.current.keys()].find(k=>k!==expected.current&&k!==frame.key);if(!oldest)break;frames.current.delete(oldest);}
    if(finished.job.live||frame.key===expected.current)refresh(v=>v+1);finished.resolve.forEach(resolve=>resolve(!frame.errors.length));send();
@@ -82,8 +105,9 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  const frameError=current.errors.join(' · ')||error;
  const status=!needed?'':valid?(current.warnings.join(' · ')||(frameError?'บางอินดิเคเตอร์มีข้อผิดพลาด':'Pine พร้อมใช้งาน')):(progress.key===key||live&&progress.text)?progress.text:'กำลังเตรียมอินดิเคเตอร์';
  const previous=lastLive.current;
- const display=needed&&!valid&&!frameError&&live&&previous?.scope===scope&&previous.through<=live.asOf?previous.frame:current;
+ const display=needed&&!valid&&live&&previous?.scope===scope&&previous.through<=live.asOf?previous.frame:current;
  const completed=completedLive.current?.scope===scope?completedLive.current.frame:current;
- const studies=valid?current.studies:completed.key?completed.studies:metadata;
+ const evaluatedIds=new Set(completed.studies.map(study=>study.id));
+ const studies=valid?current.studies:[...completed.studies,...metadata.filter(study=>!evaluatedIds.has(study.id))];
  return {...display,key:current.key,completed,studies,status,error:frameError,calculating:needed&&!valid&&!error,prepare,retry:()=>setRun(v=>v+1)};
 }

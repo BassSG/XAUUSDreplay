@@ -136,6 +136,9 @@ context.onmessage=async(event:MessageEvent)=>{
    warnings.push(...(raw.warnings??[]).slice(0,3).map((w:any)=>job.name+': '+String(w?.message??w)));
   }catch(e){const item=compiled.get(job.id);if(item)item.runtime=undefined;study.error=e instanceof Error?e.message:String(e);errors.push(job.name+': '+study.error);}
   study.ms=Math.round(performance.now()-started);studies.push(study);
+  if(live&&studies.length<jobs.length){
+   context.postMessage({id,partial:true,plots,shapes,drawings,tables,studies,errors,warnings:[...new Set(warnings)].slice(0,12)});
+  }
  }}finally{activeCalculation=undefined;Date.now=realNow;}
  for(const key of compiled.keys())if(!jobs.some(j=>j.id===key))compiled.delete(key);
  const result={id,plots,shapes,drawings,tables,warnings:[...new Set(warnings)].slice(0,12),errors,studies};
