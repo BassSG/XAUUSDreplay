@@ -203,6 +203,7 @@ export default function LiveDrawingToolbar(props: Props) {
       <button type="button" aria-label={currentTool.name} title={currentTool.name + ' · ' + currentTool.help}
         aria-pressed={props.mode === current} disabled={!props.enabled}
         onClick={() => props.mode === current ? props.onSelect() : pick(current)}><CurrentIcon size={19}/><span>ด่วน</span></button>
+      {props.navigation}
       <div className="live-tool-groups" role="group" aria-label="หมวดเครื่องมือ">
         {groups.map(group => {
           const Icon = groupIcons[group];
@@ -212,7 +213,6 @@ export default function LiveDrawingToolbar(props: Props) {
         })}
       </div>
       <DrawingActions props={props}/>
-      {props.navigation}
     </aside>
     {props.favorites.length > 0 && <FavoriteBar props={props} pick={pick}/>}
     {picker && <DrawingPicker group={picker} enabled={props.enabled} actions={<DrawingActions props={props} inPicker/>}

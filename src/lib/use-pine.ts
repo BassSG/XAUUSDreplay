@@ -110,5 +110,5 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  const completed=completedLive.current?.scope===scope?completedLive.current.frame:current;
  const evaluatedIds=new Set(completed.studies.map(study=>study.id));
  const studies=valid?current.studies:[...completed.studies,...metadata.filter(study=>!evaluatedIds.has(study.id))];
- return {...display,key:current.key,completed,studies,status,error:frameError,calculating:needed&&!valid&&!error,prepare,retry:()=>setRun(v=>v+1)};
+ return {...display,key:current.key,requestedKey:key,completed,studies,status,error:frameError,calculating:needed&&!valid&&!error,prepare,retry:()=>setRun(v=>v+1)};
 }

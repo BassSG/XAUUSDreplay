@@ -20,6 +20,8 @@ export const studyDefinitions = {
   obv: {name: 'OBV (Tick Volume)', length: null, color: '#7cc6c3', help: 'สะสมจำนวน Tick โดยบวกเมื่อราคาปิดขึ้นและลบเมื่อราคาปิดลง'},
 };
 export type LiveStudy = keyof typeof studyDefinitions;
+export type LiveStudyBadge = {id: string; label: string; state: 'loading' | 'ready' | 'error'};
+export const studyStateLabel = {loading: 'กำลังคำนวณ', ready: 'พร้อมใช้งาน', error: 'คำนวณไม่สำเร็จ'};
 export type LiveStudyLengths = Partial<Record<LiveStudy, number>>;
 
 const blue = '#73a9ea';

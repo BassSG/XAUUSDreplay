@@ -2,7 +2,7 @@ import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type Re
 import {
   ArrowLeft, Bell, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
   Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, SkipBack, SkipForward, Trash2, X,
-  CalendarDays, Code2, Copy, PanelsTopLeft, Settings2,
+  CalendarDays, Code2, Copy, PanelsTopLeft, Settings2, Target,
 } from 'lucide-react';
 import ChartBoundary from './chart-boundary';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
@@ -10,8 +10,10 @@ import LiveOverviewChart, {LiveChartTile, timeframeName} from './live-overview-c
 import LiveDrawingToolbar from './live-drawing-toolbar';
 import LiveDrawingSettings, {drawingInputColor} from './live-drawing-settings';
 import LiveStudyPanel from './live-study-panel';
+import LiveStudyLegend from './live-study-legend';
 import LiveAppearance from './live-appearance';
 import LiveAlertPanel from './live-alert-panel';
+import LiveForwardPanel from './live-forward-panel';
 import LiveLayoutPanel, {type ActiveLayout} from './live-layout-panel';
 import LivePineEditor, {newScriptDraft, type ScriptDraft} from './live-pine-editor';
 import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readChartView, workspaceKey} from '../lib/live-layouts';
@@ -20,9 +22,10 @@ import {useLiveBars, useLiveStudies} from '../lib/use-live-chart';
 import type {LiveViewport} from '../lib/chart-tools';
 import {drawingTools} from '../lib/drawing-definitions';
 import {positionMetrics} from '../lib/drawing-geometry';
+import {forwardPlan, forwardQuoteMaxAge, isFreshForwardQuote, matchesForwardPlan, startForwardTest, updateForwardTest} from '../lib/forward-test';
 import type {Drawing, DrawingKind, IndicatorSpec, Trade} from '../lib/engine';
 import {olderPageSize, periods, type Period} from '../lib/live-market';
-import {studyDefinitions, studyLabel, type LiveStudy} from '../lib/live-indicators';
+import type {LiveStudy} from '../lib/live-indicators';
 import {useLiveFeed, useLiveMarket} from '../lib/use-live-market';
 import {useDialog} from '../lib/use-dialog';
 import {alertText, usePriceAlerts} from '../lib/use-price-alerts';
@@ -102,7 +105,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [viewport, setViewport] = useState<LiveViewport | null>(initial.view?.follow ? null : initial.view?.viewport ?? null);
   const [retry, setRetry] = useState(0);
   const [storageFailed, setStorageFailed] = useState(false);
-  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'objects' | 'studies' | 'appearance' | 'layouts' | 'pine' | 'alerts' | null>(() =>
+  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'objects' | 'studies' | 'appearance' | 'layouts' | 'pine' | 'alerts' | 'forward' | null>(() =>
     new URLSearchParams(location.search).get('panel') === 'alerts' ? 'alerts' : null);
   const [editingDrawing, setEditingDrawing] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
@@ -115,7 +118,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const redo = useRef<Drawing[][]>([]);
   const sixCharts = chartLayout === 'six';
   const feed = useLiveFeed(retry);
-  const alerts = usePriceAlerts(feed.quoteError ? null : feed.quote);
+  const liveQuote = feed.quoteError ? null : feed.quote;
+  const alerts = usePriceAlerts(liveQuote);
+  const previousForwardQuote = useRef<number | null>(null);
   const armedAlerts = alerts.state.rules.filter(rule => rule.status === 'armed');
 
   useEffect(() => {
@@ -125,6 +130,29 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     navigator.serviceWorker?.addEventListener('message', openAlerts);
     return () => navigator.serviceWorker?.removeEventListener('message', openAlerts);
   }, []);
+  useEffect(() => {
+    if (!isFreshForwardQuote(liveQuote)) {
+      previousForwardQuote.current = null;
+      return;
+    }
+    const previous = previousForwardQuote.current;
+    if (previous !== null && liveQuote.time <= previous) return;
+    previousForwardQuote.current = liveQuote.time;
+    const rebaseline = previous === null || liveQuote.time - previous > forwardQuoteMaxAge;
+    setWorkspace(current => {
+      let changed = false;
+      const next = current.drawings.map(drawing => {
+        const run = drawing.forwardTest;
+        if (!run || run.exit || !matchesForwardPlan(run, forwardPlan(drawing))) return drawing;
+        const result = updateForwardTest(run, liveQuote, rebaseline);
+        if (result === run) return drawing;
+        changed = true;
+        return {...drawing, forwardTest: result};
+      });
+      return changed ? {...current, drawings: next} : current;
+    });
+  }, [liveQuote]);
+
   const market = useLiveMarket(period, retry, feed, viewport?.time ?? null);
   const {bars, historical, needsBackup, backupFailed} = useLiveBars(period, market, retry, Boolean(viewport));
 
@@ -219,7 +247,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     : market.historyStatus === 'error' ? 'โหลดแท่งเก่าไม่สำเร็จ'
     : market.historyStatus === 'end' ? 'ถึงข้อมูลเก่าสุดที่ Eightcap ส่งมาแล้ว' : '';
   const liveNow = follow && !market.archive && !historical.length && quote?.status === 'live' && !market.quoteError;
-  const {pine, plots, through, minuteBased} = useLiveStudies(period, market, bars, historical, studies, lengths, jobs);
+  const {pine, plots, through, minuteBased, badges} = useLiveStudies(period, market, historical, studies, lengths, jobs);
   const enabledScripts = useMemo(() => scripts.filter(s => s.enabled), [scripts]);
   const totalStudies = studies.length + enabledScripts.length;
   useEffect(() => {
@@ -240,7 +268,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const chartStatus = storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
     (market.windowUnavailable ? 'ไม่พบช่วงเวลาเดิมในไทม์เฟรมนี้' : market.archive ? 'มุมมองย้อนหลัง'
       : historical.length ? 'ข้อมูลสำรอง' : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
-        : liveNow && through !== undefined ? 'OHLC ถึง ' + shortClock.format(through * 1000)
+        : liveNow && market.provisional ? 'OHLC กำลังก่อตัวจาก Bid สด'
+          : liveNow && through !== undefined ? 'OHLC ถึง ' + shortClock.format(through * 1000)
           : minuteBased ? 'OHLC จาก 1m ที่ปิดแล้ว' : '');
   const viewportKey = period + (market.archive ? '-archive' : '-current') + '-' + layoutVersion;
 
@@ -254,6 +283,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setActiveLayout(row ? {id: row.id, name: row.file.name, revision: row.revision} : null);
   }
   function openLayout(row: SavedLayout) {
+    previousForwardQuote.current = null;
     setWorkspace(row.file.workspace);
     setLibrary(saved => mergeScripts(saved, row.file.library ?? row.file.workspace.scripts));
     setFollow(row.file.view.follow);
@@ -270,13 +300,42 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setMode(null);
     setSelected(null);
   }
+  function storeDrawings(next: Drawing[]) {
+    setWorkspace(value => {
+      const tracked = new Map(value.drawings.filter(drawing => drawing.forwardTest).map(drawing => [drawing.id, drawing.forwardTest]));
+      return {...value, drawings: next.map(drawing => {
+        const run = tracked.get(drawing.id);
+        return run && run !== drawing.forwardTest ? {...drawing, forwardTest: run} : drawing;
+      })};
+    });
+  }
   function saveDrawings(next: Drawing[]) {
     undo.current = [...undo.current.slice(-99), drawings];
     redo.current = [];
-    setWorkspace(value => ({...value, drawings: next}));
+    storeDrawings(next);
   }
   function changeDrawing(drawing: Drawing) {
-    saveDrawings(drawings.map(d => d.id === drawing.id ? drawing : d));
+    undo.current = [...undo.current.slice(-99), drawings];
+    redo.current = [];
+    setWorkspace(current => ({...current, drawings: current.drawings.map(previous => {
+      if (previous.id !== drawing.id) return previous;
+      const run = previous.forwardTest;
+      const plan = forwardPlan(drawing);
+      const restartPending = run && !run.entry && plan && !matchesForwardPlan(run, plan);
+      return {...drawing, forwardTest: restartPending ? startForwardTest(plan, liveQuote) : run};
+    })}));
+  }
+  function trackPosition(id: string) {
+    setWorkspace(current => ({...current, drawings: current.drawings.map(drawing => {
+      if (drawing.id !== id) return drawing;
+      const plan = forwardPlan(drawing);
+      return plan ? {...drawing, forwardTest: startForwardTest(plan, liveQuote)} : drawing;
+    })}));
+  }
+  function pickDrawing(kind: DrawingKind) {
+    setMode(kind);
+    setSelected(null);
+    setFollow(false);
   }
   function deleteDrawing() {
     if (activeDrawing?.locked || !activeDrawing) return;
@@ -287,7 +346,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     const next = source.pop();
     if (!next) return;
     destination.push(drawings);
-    setWorkspace(value => ({...value, drawings: next}));
+    storeDrawings(next);
   }
   function selectPeriod(value: Period) {
     if (value === period) return;
@@ -365,6 +424,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       <i className="live-object-swatch" style={{background: drawingInputColor(activeDrawing.color)}} aria-hidden="true"/></button>
     {activeMetrics && <span className="live-object-ratio">R/R {activeMetrics.ratio.toFixed(2)}</span>}
     <div className="live-object-actions">
+      {activeMetrics && <button type="button" className="live-icon" aria-label="เปิด Forward Test" title="Forward Test"
+        aria-haspopup="dialog" onClick={() => setPanel('forward')}><Target size={16}/></button>}
       <button type="button" className="live-icon" aria-label={activeDrawing.locked ? 'ปลดล็อกวัตถุ' : 'ล็อกวัตถุ'}
         title={activeDrawing.locked ? 'ปลดล็อกวัตถุ' : 'ล็อกวัตถุ'} aria-pressed={Boolean(activeDrawing.locked)}
         onClick={() => changeDrawing({...activeDrawing, locked: !activeDrawing.locked})}>
@@ -386,16 +447,13 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
         drawings={visibleDrawings} drawingMode={mode} magnet={magnet} onToggleMagnet={toggleMagnet} hiddenDrawings={hiddenDrawings}
         selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingEdit={editDrawing} onDrawingCancel={cancelDrawing}
-        liveSelection={drawingToolsOverlay} liveLegend={totalStudies > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
-          <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
-            <i style={{backgroundColor: studies.length ? studyDefinitions[studies[0]].color : pine.plots[0]?.color ?? '#e2bc73'}} aria-hidden="true"/>
-            {studies.length ? studyLabel(studies[0], lengths) : enabledScripts[0]?.name}
-            {totalStudies > 1 && <span>+{totalStudies - 1}</span>}
-          </button>
-          {(pine.error || pine.warnings.length > 0) && <button type="button" onClick={() => setPanel('pine')} title={pine.error || pine.warnings.join(' · ')}>ดูข้อความ Pine</button>}
-        </div>}
+        liveSelection={drawingToolsOverlay} liveStudyBadges={badges}
+        liveLegend={<LiveStudyLegend badges={badges} onOpen={() => setPanel('studies')}
+          details={pine.error || pine.warnings.join(' · ')} onDetails={() => setPanel('pine')}/>}
         onDrawing={drawing => {
-          saveDrawings([...drawings, drawing]);
+          const plan = forwardPlan(drawing);
+          const placed = plan ? {...drawing, forwardTest: startForwardTest(plan, liveQuote)} : drawing;
+          saveDrawings([...drawings, placed]);
           if (stayInDrawingMode) setSelected(null);
           else { setSelected(drawing.id); setMode(null); }
         }}
@@ -494,7 +552,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         magnet={magnet} hidden={hiddenDrawings} stayInDrawingMode={stayInDrawingMode}
         canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}
         canDelete={Boolean(activeDrawing && !activeDrawing.locked)}
-        onPick={kind => { setMode(kind); setSelected(null); setFollow(false); }} onSelect={cancelDrawing}
+        onPick={pickDrawing} onSelect={cancelDrawing}
         onMagnet={toggleMagnet}
         onStayInDrawingMode={() => setWorkspace(value => ({...value, stayInDrawingMode: !value.stayInDrawingMode}))}
         onHide={() => {
@@ -504,12 +562,14 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         onUndo={() => { cancelDrawing(); restoreDrawing(undo.current, redo.current); }}
         onRedo={() => { cancelDrawing(); restoreDrawing(redo.current, undo.current); }} onDelete={deleteDrawing}
         navigation={<>
+          <button className="live-forward-dock" type="button" aria-label="Forward Test" title="Forward Test · Long / Short" aria-haspopup="dialog"
+            onClick={() => setPanel('forward')}><Target size={19}/><span>จำลอง</span></button>
           <button className="live-dock-action" type="button" aria-label="แท่งย้อนหลัง" aria-haspopup="dialog"
             onClick={() => setPanel('history')}><History size={19}/><span>ย้อนหลัง</span></button>
           <button className="live-dock-action" type="button" aria-label="ไปแท่งล่าสุด" title="ไปแท่งล่าสุด"
             data-following={follow} disabled={!bars.length && !viewport} onClick={goLatest}><SkipForward size={19}/><span>ล่าสุด</span></button>
         </>}/>
-      <div className="live-chart" style={{'--chart-bg': appearance.background, '--chart-ink': appearance.text,
+      <div className="live-chart" data-light={appearance.background.toLowerCase() === "#ffffff"} style={{'--chart-bg': appearance.background, '--chart-ink': appearance.text,
         '--chart-up': appearance.upColor, '--chart-down': appearance.downColor} as CSSProperties}>
         {sixCharts ? <div className="live-chart-grid" aria-label="XAUUSD 6 ไทม์เฟรม">
           {periodList.map(tf => <LiveChartTile key={tf} period={tf} active={tf === period}
@@ -534,6 +594,12 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       </button>
       <button type="button" className="live-icon" aria-label="ปิดข้อความแจ้งเตือน" onClick={() => alerts.setNotice(null)}><X size={16}/></button>
     </aside>}
+
+    {panel === 'forward' && <LivePanel title="Forward Test" onClose={closePanel}>
+      <LiveForwardPanel drawings={drawings} enabled={!hiddenDrawings && bars.length > 0 && drawings.length < 500}
+        live={isFreshForwardQuote(liveQuote)} selected={selected} onEdit={editDrawing} onTrack={trackPosition}
+        onPick={kind => {closePanel(); pickDrawing(kind);}}/>
+    </LivePanel>}
 
     {panel === 'alerts' && <LivePanel title="แจ้งเตือนราคา XAUUSD" onClose={closePanel}>
       <LiveAlertPanel alerts={alerts} bid={quote?.status === 'live' && !market.quoteError ? quote.bid : undefined}/>

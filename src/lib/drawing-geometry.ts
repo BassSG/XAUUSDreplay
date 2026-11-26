@@ -1,6 +1,7 @@
 import {rayEnd, type XY} from './chart-tools.ts';
 import {drawingTools, fibDefaults, isLabelBox, isStroke} from './drawing-definitions.ts';
 import type {Bar, Drawing, DrawingKind, DrawingPoint, FibLevel} from './engine.ts';
+import {forwardStatus, forwardStatusLabel} from './forward-test.ts';
 
 type Style = {color?: string; fill?: number; width?: number; opacity?: number; dash?: string; noStroke?: boolean};
 export type DrawingMark = Style & (
@@ -376,7 +377,8 @@ function toolGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
       const left = Math.min(a.x, b.x, c?.x ?? a.x);
       const right = Math.max(left + 35, a.x, b.x, c?.x ?? a.x);
       const ratio = positionMetrics(kind, points);
-      const textX = xLabel(left + 6, 145);
+      const state = drawing.forwardTest ? forwardStatus(drawing) : null;
+      const textX = xLabel(left + 6, state ? 222 : 145);
       return [
         box(point(left, a.y), point(right, b.y), {color: success, fill: .19}),
         label(point(textX, b.y + (b.y < a.y ? -6 : 15)), 'TP ' + money(second.price), true, {color: success}),
@@ -384,7 +386,9 @@ function toolGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
           box(point(left, a.y), point(right, c.y), {color: loss, fill: .19}),
           label(point(textX, c.y + (c.y < a.y ? -6 : 15)), 'SL ' + money(third.price), true, {color: loss}),
         ] : []),
-        label(point(textX, a.y - 5), 'Entry ' + money(first.price) + (ratio ? ' · R/R ' + money(ratio.ratio) : ''), true),
+        label(point(textX, a.y - 5), 'Entry ' + money(first.price) + (ratio ? ' · R/R ' + money(ratio.ratio) : '') +
+          (state ? ' · ' + forwardStatusLabel[state] : ''), true,
+          state === 'tp' || state === 'open' ? {color: success} : state === 'sl' ? {color: loss} : undefined),
       ];
     }
     default: return [];

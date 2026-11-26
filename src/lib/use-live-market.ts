@@ -3,7 +3,7 @@ import type {Bar} from './engine';
 import {historyPage, requestMarket as request} from './live-feed';
 import {historyCatalog, loadBefore, loadWindow} from './history';
 import {
-  candleWindow, candlesFromMinutes, mergeClosedBars, minutePollSize, periods,
+  candleWindow, candlesFromMinutes, candlesWithBid, mergeClosedBars, minutePollSize, periods, recordBidMinute,
   prependOlderBars, readBars, readHistoryPages, readQuote, recentBarsSize, olderPageSize, type Period, type Quote,
 } from './live-market';
 
@@ -37,7 +37,7 @@ const now = () => Math.floor(Date.now() / 1000);
 
 export function useLiveFeed(retry: number) {
   const historyCache = useRef(new Map<Period, SavedHistory>());
-  const [quoteState, setQuote] = useState<{quote: Quote | null; quoteError: boolean}>({quote: null, quoteError: false});
+  const [quoteState, setQuote] = useState<{quote: Quote | null; quoteError: boolean; sampled: Bar[]}>({quote: null, quoteError: false, sampled: emptyBars});
   const [minuteState, setMinutes] = useState({rows: emptyBars, minuteError: false});
   const minuteCache = useRef(emptyBars);
   const clock = useRef<{utc: number; receivedAt: number} | null>(null);
@@ -64,7 +64,7 @@ export function useLiveFeed(retry: number) {
         }
         latestTick.current = quote.time;
         clock.current = {utc: quote.serverTime, receivedAt: performance.now()};
-        setQuote({quote, quoteError: false});
+        setQuote(previous => ({quote, quoteError: false, sampled: recordBidMinute(previous.sampled, quote)}));
       } catch {
         if (!signal.aborted) setQuote(previous => previous.quoteError ? previous : {...previous, quoteError: true});
       } finally {
@@ -110,7 +110,7 @@ export type LiveFeed = ReturnType<typeof useLiveFeed>;
 export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anchorTime: number | null = null, warm = true) {
   const key = period + ':' + (anchorTime ?? 'latest');
   const seconds = periods[period];
-  const {quote, quoteError, rows: minutes, minuteError, minuteCache, serverNow, historyCache: cache} = feed;
+  const {quote, quoteError, sampled, rows: minutes, minuteError, minuteCache, serverNow, historyCache: cache} = feed;
   const [data, setData] = useState(() => restoreHistory(key, period, anchorTime, cache.current.get(period)));
   const [progress, setProgress] = useState<{key: string; loaded: number} | null>(null);
   const currentData = useRef(data);
@@ -202,8 +202,12 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
   }, [key, period, minutes, minuteError, data.findingWindow]);
 
   const view = data.key === key ? data : restoreHistory(key, period, anchorTime, cache.current.get(period));
-  const bars = useMemo(() => view.archive ? view.closed : candlesFromMinutes(view.closed, minutes, seconds),
+  const studyBars = useMemo(() => view.archive ? view.closed : candlesFromMinutes(view.closed, minutes, seconds),
     [view.archive, view.closed, minutes, seconds]);
+  const minuteTime = minutes.at(-1)?.time;
+  const lastClosed = view.closed.at(-1);
+  const bars = useMemo(() => view.archive ? studyBars : candlesWithBid(studyBars, lastClosed, minuteTime, sampled, seconds),
+    [view.archive, studyBars, lastClosed, minuteTime, sampled, seconds]);
 
   const loadOlder = useCallback(async (byUser: boolean, limit = olderPageSize) => {
     const run = active.current;
@@ -261,7 +265,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
     if (view.closed.length < recentBarsSize + 2 * olderPageSize) void loadOlder(false, 2 * olderPageSize);
   }, [warm, anchorTime, period, view.archive, view.closed.length, view.historyStatus, loadOlder]);
 
-  return {...view, bars, minutes, quote, quoteError, minuteError, minuteTime: minutes.at(-1)?.time,
+  return {...view, bars, studyBars, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
     serverNow, loadOlder, progress: progress?.key === key ? progress : null,
     stopHistory: () => active.current?.backfill?.abort()};
 }

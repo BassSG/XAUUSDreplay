@@ -6,6 +6,7 @@ export type IndicatorSpec={id:string;name:string;source:string;enabled:boolean;b
 export type {DrawingKind} from './drawing-definitions.ts';
 import type {DrawingKind} from './drawing-definitions.ts';
 import type {Period} from './live-market.ts';
+import type {ForwardTest} from './forward-test.ts';
 export type DrawingPoint={time:number;price:number};
 export type FibLevel={value:number;enabled:boolean;color?:string;opacity?:number;text?:string};
 export type DrawingStyle={
@@ -15,7 +16,7 @@ export type DrawingStyle={
 };
 export type Drawing={
  id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;text?:string;color?:string;fillColor?:string;textColor?:string;
- style?:DrawingStyle;visiblePeriods?:Period[];
+ style?:DrawingStyle;visiblePeriods?:Period[];forwardTest?:ForwardTest;
  fib?:{levels:FibLevel[];reverse?:boolean;showPrice?:boolean;format?:'ratio'|'percent'|'none';showTrend?:boolean;
   labelPosition?:'left'|'center'|'right';backgroundOpacity?:number};
 };

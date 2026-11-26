@@ -54,6 +54,41 @@ export function candlesFromMinutes(closed: Bar[], minutes: Bar[], seconds: numbe
   return [...closed, ...tail];
 }
 
+
+const sampledMinuteLimit = 120;
+
+export function recordBidMinute(sampled: Bar[], quote: Pick<Quote, 'time' | 'bid' | 'status'>): Bar[] {
+  if (quote.status !== 'live') return sampled;
+  const time = Math.floor(quote.time / 60) * 60;
+  const bid = quote.bid;
+  const last = sampled.at(-1);
+  if (last && time < last.time) return sampled;
+  if (last?.time === time) {
+    if (last.close === bid) return sampled;
+    return [...sampled.slice(0, -1), {...last, high: Math.max(last.high, bid), low: Math.min(last.low, bid), close: bid}];
+  }
+  return [...sampled.slice(-(sampledMinuteLimit - 1)), {time, open: bid, high: bid, low: bid, close: bid, volume: 0}];
+}
+
+// Settled broker rows take precedence. Quotes only extend the portion that the
+// broker has yet to publish, and add no estimated tick volume.
+export function candlesWithBid(base: Bar[], lastClosed: Bar | undefined, lastMinute: number | undefined,
+  sampled: Bar[], seconds: number): Bar[] {
+  const last = base.at(-1);
+  if (!last || !sampled.length) return base;
+  const confirmedThrough = Math.max(
+    lastClosed ? candleWindow(lastClosed.time, seconds).close : 0,
+    lastMinute === undefined ? 0 : lastMinute + 60,
+  );
+  const tail = aggregate(sampled.filter(bar => bar.time >= confirmedThrough), seconds, 'eightcap')
+    .filter(bar => bar.time >= last.time);
+  if (!tail.length) return base;
+  const first = tail[0];
+  if (first.time > last.time) return [...base, ...tail];
+  const merged = {...last, high: Math.max(last.high, first.high), low: Math.min(last.low, first.low), close: first.close};
+  return [...base.slice(0, -1), merged, ...tail.slice(1)];
+}
+
 export function readOlderBars(payload: unknown, before: number, seconds: number, now: number) {
   if (Array.isArray(payload) && !payload.length) return [];
   const bars = readBars(payload, seconds, now);

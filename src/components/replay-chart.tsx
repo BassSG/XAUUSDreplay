@@ -8,6 +8,7 @@ import type {PineBand} from '../lib/pine-bands';
 import {LivePriceCountdown,LivePriceMarker} from './live-price-marker';
 import {captureLiveViewport,coordinateAtLogical,logicalAtTime,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
 import {liveTailUpdate, sameMarketBar} from '../lib/live-market';
+import {studyStateLabel, type LiveStudyBadge} from '../lib/live-indicators';
 import type {Bar,Trade,Drawing,DrawingKind} from '../lib/engine';
 import type {ChartAppearance,ChartView} from '../lib/live-layouts';
 export type ChartLevel={id:string;price:number;kind:'entry'|'sl'|'tp';label:string;color:string;draft?:boolean;tradeId?:string;orderId?:string;editable:boolean;pending?:boolean};
@@ -49,7 +50,7 @@ export type LiveChartActions = {
  copyPng: () => Promise<void>;
 };
 
-export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,onToggleMagnet,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,alertLevels=noAlertLevels,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;alertLevels?:number[];liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
+export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,onToggleMagnet,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,alertLevels=noAlertLevels,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveStudyBadges,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;alertLevels?:number[];liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveStudyBadges?:LiveStudyBadge[];liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
  const [expanded,setExpanded]=useState(false),[paneCount,setPaneCount]=useState(0),[focus,setFocus]=useState('draft');
  const pricePaneClip=useId();
  const [snapshotMessage,setSnapshotMessage]=useState('');
@@ -407,8 +408,11 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
     </div>
     {plotTop!==undefined&&livePanes&&paneStudies.map(([id,plot],index)=>{
      const row=livePanes[index+1]?.getHTMLElement();
-     return row&&<span className="live-pane-title" key={id} style={{top:row.getBoundingClientRect().top-plotTop+5}}>
-      <i style={{backgroundColor:plot.color}} aria-hidden="true"/>{plot.indicatorName??plot.name}
+     const badge=liveStudyBadges?.find(item=>item.id===id);
+     return row&&<span className="live-pane-title" key={id} data-study-state={badge?.state}
+      aria-label={badge ? badge.label + " · " + studyStateLabel[badge.state] : undefined}
+      style={{top:row.getBoundingClientRect().top-plotTop+5}}>
+      <i className="live-study-dot" style={badge ? undefined : {backgroundColor:plot.color}} aria-hidden="true"/>{plot.indicatorName??plot.name}
      </span>;
     })}
    </div>

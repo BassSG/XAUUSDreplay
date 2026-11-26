@@ -60,11 +60,21 @@ const drawingFib = z.object({
  showTrend:z.boolean().optional(),
  labelPosition:z.enum(['left','center','right']).optional(),backgroundOpacity:z.number().min(0).max(1).optional(),
 });
+const seenPrice = z.object({time: z.number().int().positive().max(8640000000), price: z.number().finite().positive()});
+const forwardPlan = z.object({
+ side: z.enum(['long','short']), entry: z.number().finite().positive(),
+ tp: z.number().finite().positive(), sl: z.number().finite().positive(),
+}).refine(p => p.side === 'long' ? p.sl < p.entry && p.entry < p.tp : p.tp < p.entry && p.entry < p.sl);
+const forwardTest = z.object({
+ plan: forwardPlan, approach: z.enum(['above','below','at']).nullable(),
+ after: z.number().int().positive().max(8640000000).nullable(),
+ entry: seenPrice.nullable(), exit: seenPrice.extend({kind:z.enum(['tp','sl'])}).nullable(),
+}).refine(test => !test.exit || !!test.entry && test.exit.time > test.entry.time);
 export const drawingSchema=z.object({
  id:uuid,kind:z.enum(drawingKinds),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(strokeMax),
  locked:z.boolean().optional(),text:z.string().max(1000).optional(),color:z.string().max(40).optional(),
  fillColor:drawingColor.optional(),textColor:drawingColor.optional(),style:drawingStyle.optional(),
- visiblePeriods:z.array(z.enum(['1m','5m','15m','1h','4h','1d'])).max(6).optional(),fib:drawingFib.optional(),
+ visiblePeriods:z.array(z.enum(['1m','5m','15m','1h','4h','1d'])).max(6).optional(),fib:drawingFib.optional(),forwardTest:forwardTest.optional(),
 });
 const sessionSchema = z.object({
  id: uuid, name: z.string().trim().min(1).max(120), dataset: safeId, from: z.number().int().positive(),

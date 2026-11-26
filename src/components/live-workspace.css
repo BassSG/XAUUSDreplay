@@ -578,3 +578,67 @@
   .live-periods button { min-width: 29px; }
   .live-controls .live-studies-button, .live-view-actions > button { min-width: 36px; }
 }
+
+/* Compute status stays legible independently of the chart and plot colors. */
+.live-chart .live-study-legend .live-study-chip, .live-chart .live-pane-title[data-study-state] { color: var(--indicator-status, var(--chart-ink)); }
+.live-chart .live-study-legend .live-study-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--chart-ink) 28%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--chart-bg) 94%, transparent);
+  font-size: 11px;
+}
+.live-study-chip > span { color: inherit; opacity: .8; }
+.live-chart [data-study-state=loading] { --indicator-status: #f4c95b; }
+.live-chart [data-study-state=ready] { --indicator-status: #65d7a4; }
+.live-chart [data-study-state=error] { --indicator-status: #ff9ca7; }
+.live-chart[data-light=true] [data-study-state=loading] { --indicator-status: #8a5800; }
+.live-chart[data-light=true] [data-study-state=ready] { --indicator-status: #087348; }
+.live-chart[data-light=true] [data-study-state=error] { --indicator-status: #b01e39; }
+.live-study-dot { background: currentColor; }
+[data-study-state=loading] .live-study-dot { animation: indicator-pulse 1.1s ease-in-out infinite; }
+@keyframes indicator-pulse { 50% { opacity: .28; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-study-state=loading] .live-study-dot { animation: none; }
+}
+
+.live-tools > .live-forward-dock { color: var(--live-gold); }
+.live-forward-panel { display: grid; gap: 10px; }
+.forward-readout, .forward-position-head, .forward-event {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.forward-readout span { display: flex; align-items: center; gap: 5px; color: var(--live-muted); }
+.forward-readout [data-live=true] { color: var(--live-green); }
+.forward-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.forward-pick button { min-height: 42px; justify-content: center; font-weight: 600; }
+.forward-pick [data-side=long] { color: var(--live-green); }
+.forward-pick [data-side=short] { color: #ff9ca7; }
+.forward-empty, .forward-event { margin: 0; color: var(--live-muted); font-size: 12px; }
+.forward-empty { padding-block: 10px; border-top: 1px solid var(--live-border); }
+.forward-list { display: grid; gap: 7px; padding: 0; margin: 0; list-style: none; }
+.forward-list > li { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--live-border); border-radius: 6px; }
+.forward-list > li[data-current=true] { border-color: var(--live-gold); }
+.forward-position-head strong { font-size: 13px; overflow-wrap: anywhere; }
+.forward-position-head strong span { display: block; color: var(--live-muted); font-weight: 400; }
+.forward-state { color: var(--live-muted); font-size: 11px; white-space: nowrap; }
+.forward-state:is([data-forward-state=waiting], [data-forward-state=changed]) { color: var(--live-gold); }
+.forward-state:is([data-forward-state=open], [data-forward-state=tp]) { color: var(--live-green); }
+.forward-state[data-forward-state=sl] { color: #ff9ca7; }
+.forward-prices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.forward-prices dt { color: var(--live-muted); font-size: 10px; }
+.forward-prices dd { margin: 2px 0 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.forward-position-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+.forward-position-actions button { min-height: 32px; font-size: 11px; }
+@media (max-width: 720px) {
+  .live-tools { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .forward-pick button, .forward-position-actions button { min-height: 44px; }
+}

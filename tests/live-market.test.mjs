@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  barsQuery, candleWindow, candlesFromMinutes, liveTailUpdate, mergeClosedBars, olderBarsEnd, prependOlderBars, readBars, readHistoryPages, readOlderBars, readQuote,
+  barsQuery, candleWindow, candlesFromMinutes, candlesWithBid, recordBidMinute, liveTailUpdate, mergeClosedBars, olderBarsEnd, prependOlderBars, readBars, readHistoryPages, readOlderBars, readQuote,
 } from '../src/lib/live-market.ts';
 import {livePlots, studyLabel} from '../src/lib/live-indicators.ts';
 
@@ -149,4 +149,35 @@ test('WMA, tick-weighted averages, Donchian Channels and OBV work across moving 
   assert.deepEqual(values('Donchian High'), [null, 14, 17, 17]);
   assert.deepEqual(values('Donchian Low'), [null, 9, 12, 9]);
   assert.deepEqual(values('OBV (Tick Volume)'), [0, 0, 3, 2]);
+});
+
+test('live Bid builds a moving M1 candle before the broker publishes its close', () => {
+  const openTime = Date.parse('2026-11-26T10:00:00Z') / 1000;
+  const prior = {time:openTime-60, open:4000, high:4002, low:3999, close:4001, volume:24};
+  let sampled = [];
+  for (const [offset,bid] of [[2,4004],[5,4007],[8,4002],[10,4006]]) {
+    sampled = recordBidMinute(sampled, {time:openTime+offset,bid,status:'live'});
+  }
+  const result = candlesWithBid([prior], prior, prior.time, sampled, 60);
+  assert.deepEqual(result, [prior, {time:openTime, open:4004, high:4007, low:4002, close:4006, volume:0}]);
+  assert.equal(recordBidMinute(sampled, {time:openTime+12,bid:5000,status:'stale'}), sampled);
+  const settled = {time:openTime, open:4003, high:4009, low:4000, close:4005, volume:176};
+  sampled = recordBidMinute(sampled, {time:openTime+62,bid:4008,status:'live'});
+  assert.deepEqual(candlesWithBid([prior,settled], settled, settled.time, sampled, 60), [prior, settled,
+    {time:openTime+60, open:4008, high:4008, low:4008, close:4008, volume:0}]);
+});
+
+test('live Bid updates higher timeframes using their authentic open and broker boundaries', () => {
+  const openTime = Date.parse('2026-11-26T14:00:00Z') / 1000;
+  const seconds = 14400;
+  const prior = {time:openTime-seconds, open:3990, high:4017, low:3988, close:4000, volume:17};
+  const developing = {time:openTime, open:4001, high:4009, low:3999, close:4003, volume:43};
+  let sampled = recordBidMinute([], {time:openTime+61,bid:4014,status:'live'});
+  sampled = recordBidMinute(sampled, {time:openTime+62,bid:4002,status:'live'});
+  assert.deepEqual(candlesWithBid([prior,developing], prior, openTime, sampled, seconds),
+    [prior, {...developing, high:4014, close:4002}]);
+  const native = {...developing, close:4008, high:4016, volume:212};
+  sampled = recordBidMinute(sampled, {time:openTime+seconds+2,bid:4011,status:'live'});
+  assert.deepEqual(candlesWithBid([prior,native], native, openTime+seconds-60, sampled, seconds),
+    [prior,native,{time:openTime+seconds,open:4011,high:4011,low:4011,close:4011,volume:0}]);
 });

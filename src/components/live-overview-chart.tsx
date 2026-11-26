@@ -1,6 +1,7 @@
 import {useMemo, useRef, useState, type ReactNode} from 'react';
 import {Maximize2, RefreshCw} from 'lucide-react';
 import ChartBoundary from './chart-boundary';
+import LiveStudyLegend from './live-study-legend';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
 import type {IndicatorSpec, Trade} from '../lib/engine';
 import type {LiveWorkspaceState} from '../lib/live-layouts';
@@ -39,16 +40,14 @@ export default function LiveOverviewChart({period, feed, retry, onRetry, workspa
   const {studies, lengths, drawings, hiddenDrawings, appearance} = workspace;
   const market = useLiveMarket(period, retry, feed, null, false);
   const {bars, historical, needsBackup, backupFailed} = useLiveBars(period, market, retry);
-  const {pine, plots} = useLiveStudies(period, market, bars, historical, studies, lengths, scripts);
+  const {pine, plots, badges} = useLiveStudies(period, market, historical, studies, lengths, scripts);
   const visibleDrawings = useMemo(() => drawings.filter(d => !d.visiblePeriods || d.visiblePeriods.includes(period)), [drawings, period]);
   const [follow, setFollow] = useState(true);
   const chart = useRef<LiveChartActions>(null);
   const live = !historical.length && market.quote?.status === 'live' && !market.quoteError;
   const chartKey = period + ':' + layoutVersion;
   const message = historical.length ? 'ข้อมูลสำรอง'
-    : pine.error ? 'Pine มีข้อผิดพลาด'
-    : pine.calculating ? 'กำลังคำนวณ Pine'
-    : market.barError || market.minuteError ? 'แท่งอัปเดตล่าช้า' : '';
+    : market.barError || market.minuteError ? 'แท่งยืนยันอัปเดตล่าช้า' : '';
 
   if (!bars.length) return <div className="live-chart-empty" role="status">
     {backupFailed ? 'โหลดแท่งราคาไม่ได้' : needsBackup ? 'กำลังโหลดข้อมูลย้อนหลัง' : 'กำลังโหลดแท่งราคา'}
@@ -61,12 +60,13 @@ export default function LiveOverviewChart({period, feed, retry, onRetry, workspa
     plots={plots} fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables}
     calculating={pine.calculating} drawings={visibleDrawings} hiddenDrawings={hiddenDrawings}
     follow={follow} onLeaveLatest={() => setFollow(false)} onHistoryEdge={() => { void market.loadOlder(false); }}
-    liveLegend={(message || !follow) && <div className="live-tile-feedback">
+    liveStudyBadges={badges}
+    liveLegend={<><LiveStudyLegend badges={badges}/>{(message || !follow || pine.error) && <div className="live-tile-feedback">
       {message && <small title={pine.error || undefined}>{message}</small>}
       {pine.error && <button type="button" onClick={pine.retry}>ลองคำนวณใหม่</button>}
       {!follow && <button type="button" onClick={() => {
         chart.current?.latest();
         setFollow(true);
       }}>ไปแท่งล่าสุด</button>}
-    </div>}/></ChartBoundary>;
+    </div>}</>}/></ChartBoundary>;
 }
