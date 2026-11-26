@@ -164,7 +164,7 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
 function DrawingActions({props, inPicker = false}: {props: Props; inPicker?: boolean}) {
   return <div className={'live-drawing-actions' + (inPicker ? ' live-picker-actions' : '')}
     role="group" aria-label="จัดการเส้นวาด">
-    <button type="button" aria-label="ดูดจุดเข้าหาราคาแท่ง" title="แม่เหล็ก · ดูดจุดเข้า Open, High, Low หรือ Close"
+    <button type="button" aria-label="ดูดจุดเข้าหาราคาแท่ง" title="แม่เหล็ก · กด Ctrl ค้างเพื่อใช้ชั่วคราว"
       aria-pressed={props.magnet} onClick={props.onMagnet}><Magnet size={17}/></button>
     <button type="button" aria-label={props.stayInDrawingMode ? 'ปิดวาดต่อเนื่อง' : 'วาดต่อเนื่อง'}
       title={props.stayInDrawingMode ? 'ปิดวาดต่อเนื่อง · หลังวาดเสร็จกลับไปเลือกวัตถุ' : 'วาดต่อเนื่อง · วาดวัตถุชิ้นถัดไปด้วยเครื่องมือเดิม'}

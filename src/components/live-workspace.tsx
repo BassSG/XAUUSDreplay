@@ -337,6 +337,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
 
   function closePanel() { setPanel(null); setEditingDrawing(null); setEditorMessage(''); }
+  function toggleMagnet() {
+    setWorkspace(value => ({...value, magnet: !value.magnet}));
+  }
   async function captureImage(action: 'copy' | 'download') {
     const current = chart.current;
     if (!current || snapshot.busy) return;
@@ -365,8 +368,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     else goLatest();
   }
 
-  const drawingStrip = activeDrawing && <section className="live-object-strip" aria-label="แก้ไขวัตถุที่เลือก">
-    <button type="button" className="live-object-name" title="แก้สีและข้อความของวัตถุ" aria-haspopup="dialog"
+  const drawingToolsOverlay = activeDrawing && <section className="live-object-tools" aria-label="แก้ไขวัตถุที่เลือก">
+    <button type="button" className="live-object-name" title={drawingTools[activeDrawing.kind].name + ' · ตั้งค่าวัตถุ'}
+      aria-label="ตั้งค่าวัตถุที่เลือก" aria-haspopup="dialog"
       onClick={() => editDrawing(activeDrawing.id)}><Pencil size={15}/><span>{drawingTools[activeDrawing.kind].name}</span>
       <i className="live-object-swatch" style={{background: drawingInputColor(activeDrawing.color)}} aria-hidden="true"/></button>
     {activeMetrics && <span className="live-object-ratio">R/R {activeMetrics.ratio.toFixed(2)}</span>}
@@ -456,7 +460,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}
         canDelete={Boolean(activeDrawing && !activeDrawing.locked)}
         onPick={kind => { setMode(kind); setSelected(null); setFollow(false); }} onSelect={cancelDrawing}
-        onMagnet={() => setWorkspace(value => ({...value, magnet: !value.magnet}))}
+        onMagnet={toggleMagnet}
         onStayInDrawingMode={() => setWorkspace(value => ({...value, stayInDrawingMode: !value.stayInDrawingMode}))}
         onHide={() => {
           cancelDrawing();
@@ -476,9 +480,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           liveViewport={viewport} initialView={initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
           fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
           bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
-          drawings={visibleDrawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
+          drawings={visibleDrawings} drawingMode={mode} magnet={magnet} onToggleMagnet={toggleMagnet} hiddenDrawings={hiddenDrawings}
           selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingEdit={editDrawing} onDrawingCancel={cancelDrawing}
-          liveSelection={drawingStrip} liveLegend={totalStudies > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
+          liveSelection={drawingToolsOverlay} liveLegend={totalStudies > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
             <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
               <i style={{backgroundColor: studies.length ? studyDefinitions[studies[0]].color : pine.plots[0]?.color ?? '#e2bc73'}} aria-hidden="true"/>
               {studies.length ? studyLabel(studies[0], lengths) : enabledScripts[0]?.name}

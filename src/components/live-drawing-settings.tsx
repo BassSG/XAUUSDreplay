@@ -68,6 +68,7 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
     setLevels(standard.map(value => ({
       id: nextLevelId.current++, original:value, value:levelInput(value, asPercent), enabled:true,
     })));
+    fibOption('reverse', true);
     setError('');
   }
   function property<K extends keyof Drawing>(key: K, value: Drawing[K]) {

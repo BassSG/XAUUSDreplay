@@ -46,7 +46,7 @@
 }
 
 .live-header h1 { margin: 0; }
-.live-symbol, .live-replay, .live-controls button, .live-tools button, .live-object-strip button {
+.live-symbol, .live-replay, .live-controls button, .live-tools button, .live-object-tools button {
   border-color: transparent;
   background: transparent;
   padding: 4px 8px;
@@ -111,12 +111,12 @@
 }
 
 .live-tools button:hover:not(:disabled), .live-controls button:hover:not(:disabled),
-.live-header button:hover, .live-object-strip button:hover:not(:disabled) {
+.live-header button:hover, .live-object-tools button:hover:not(:disabled) {
   background: var(--live-hover);
 }
 
 .live-controls button:focus-visible, .live-header button:focus-visible,
-.live-tools button:focus-visible, .live-object-strip button:focus-visible {
+.live-tools button:focus-visible, .live-object-tools button:focus-visible {
   outline: 2px solid var(--live-gold);
   outline-offset: -2px;
 }
@@ -228,7 +228,9 @@
 .live-workspace[data-focus=true] .live-chart-layout { grid-template: "plot" minmax(0, 1fr) / minmax(0, 1fr); }
 
 .live-workspace .user-drawing-overlay { touch-action: none; }
-.live-placement { padding: 7px 9px; border-top: 1px solid #d7b46a60; background: #1c1b1a; display: grid; gap: 4px; }
+.live-placement-slot { position: absolute; inset-inline: 8px; bottom: 34px; z-index: 10; pointer-events: none; }
+.live-placement { max-width: min(440px, 100%); margin-inline: auto; padding: 6px 8px; border: 1px solid var(--live-border);
+  border-radius: 10px; background: var(--live-rail); display: grid; gap: 4px; pointer-events: auto; box-shadow: 0 4px 16px #0005; }
 .live-placement-info, .live-placement-actions, .live-placement-price, .live-placement-coordinate { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
 .live-placement-info { font-size: 13px; color: var(--live-gold); }
 .live-placement-info span { font-size: 12px; color: #e4d7bd; }
@@ -241,18 +243,20 @@
 .live-placement-price { gap: 5px; font-size: 12px; color: var(--live-muted); }
 .live-placement-price input { width: 90px; min-height: 36px; padding: 5px 6px; border: 1px solid var(--live-border); border-radius: 6px; background: var(--live-rail); color: var(--live-text); font-variant-numeric: tabular-nums; }
 .live-aim-target, .live-stroke-target { position: absolute; z-index: 7; touch-action: none; user-select: none; }
-.live-aim-target { width: 42px; height: 42px; transform: translate(-50%, -50%); cursor: grab; }
+.live-aim-target { width: 52px; height: 52px; transform: translate(-50%, -50%); cursor: grab; }
 .live-aim-target:active { cursor: grabbing; }
 .live-stroke-target { inset: 0 auto auto 0; cursor: crosshair; }
 
-.live-object-strip, .live-object-actions { display: flex; align-items: center; gap: 3px; min-width: 0; }
-.live-object-strip { padding: 2px 5px; border-top: 1px solid var(--live-border); background: var(--live-rail); }
-.live-object-strip .live-object-name { justify-content: flex-start; min-width: 0; font-size: 13px; }
+.live-object-tools, .live-object-actions { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.live-object-tools { position: absolute; top: 8px; right: 74px; z-index: 9;
+  max-width: calc(100% - 90px); padding: 2px 4px; border: 1px solid var(--live-border); border-radius: 8px;
+  background: var(--live-rail); box-shadow: 0 4px 16px #0005; }
+.live-object-tools .live-object-name { justify-content: flex-start; min-width: 0; font-size: 13px; }
 .live-object-name > svg { flex: none; color: var(--live-gold); }
 .live-object-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .live-object-ratio { flex: none; color: var(--live-gold); font-size: 12px; }
 .live-object-actions { margin-inline-start: auto; }
-.live-object-strip button { min-width: 35px; min-height: 35px; }
+.live-object-tools button { min-width: 35px; min-height: 35px; }
 .live-object { display: grid; gap: 12px; }
 .live-object label { display: flex; align-items: center; gap: 8px; }
 .live-object input { min-width: 0; background: var(--live-rail); color: var(--live-text); border: 1px solid var(--live-border); border-radius: 6px; padding: 8px; }
@@ -461,10 +465,13 @@
   .live-ohlc > div { column-gap: 6px; }
   .live-foot { padding-inline: 6px; gap: 4px; font-size: 10px; }
   .live-placement-actions button, .live-placement-price input { min-height: 44px; }
+  .live-placement-actions button { min-width: 44px; }
   .live-placement-info { line-height: 1.3; }
-  .live-placement-price input { font-size: 16px; width: 75px; }
+  .live-placement-price input { font-size: 16px; width: 77px; }
   .live-placement-price span { display: none; }
-  .live-object-strip button { min-height: 43px; }
+  .live-object-tools { top: 58px; right: 68px; }
+  .live-object-tools button { min-width: 44px; min-height: 44px; }
+  .live-object-tools .live-object-name span, .live-object-tools .live-object-swatch, .live-object-ratio { display: none; }
   .live-workspace .modal-shade { align-items: end; padding: 0; }
   .live-workspace .modal {
     width: 100%; max-height: 85dvh; border-radius: 14px 14px 0 0;

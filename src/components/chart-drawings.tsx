@@ -1,10 +1,11 @@
 import {useEffect, useId, useRef, useState} from 'react';
 import type {PointerEvent as ReactPointerEvent} from 'react';
 import {createPortal} from 'react-dom';
+import {Check, Magnet, Plus, Undo2, X} from 'lucide-react';
 import type {IChartApi, ISeriesApi, MouseEventParams} from 'lightweight-charts';
 import type {Bar, Drawing, DrawingKind, DrawingPoint} from '../lib/engine';
 import {logicalAtTime, moveDrawing, timeAtLogical, type XY} from '../lib/chart-tools';
-import {drawingTools, isStroke, strokeMax, variableDrawingsMax} from '../lib/drawing-definitions';
+import {defaultRetracement, drawingTools, isStroke, strokeMax, variableDrawingsMax} from '../lib/drawing-definitions';
 import {drawingGeometry, placementError, positionMetrics, type DrawingMark, type DrawingView} from '../lib/drawing-geometry';
 
 type Api = {chart: IChartApi; series: ISeriesApi<'Candlestick'>};
@@ -16,7 +17,7 @@ type Props = {
   onSelect: (id: string | null) => void; onCreate: (d: Drawing) => void; onChange: (d: Drawing) => void;
   onEdit?: (id: string) => void;
   onCancel: () => void; onDelete: () => void; onUndo: () => void; onRedo: () => void;
-  onDragStart: () => void; onDragEnd: () => void;
+  onDragStart: () => void; onDragEnd: () => void; onToggleMagnet?: () => void;
 };
 type Draft = {anchors: DrawingPoint[]; candidate: DrawingPoint | null; hover: DrawingPoint | null; price: string};
 type DrawingDrag = {
@@ -79,9 +80,10 @@ function roundPrice(price: number) {
   return Math.round(price * 100) / 100;
 }
 
-function completeDrawing(kind: DrawingKind, points: DrawingPoint[], confirmPlacement: boolean) {
+function completeDrawing(kind: DrawingKind, points: DrawingPoint[], live: boolean): Drawing {
   return {id: crypto.randomUUID(), kind, points,
-    ...(drawingTools[kind].text ? {text: confirmPlacement ? 'ข้อความ' : 'Note'} : {})};
+    ...(drawingTools[kind].text ? {text: live ? 'ข้อความ' : 'Note'} : {}),
+    ...(live && kind === 'fib' ? {fib:defaultRetracement()} : {})};
 }
 
 export default function ChartDrawings(props: Props) {
@@ -94,8 +96,13 @@ export default function ChartDrawings(props: Props) {
   const active = useRef<DrawingDrag | null>(null);
   const press = useRef<DrawingPress | null>(null);
   const lastTap = useRef<{id: string; x: number; y: number; at: number} | null>(null);
-  const candidateDrag = useRef<number | null>(null);
+  const candidateDrag = useRef<{id:number; dx:number; dy:number} | null>(null);
   const stroke = useRef<Stroke | null>(null);
+  const ctrlMagnet = useRef(false);
+  const hoverLocation = useRef<XY | null>(null);
+  const aimLocation = useRef<XY | null>(null);
+  const touchConfirm = useRef<{id:number;x:number;y:number} | null>(null);
+  const lastTouchConfirm = useRef(-Infinity);
   const clipId = useId();
   const confirmPlacement = Boolean(props.confirmPlacement && coarsePointer);
   state.current = props;
@@ -116,10 +123,12 @@ export default function ChartDrawings(props: Props) {
   function resetDraft() {
     candidateDrag.current = null;
     stroke.current = null;
+    aimLocation.current = null;
     updateDraft(emptyDraft);
   }
 
-  function chooseCandidate(point: DrawingPoint) {
+  function chooseCandidate(point: DrawingPoint, location: XY | null = null) {
+    aimLocation.current = location;
     updateDraft({...draftRef.current, candidate: point, hover: null, price: point.price.toFixed(2)});
   }
 
@@ -128,7 +137,7 @@ export default function ChartDrawings(props: Props) {
     return logicalAtTime(time, timeline, seconds);
   }
 
-  function pointAt(x: number, y: number): DrawingPoint | null {
+  function pointAt(x: number, y: number, temporaryMagnet = ctrlMagnet.current): DrawingPoint | null {
     const {api, timeline, offset, seconds, magnet, mode} = state.current;
     if (!api || !timeline.length) return null;
     if (x < 0 || x > api.chart.timeScale().width() || y < 0 || y > api.chart.panes()[0].getHeight()) return null;
@@ -137,7 +146,7 @@ export default function ChartDrawings(props: Props) {
     if (logical === null || price === null || !Number.isFinite(price) || price < .01) return null;
     const bar = timeline[Math.round(logical + offset)];
     if (mode === 'vwap' && bar) return {time: bar.time, price: roundPrice(bar.close)};
-    if (magnet && bar) {
+    if ((magnet || temporaryMagnet) && bar) {
       const snap = [bar.open, bar.high, bar.low, bar.close].sort((a, b) =>
         Math.abs(a - price) - Math.abs(b - price))[0];
       if (Math.abs((api.series.priceToCoordinate(snap) ?? Infinity) - y) <= 14) return {time: bar.time, price: roundPrice(snap)};
@@ -153,7 +162,7 @@ export default function ChartDrawings(props: Props) {
 
   function eventPoint(event: ReactPointerEvent) {
     const p = coordinates(event);
-    return p ? pointAt(p.x, p.y) : null;
+    return p ? pointAt(p.x, p.y, event.ctrlKey) : null;
   }
 
   function setMovingDrawing(next: Drawing | null) {
@@ -177,7 +186,7 @@ export default function ChartDrawings(props: Props) {
     p.onCreate(completeDrawing(kind, points, Boolean(p.confirmPlacement)));
   }
 
-  function accept(point: DrawingPoint) {
+  function accept(point: DrawingPoint, keepAim = false) {
     const {mode, timeline} = state.current;
     if (!mode) return;
     const {anchors} = draftRef.current;
@@ -185,7 +194,11 @@ export default function ChartDrawings(props: Props) {
     if (placementError(mode, points, timeline, indexAt)) return;
     const tool = drawingTools[mode];
     if (points.length === (tool.variable ? variableDrawingsMax : tool.points.length)) save(mode, points);
-    else updateDraft({...emptyDraft, anchors: points});
+    else {
+      aimLocation.current = null;
+      updateDraft({...emptyDraft, anchors: points,
+        ...(keepAim ? {candidate:point, price:point.price.toFixed(2)} : {})});
+    }
   }
 
   function confirm() {
@@ -195,7 +208,7 @@ export default function ChartDrawings(props: Props) {
     if (isStroke(mode)) {
       if (!stroke.current && current.anchors.length >= 2) save(mode, current.anchors);
     } else if (current.candidate && roundPrice(Number(current.price)) > 0 && Number.isFinite(Number(current.price))) {
-      accept(current.candidate);
+      accept(current.candidate, true);
     }
   }
 
@@ -204,14 +217,34 @@ export default function ChartDrawings(props: Props) {
     const mode = state.current.mode;
     if (!mode) return;
     if (isStroke(mode)) resetDraft();
-    else if (current.candidate) updateDraft({...emptyDraft, anchors: current.anchors});
-    else updateDraft({...emptyDraft, anchors: current.anchors.slice(0, -1)});
+    else updateDraft({...current, anchors: current.anchors.slice(0, -1)});
   }
 
   useEffect(() => {
     resetDraft();
     cancelPress();
+    hoverLocation.current = null;
   }, [props.mode, props.hidden, props.seconds]);
+
+  useEffect(() => {
+    const mode = props.mode;
+    if (!confirmPlacement || !mode || isStroke(mode) || props.hidden || draftRef.current.candidate || draftRef.current.anchors.length) return;
+    const frame = requestAnimationFrame(() => {
+      if (draftRef.current.candidate || !state.current.api) return;
+      const {chart} = state.current.api;
+      const location = {x:chart.timeScale().width() * .52,y:chart.panes()[0].getHeight() * .45};
+      const center = pointAt(location.x,location.y);
+      if (center) chooseCandidate(center,location);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [confirmPlacement, props.api, props.hidden, props.mode, props.seconds, props.timeline.length]);
+
+  useEffect(() => {
+    const location = aimLocation.current;
+    if (!confirmPlacement || !location || !draftRef.current.candidate) return;
+    const point = pointAt(location.x, location.y);
+    if (point) chooseCandidate(point, location);
+  }, [confirmPlacement, props.magnet]);
 
   useEffect(() => {
     if (props.selected && !props.drawings.some(d => d.id === props.selected)) props.onSelect(null);
@@ -236,7 +269,9 @@ export default function ChartDrawings(props: Props) {
       const {mode, hidden} = state.current;
       const current = draftRef.current;
       if (!mode || hidden || current.candidate || isStroke(mode)) return;
-      const point = event.point && (event.paneIndex ?? 0) === 0 ? pointAt(event.point.x, event.point.y) : null;
+      const location = event.point && (event.paneIndex ?? 0) === 0 ? event.point : null;
+      hoverLocation.current = location;
+      const point = location ? pointAt(location.x, location.y) : null;
       if (current.hover?.time === point?.time && current.hover?.price === point?.price) return;
       updateDraft({...current, hover: point});
     };
@@ -267,11 +302,11 @@ export default function ChartDrawings(props: Props) {
       if (!start || start.id !== event.pointerId) return;
       start = null;
       const position = coordinates(event);
-      const point = position ? pointAt(position.x, position.y) : null;
+      const point = position ? pointAt(position.x, position.y, event.ctrlKey) : null;
       const {mode, hidden} = state.current;
       if (!point || !mode || hidden || isStroke(mode)) return;
       // The chart library can consume the second click of a fast pair as a double click.
-      if (confirmPlacement) chooseCandidate(point);
+      if (confirmPlacement) chooseCandidate(point, position);
       else accept(point);
     };
     const cancelTap = () => { start = null; };
@@ -295,10 +330,20 @@ export default function ChartDrawings(props: Props) {
   }, [props.api, props.mode, confirmPlacement]);
 
   useEffect(() => {
+    function setCtrlMagnet(pressed: boolean) {
+      if (ctrlMagnet.current === pressed) return;
+      ctrlMagnet.current = pressed;
+      const location = hoverLocation.current;
+      const current = draftRef.current;
+      const {mode, hidden} = state.current;
+      if (!location || !mode || hidden || current.candidate || isStroke(mode)) return;
+      updateDraft({...current, hover:pointAt(location.x, location.y)});
+    }
     const key = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (event.altKey || target?.isContentEditable || document.querySelector('[aria-modal="true"]')) return;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return;
+      if (event.key === 'Control') setCtrlMagnet(true);
       const p = state.current;
       if (event.key === 'Escape') {
         if (active.current) cancelDrag();
@@ -331,9 +376,15 @@ export default function ChartDrawings(props: Props) {
         else p.onUndo();
       }
     };
+    const release = (event: KeyboardEvent) => { if (!event.ctrlKey) setCtrlMagnet(false); };
+    const blur = () => setCtrlMagnet(false);
     window.addEventListener('keydown', key);
+    window.addEventListener('keyup', release);
+    window.addEventListener('blur', blur);
     return () => {
       window.removeEventListener('keydown', key);
+      window.removeEventListener('keyup', release);
+      window.removeEventListener('blur', blur);
       cancelDrag();
     };
   }, [confirmPlacement]);
@@ -400,16 +451,21 @@ export default function ChartDrawings(props: Props) {
   }
 
   function moveCandidate(event: ReactPointerEvent<HTMLDivElement>) {
-    if (candidateDrag.current !== event.pointerId) return;
-    const point = eventPoint(event);
-    if (point) chooseCandidate(point);
+    const drag = candidateDrag.current;
+    const position = coordinates(event);
+    const chart = state.current.api?.chart;
+    if (drag?.id !== event.pointerId || !position || !chart) return;
+    const x = Math.max(0, Math.min(chart.timeScale().width(), position.x + drag.dx));
+    const y = Math.max(0, Math.min(chart.panes()[0].getHeight(), position.y + drag.dy));
+    const point = pointAt(x, y, event.ctrlKey);
+    if (point) chooseCandidate(point, {x,y});
   }
 
   function startStroke(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || stroke.current) return;
     const position = coordinates(event);
     if (!position) return;
-    const point = pointAt(position.x, position.y);
+    const point = pointAt(position.x, position.y, event.ctrlKey);
     if (!point) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -422,7 +478,7 @@ export default function ChartDrawings(props: Props) {
     if (!path || path.pointerId !== event.pointerId) return;
     const position = coordinates(event);
     if (!position || Math.hypot(position.x - path.x, position.y - path.y) < 4) return;
-    const point = pointAt(position.x, position.y);
+    const point = pointAt(position.x, position.y, event.ctrlKey);
     if (!point) return;
     const points = draftRef.current.anchors;
     const retained = points.length >= strokeMax ? points.filter((_, i) => i % 2 === 0) : points;
@@ -467,13 +523,15 @@ export default function ChartDrawings(props: Props) {
     ? placementError(mode, previewPoints, props.timeline, indexAt) : null;
   const ready = freehand ? draft.anchors.length >= 2 && !stroke.current : Boolean(draft.candidate && !candidateError);
   const metrics = (mode === 'long' || mode === 'short') ? positionMetrics(mode, previewPoints) : null;
+  const previousAnchor = draft.anchors.at(-1);
+  const aimOnAnchor = previousAnchor && draft.candidate?.time === previousAnchor.time && draft.candidate.price === previousAnchor.price;
   const controls = mode && tool && confirmPlacement && <section className="live-placement" aria-label="วางจุดบนกราฟ">
     <div className="live-placement-info">
       <strong>{tool.name}</strong>
-      <span role="status">{candidateError ?? (freehand
-        ? ready ? 'ตรวจเส้นตัวอย่าง แล้วกดยืนยันเส้น' : 'ลากนิ้วหรือเมาส์เพื่อวาดตัวอย่าง'
+      <span role="status">{(aimOnAnchor ? 'ลากเป้าไปจุดถัดไป' : candidateError) ?? (freehand
+        ? ready ? 'พร้อมวางเส้น' : 'ลากนิ้วเพื่อวาดเส้น'
         : (tool.variable ? 'จุดที่ ' + (draft.anchors.length + 1) : tool.points[draft.anchors.length] ?? tool.points[0])
-          + (draft.candidate ? ' · ลากจุดหรือแตะเพื่อเลื่อน' : ' · แตะกราฟเพื่อเล็ง'))}</span>
+          + (draft.candidate ? ' · ลากเป้าหรือแตะกราฟ' : ' · แตะกราฟเพื่อเล็ง'))}</span>
     </div>
     <div className="live-placement-actions">
       {!freehand && <label className="live-placement-price">
@@ -484,6 +542,7 @@ export default function ChartDrawings(props: Props) {
             const current = draftRef.current;
             const value = event.target.valueAsNumber;
             const price = roundPrice(value);
+            aimLocation.current = null;
             if (current.candidate) updateDraft({...current, price: event.target.value,
               candidate: Number.isFinite(price) && price > 0 ? {...current.candidate, price} : current.candidate});
           }} onKeyDown={event => {
@@ -494,20 +553,34 @@ export default function ChartDrawings(props: Props) {
             if (event.key === 'Escape') props.onCancel();
           }}/>
       </label>}
-      <button type="button" className="live-place-confirm" disabled={!ready} onClick={confirm}
-        onPointerUp={event => {
-          if (event.pointerType !== 'touch' || !event.isPrimary) return;
-          const rect = event.currentTarget.getBoundingClientRect();
-          if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
-            confirm();
+      {!freehand && props.onToggleMagnet && <button type="button" aria-label="แม่เหล็กดูดราคาแท่ง"
+        title="แม่เหล็กดูดราคาแท่ง" aria-pressed={props.magnet} onClick={props.onToggleMagnet}><Magnet size={17}/></button>}
+      <button type="button" className="live-place-confirm" disabled={!ready}
+        onPointerDown={event => {
+          if (event.pointerType === 'touch' && event.isPrimary) {
+            touchConfirm.current = {id:event.pointerId, x:event.clientX, y:event.clientY};
           }
+        }}
+        onPointerCancel={() => { touchConfirm.current = null; }}
+        onPointerUp={event => {
+          const touch = touchConfirm.current;
+          touchConfirm.current = null;
+          if (touch?.id !== event.pointerId || Math.hypot(event.clientX-touch.x,event.clientY-touch.y) > 12) return;
+          // A browser can omit the synthetic click after dragging the aim point.
+          lastTouchConfirm.current = performance.now();
+          event.preventDefault();
+          confirm();
+        }}
+        onClick={event => {
+          if (event.detail !== 0 && performance.now() - lastTouchConfirm.current < 500) return;
+          confirm();
         }}>
-        {freehand ? 'ยืนยันเส้น' : 'ยืนยันจุด'}
+        <Plus size={17}/>{freehand ? 'วางเส้น' : 'วางจุด'}
       </button>
       {tool.variable && <button type="button" disabled={draft.anchors.length < 2}
-        onClick={() => save(mode, draftRef.current.anchors)}>จบเส้น</button>}
-      <button type="button" disabled={!draft.anchors.length && !draft.candidate} onClick={undoPoint}>ย้อนจุด</button>
-      <button type="button" onClick={props.onCancel}>ยกเลิก</button>
+        title="จบเส้น" aria-label="จบเส้น" onClick={() => save(mode, draftRef.current.anchors)}><Check size={17}/></button>}
+      <button type="button" disabled={!draft.anchors.length} title="ย้อนจุด" aria-label="ย้อนจุด" onClick={undoPoint}><Undo2 size={17}/></button>
+      <button type="button" title="ยกเลิกการวาด" aria-label="ยกเลิกการวาด" onClick={props.onCancel}><X size={17}/></button>
     </div>
     {!freehand && <div className="live-placement-coordinate">
       {draft.candidate && dateTime.format(draft.candidate.time * 1000) + ' กรุงเทพฯ'}
@@ -569,6 +642,7 @@ export default function ChartDrawings(props: Props) {
       <g clipPath={'url(#' + clipId + ')'}>
         {!props.hidden && props.drawings.map(drawing => draw(moving?.id === drawing.id ? moving : drawing))}
         {mode && previewPoints.length > 0 && draw({id: 'preview', kind: mode, points: previewPoints,
+          fib: mode === 'fib' && props.confirmPlacement ? defaultRetracement() : undefined,
           text: tool?.text ? props.confirmPlacement ? 'ข้อความ' : 'Note' : undefined}, true)}
         {mode && aim && !freehand && Number.isFinite(aim.x) && Number.isFinite(aim.y) && <g data-drawing-interaction="aim">
           {canDragAim && <path d={`M 0 ${aim.y} H ${width} M ${aim.x} 0 V ${height}`} stroke={gold} strokeOpacity={.55} strokeDasharray="3 5"/>}
@@ -579,9 +653,11 @@ export default function ChartDrawings(props: Props) {
     {mode && canDragAim && aim && aim.x >= 0 && aim.x <= width && aim.y >= 0 && aim.y <= height
       && <div className="live-aim-target" data-drawing-interaction="aim-target" aria-hidden="true" style={{left: aim.x, top: aim.y}}
         onPointerDown={event => {
-          if (event.button !== 0 || candidateDrag.current !== null) return;
+          if (event.button !== 0 || !event.isPrimary || candidateDrag.current !== null) return;
+          const position = coordinates(event);
+          if (!position) return;
           event.preventDefault();
-          candidateDrag.current = event.pointerId;
+          candidateDrag.current = {id:event.pointerId, dx:aim.x-position.x, dy:aim.y-position.y};
           event.currentTarget.setPointerCapture(event.pointerId);
         }} onPointerMove={moveCandidate} onPointerUp={() => { candidateDrag.current = null; }}
         onPointerCancel={() => { candidateDrag.current = null; }} onLostPointerCapture={() => { candidateDrag.current = null; }}/>}

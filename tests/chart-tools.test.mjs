@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {captureLiveViewport,coordinateAtLogical,logicalAtTime,restoreLiveViewport,timeAtLogical,moveDrawing,rayEnd,replayBatch,replayRange} from '../src/lib/chart-tools.ts';
 import {drawingGeometry, positionMetrics, placementError} from '../src/lib/drawing-geometry.ts';
-import {drawingGroups,drawingKinds} from '../src/lib/drawing-definitions.ts';
+import {defaultRetracement,drawingGroups,drawingKinds} from '../src/lib/drawing-definitions.ts';
 
 const timeline=[{time:1700000000},{time:1700000300},{time:1700000600},{time:1700259900},{time:1700260200}];
 
@@ -51,6 +51,12 @@ test('Fibonacci levels and anchored tick VWAP use price and volume before screen
  assert.deepEqual(fib.filter(mark=>mark.kind==='label').map(mark=>mark.value),[
   '0% · 100.00','100% · 150.00','161.8% · 180.90','200% · 200.00',
   '261.8% · 230.90','350% · 275.00','423.6% · 311.80','547.2% · 373.60',
+ ]);
+ const reversed=drawingGeometry({id:'new',kind:'fib',points:[{time:10,price:110},{time:30,price:120}],
+  fib:defaultRetracement()},view);
+ assert.deepEqual(reversed.filter(mark=>mark.kind==='label').map(mark=>mark.value),[
+  '0% · 120.00','100% · 110.00','161.8% · 103.82','200% · 100.00',
+  '261.8% · 93.82','350% · 85.00','423.6% · 77.64','547.2% · 65.28',
  ]);
  const custom=drawingGeometry({id:'f',kind:'fib',points:[{time:10,price:100},{time:30,price:150}],
   fib:{levels:[{value:1.75,enabled:true,text:'Target'},{value:.5,enabled:false}]}},view);

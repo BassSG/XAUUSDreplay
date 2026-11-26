@@ -68,9 +68,13 @@ export const drawingKinds = Object.keys(drawingTools) as [DrawingKind, ...Drawin
 export const isStroke = (kind: DrawingKind) => kind === 'brush' || kind === 'highlighter';
 export const isLabelBox = (kind: DrawingKind) => kind === 'rect' || kind === 'rotated' || kind === 'gannBox' || kind === 'position';
 const fibRatios = [0, .236, .382, .5, .618, .786, 1];
+const ebwRetracementLevels = [0, 1, 1.618, 2, 2.618, 3.5, 4.236, 5.472];
+export function defaultRetracement() {
+  return {reverse: true, levels: ebwRetracementLevels.map(value => ({value, enabled:true}))};
+}
 export const maxFibLevels = 24;
 export const fibDefaults: Partial<Record<DrawingKind, readonly number[]>> = {
-  fib: [0, 1, 1.618, 2, 2.618, 3.5, 4.236, 5.472],
+  fib: ebwRetracementLevels,
   fibExtension: [0, .382, .618, 1, 1.272, 1.618, 2, 2.618],
   fibChannel: [...fibRatios, 1.618, 2.618], fibFan: fibRatios.slice(1),
   fibTime: [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584],
