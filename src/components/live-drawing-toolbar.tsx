@@ -1,10 +1,10 @@
-import {useState} from 'react';
+import {useState, type ReactNode} from 'react';
 import {
   ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Brush, CalendarRange, ChartCandlestick,
   ChartColumnIncreasing, ChartLine, ChartNoAxesCombined, Circle, CornerUpRight, Crosshair,
   Diamond, Ellipsis, Eye, EyeOff, Fan, Flag, GitFork, Grid2X2, Highlighter, Info,
   ListTree, Magnet, MessageSquare, Minus, MousePointer2, MoveHorizontal, MoveUpRight,
-  MoveVertical, PanelsLeftBottom, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
+  MoveVertical, PanelsLeftBottom, PencilRuler, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
   StickyNote, Tag, Trash2, TrendingDown, TrendingUp, Triangle, TriangleRight, Type,
   Undo2, Waypoints, Workflow, X, type LucideIcon,
 } from 'lucide-react';
@@ -42,8 +42,9 @@ const keywords: Partial<Record<DrawingKind, string>> = {
   short: 'risk reward rr sell',
 };
 
-function DrawingPicker({group, onClose, onPick}: {
-  group: ToolGroup | 'all'; onClose: () => void; onPick: (kind: DrawingKind) => void;
+function DrawingPicker({group, enabled, actions, onClose, onPick}: {
+  group: ToolGroup | 'all'; enabled: boolean; actions: ReactNode;
+  onClose: () => void; onPick: (kind: DrawingKind) => void;
 }) {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState(group);
@@ -77,7 +78,7 @@ function DrawingPicker({group, onClose, onPick}: {
               {tools.map(kind => {
                 const Icon = icons[kind];
                 const tool = drawingTools[kind];
-                return <button key={kind} className="live-picker-option" type="button" title={tool.help}
+                return <button key={kind} className="live-picker-option" type="button" title={tool.help} disabled={!enabled}
                   aria-label={tool.name} aria-describedby={'drawing-help-' + kind} onClick={() => onPick(kind)}>
                   <Icon size={19} aria-hidden="true"/>
                   <span><strong>{tool.name}</strong><small id={'drawing-help-' + kind}>{tool.help}</small></span>
@@ -87,6 +88,7 @@ function DrawingPicker({group, onClose, onPick}: {
           </section>;
         })}
       </div>
+      {actions}
     </section>
   </div>;
 }
@@ -94,9 +96,27 @@ function DrawingPicker({group, onClose, onPick}: {
 type Props = {
   mode: DrawingKind | null; enabled: boolean; magnet: boolean; hidden: boolean;
   canUndo: boolean; canRedo: boolean; canDelete: boolean;
+  navigation: ReactNode;
   onPick: (kind: DrawingKind) => void; onSelect: () => void; onMagnet: () => void;
   onHide: () => void; onUndo: () => void; onRedo: () => void; onDelete: () => void;
 };
+
+function DrawingActions({props, inPicker = false}: {props: Props; inPicker?: boolean}) {
+  return <div className={'live-drawing-actions' + (inPicker ? ' live-picker-actions' : '')}
+    role="group" aria-label="จัดการเส้นวาด">
+    <button type="button" aria-label="ดูดจุดเข้าหาราคาแท่ง" title="แม่เหล็ก · ดูดจุดเข้า Open, High, Low หรือ Close"
+      aria-pressed={props.magnet} onClick={props.onMagnet}><Magnet size={17}/></button>
+    <button type="button" aria-label={props.hidden ? 'แสดงเส้นวาด' : 'ซ่อนเส้นวาด'}
+      title={props.hidden ? 'แสดงเส้นวาด' : 'ซ่อนเส้นวาด'} aria-pressed={props.hidden}
+      onClick={props.onHide}>{props.hidden ? <EyeOff size={17}/> : <Eye size={17}/>}</button>
+    <button type="button" aria-label="ย้อนการวาด" title="ย้อนการวาด · Ctrl+Z"
+      disabled={!props.canUndo} onClick={props.onUndo}><Undo2 size={17}/></button>
+    <button type="button" aria-label="ทำการวาดซ้ำ" title="ทำการวาดซ้ำ · Ctrl+Shift+Z"
+      disabled={!props.canRedo} onClick={props.onRedo}><Redo2 size={17}/></button>
+    <button type="button" aria-label="ลบวัตถุที่เลือก" title="ลบวัตถุที่เลือก · Delete"
+      disabled={!props.canDelete} onClick={props.onDelete}><Trash2 size={17}/></button>
+  </div>;
+}
 
 export default function LiveDrawingToolbar(props: Props) {
   const [picker, setPicker] = useState<ToolGroup | 'all' | null>(null);
@@ -114,12 +134,12 @@ export default function LiveDrawingToolbar(props: Props) {
   return <>
     <aside className="live-tools" aria-label="เครื่องมือวาดบนกราฟ">
       <button type="button" aria-label="เคอร์เซอร์เลือกวัตถุ" title="เคอร์เซอร์เลือกวัตถุ · แตะเส้นเพื่อเลือกหรือลากแก้ไข"
-        aria-pressed={!props.mode} onClick={props.onSelect}><MousePointer2 size={19}/></button>
+        aria-pressed={!props.mode} onClick={props.onSelect}><MousePointer2 size={19}/><span>เลือก</span></button>
       <button type="button" aria-label="เครื่องมือวาดทั้งหมด" title="เครื่องมือวาดทั้งหมด · ค้นหาตามชื่อหรือเปิดทุกหมวด"
-        aria-haspopup="dialog" disabled={!props.enabled} onClick={() => setPicker('all')}><Search size={19}/></button>
+        aria-haspopup="dialog" onClick={() => setPicker('all')}><PencilRuler size={19}/><span>เครื่องมือ</span></button>
       <button type="button" aria-label={currentTool.name} title={currentTool.name + ' · ' + currentTool.help}
         aria-pressed={props.mode === current} disabled={!props.enabled}
-        onClick={() => props.mode === current ? props.onSelect() : pick(current)}><CurrentIcon size={19}/></button>
+        onClick={() => props.mode === current ? props.onSelect() : pick(current)}><CurrentIcon size={19}/><span>ด่วน</span></button>
       <div className="live-tool-groups" role="group" aria-label="หมวดเครื่องมือ">
         {groups.map(group => {
           const Icon = groupIcons[group];
@@ -128,20 +148,10 @@ export default function LiveDrawingToolbar(props: Props) {
             aria-haspopup="dialog" disabled={!props.enabled} onClick={() => setPicker(group)}><Icon size={18}/></button>;
         })}
       </div>
-      <div className="live-drawing-actions" role="group" aria-label="จัดการเส้นวาด">
-        <button type="button" aria-label="ดูดจุดเข้าหาราคาแท่ง" title="แม่เหล็ก · ดูดจุดเข้า Open, High, Low หรือ Close"
-          aria-pressed={props.magnet} onClick={props.onMagnet}><Magnet size={17}/></button>
-        <button type="button" aria-label={props.hidden ? 'แสดงเส้นวาด' : 'ซ่อนเส้นวาด'}
-          title={props.hidden ? 'แสดงเส้นวาด' : 'ซ่อนเส้นวาด'} aria-pressed={props.hidden}
-          onClick={props.onHide}>{props.hidden ? <EyeOff size={17}/> : <Eye size={17}/>}</button>
-        <button type="button" aria-label="ย้อนการวาด" title="ย้อนการวาด · Ctrl+Z"
-          disabled={!props.canUndo} onClick={props.onUndo}><Undo2 size={17}/></button>
-        <button type="button" aria-label="ทำการวาดซ้ำ" title="ทำการวาดซ้ำ · Ctrl+Shift+Z"
-          disabled={!props.canRedo} onClick={props.onRedo}><Redo2 size={17}/></button>
-        <button type="button" aria-label="ลบวัตถุที่เลือก" title="ลบวัตถุที่เลือก · Delete"
-          disabled={!props.canDelete} onClick={props.onDelete}><Trash2 size={17}/></button>
-      </div>
+      <DrawingActions props={props}/>
+      {props.navigation}
     </aside>
-    {picker && props.enabled && <DrawingPicker group={picker} onClose={() => setPicker(null)} onPick={pick}/>}
+    {picker && <DrawingPicker group={picker} enabled={props.enabled} actions={<DrawingActions props={props} inPicker/>}
+      onClose={() => setPicker(null)} onPick={pick}/>}
   </>;
 }

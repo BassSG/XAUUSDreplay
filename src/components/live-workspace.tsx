@@ -1,7 +1,10 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
-import {ArrowLeft, ChartSpline, Radio, RefreshCw} from 'lucide-react';
+import {useEffect, useId, useMemo, useRef, useState, type ReactNode} from 'react';
+import {
+  ArrowLeft, ChartSpline, ChevronDown, Download, Ellipsis, History, LockKeyhole, LockKeyholeOpen,
+  Maximize2, Minimize2, Pencil, Radio, RefreshCw, ScanLine, SkipBack, SkipForward, Trash2, X,
+} from 'lucide-react';
 import ChartBoundary from './chart-boundary';
-import ReplayChart from './replay-chart';
+import ReplayChart, {type LiveChartActions} from './replay-chart';
 import LiveDrawingToolbar from './live-drawing-toolbar';
 import LiveStudyPanel from './live-study-panel';
 import {drawingKinds, drawingTools, isStroke, strokeMax, variableDrawingsMax} from '../lib/drawing-definitions';
@@ -11,6 +14,7 @@ import {historyCatalog, loadBefore} from '../lib/history';
 import {olderPageSize, periods, type Period} from '../lib/live-market';
 import {livePlots, studyDefinitions, studyLabel, studyLength, type LiveStudy, type LiveStudyLengths} from '../lib/live-indicators';
 import {useLiveMarket} from '../lib/use-live-market';
+import {useDialog} from '../lib/use-dialog';
 import './live-workspace.css';
 
 const storageKey = 'xau-live-workspace-v1';
@@ -27,6 +31,20 @@ const historyDate = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
 });
 const counts = new Intl.NumberFormat('en-US');
+
+function LivePanel({title, onClose, children}: {title: string; onClose: () => void; children: ReactNode}) {
+  const id = useId();
+  useDialog(true, onClose);
+  return <div className="modal-shade" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="modal live-panel" role="dialog" aria-modal="true" aria-labelledby={id}>
+      <header className="modal-head">
+        <h2 id={id}>{title}</h2>
+        <button type="button" className="live-icon" aria-label="ปิดหน้าต่าง" onClick={onClose}><X size={19}/></button>
+      </header>
+      {children}
+    </section>
+  </div>;
+}
 
 type Workspace = {
   period: Period; drawings: Drawing[]; studies: LiveStudy[];
@@ -74,11 +92,22 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [retry, setRetry] = useState(0);
   const [backup, setBackup] = useState<{period: Period; bars: Bar[]; failed?: boolean}>();
   const [storageFailed, setStorageFailed] = useState(false);
-  const [showStudies, setShowStudies] = useState(false);
+  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'studies' | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
+  const chart = useRef<LiveChartActions>(null);
   const undo = useRef<Drawing[][]>([]);
   const redo = useRef<Drawing[][]>([]);
   const market = useLiveMarket(period, retry);
   const needsBackup = market.barError && market.closed.length === 0;
+
+  useEffect(() => {
+    if (!focusMode || mode || selected || panel) return;
+    function exitFocus(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !document.querySelector('[aria-modal="true"]')) setFocusMode(false);
+    }
+    window.addEventListener('keydown', exitFocus);
+    return () => window.removeEventListener('keydown', exitFocus);
+  }, [focusMode, mode, selected, panel]);
 
   useEffect(() => {
     try {
@@ -118,6 +147,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const quote = market.quote;
   const status = market.quoteError ? 'การเชื่อมต่อขัดข้อง' : quote?.status === 'live' ? 'ราคาสด'
     : quote?.status === 'closed' ? 'ตลาดปิด' : quote ? 'ราคาล่าช้า' : 'กำลังเชื่อมต่อ';
+  const shortStatus = market.quoteError ? 'ขัดข้อง' : quote?.status === 'live' ? 'สด'
+    : quote?.status === 'closed' ? 'ปิด' : quote ? 'ล่าช้า' : 'เชื่อมต่อ';
   const historyLabel = market.historyStatus === 'loading' ? 'กำลังโหลดแท่งเก่า'
     : market.historyStatus === 'error' ? 'โหลดแท่งเก่าไม่สำเร็จ'
     : market.historyStatus === 'end' ? 'ถึงข้อมูลเก่าสุดที่ Eightcap ส่งมาแล้ว' : '';
@@ -160,105 +191,200 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     void market.loadOlder(false);
   }
 
-  return <main className="live-workspace">
+  function closePanel() { setPanel(null); }
+  function reconnect() { setRetry(value => value + 1); }
+  function goLatest() {
+    chart.current?.latest();
+    setFollow(true);
+  }
+  function toggleFollow() {
+    if (follow) setFollow(false);
+    else goLatest();
+  }
+
+  const drawingStrip = activeDrawing && <section className="live-object-strip" aria-label="แก้ไขวัตถุที่เลือก">
+    <button type="button" className="live-object-name" title="ตั้งค่าวัตถุที่เลือก" aria-haspopup="dialog"
+      onClick={() => setPanel('drawing')}><Pencil size={15}/><span>{drawingTools[activeDrawing.kind].name}</span></button>
+    {activeMetrics && <span className="live-object-ratio">R/R {activeMetrics.ratio.toFixed(2)}</span>}
+    <div className="live-object-actions">
+      <button type="button" className="live-icon" aria-label={activeDrawing.locked ? 'ปลดล็อกวัตถุ' : 'ล็อกวัตถุ'}
+        title={activeDrawing.locked ? 'ปลดล็อกวัตถุ' : 'ล็อกวัตถุ'} aria-pressed={Boolean(activeDrawing.locked)}
+        onClick={() => changeDrawing({...activeDrawing, locked: !activeDrawing.locked})}>
+        {activeDrawing.locked ? <LockKeyhole size={16}/> : <LockKeyholeOpen size={16}/>}
+      </button>
+      <button type="button" className="live-icon" aria-label="ลบวัตถุจากกราฟ" title="ลบวัตถุจากกราฟ"
+        disabled={activeDrawing.locked} onClick={deleteDrawing}><Trash2 size={16}/></button>
+      <button type="button" className="live-icon" aria-label="ปิดแถบแก้ไขวัตถุ" title="ปิดแถบแก้ไขวัตถุ"
+        onClick={() => setSelected(null)}><X size={16}/></button>
+    </div>
+  </section>;
+
+  return <main className="live-workspace" data-focus={focusMode}>
     <header className="live-header">
-      <div className="live-identity">
-        <img src={import.meta.env.BASE_URL + 'icons/icon-192.png'} alt="" width={42} height={42}/>
-        <div><h1>XAUUSD Live</h1><p>Eightcap MT5 <span> / </span> Gold CFD</p></div>
+      <h1>
+        <button className="live-symbol" type="button" aria-label="ข้อมูลราคา XAUUSD" aria-haspopup="dialog"
+          title="ข้อมูลราคา XAUUSD" onClick={() => setPanel('quotes')}>
+          <img src={import.meta.env.BASE_URL + 'icons/icon-192.png'} alt="" width={26} height={26}/>
+          <span>XAUUSD</span><ChevronDown size={13}/>
+        </button>
+      </h1>
+      <div className="live-market-readout">
+        <strong aria-label="ราคา Bid">{quote ? price.format(quote.bid) : '—'}</strong>
+        <span className="live-feed" data-live={quote?.status === 'live' && !market.quoteError} title={status}>
+          <i aria-hidden="true"/><span role="status" aria-label={status}>{shortStatus}</span>
+        </span>
       </div>
-      <button type="button" onClick={onReplay}><ArrowLeft size={16}/>Replay</button>
+      <button className="live-replay" type="button" aria-label="เปิด Replay" title="เปิด Replay" onClick={onReplay}>
+        <ArrowLeft size={16}/><span>Replay</span>
+      </button>
     </header>
-    <section className="live-tape" aria-label="ราคาและสถานะข้อมูล">
-      <div className="live-feed" data-live={quote?.status === 'live' && !market.quoteError}>
-        <strong role="status">{status}</strong>
-        <span>{quote ? clock.format(quote.time * 1000) + ' กรุงเทพฯ' : 'Eightcap MT5'}</span>
+
+    <div className="live-controls" aria-label="มุมมองราคา XAUUSD">
+      <div className="live-periods" role="group" aria-label="ช่วงเวลาแท่งราคา">
+        {periodList.map(tf => <button key={tf} type="button" aria-pressed={period === tf}
+          onClick={() => selectPeriod(tf)}>{tf === '1d' ? '1D' : tf}</button>)}
+      </div>
+      <button className="live-studies-button" type="button" aria-haspopup="dialog" aria-label="อินดิเคเตอร์"
+        title="อินดิเคเตอร์" onClick={() => setPanel('studies')}>
+        <ChartSpline size={19}/><span className="live-wide-label">อินดิเคเตอร์</span>
+        {studies.length > 0 && <span className="live-study-count" aria-label={studies.length + ' ตัวที่เปิดอยู่'}>{studies.length}</span>}
+      </button>
+      <div className="live-view-actions">
+        <button className="live-wide-action" type="button" aria-pressed={follow} title="ติดตามแท่งล่าสุด"
+          aria-label="ติดตามแท่งล่าสุด" onClick={toggleFollow}><Radio size={17}/></button>
+        <button className="live-wide-action" type="button" aria-haspopup="dialog" title="แท่งย้อนหลัง"
+          aria-label="แท่งย้อนหลัง" onClick={() => setPanel('history')}><History size={17}/><span>ย้อนหลัง</span></button>
+        <button className="live-wide-action" type="button" aria-label="ไปแท่งล่าสุด" title="ไปแท่งล่าสุด"
+          disabled={!bars.length} onClick={goLatest}><SkipForward size={17}/></button>
+        <button type="button" aria-label={focusMode ? 'ออกจากโหมดโฟกัส' : 'มุมมองกราฟ'}
+          title={focusMode ? 'ออกจากโหมดโฟกัส' : 'มุมมองกราฟ'} aria-haspopup={focusMode ? undefined : 'dialog'}
+          onClick={() => focusMode ? setFocusMode(false) : setPanel('view')}>
+          {focusMode ? <Minimize2 size={19}/> : <Ellipsis size={21}/>}
+        </button>
+      </div>
+    </div>
+
+    <section className="live-chart-layout" aria-label="กราฟ XAUUSD">
+      <LiveDrawingToolbar mode={mode} enabled={!hiddenDrawings && bars.length > 0 && drawings.length < 500}
+        magnet={magnet} hidden={hiddenDrawings} canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}
+        canDelete={Boolean(activeDrawing && !activeDrawing.locked)}
+        onPick={kind => { setMode(kind); setSelected(null); setFollow(false); }} onSelect={cancelDrawing}
+        onMagnet={() => setWorkspace(value => ({...value, magnet: !value.magnet}))}
+        onHide={() => {
+          cancelDrawing();
+          setWorkspace(value => ({...value, hiddenDrawings: !value.hiddenDrawings}));
+        }}
+        onUndo={() => { cancelDrawing(); restoreDrawing(undo.current, redo.current); }}
+        onRedo={() => { cancelDrawing(); restoreDrawing(redo.current, undo.current); }} onDelete={deleteDrawing}
+        navigation={<>
+          <button className="live-dock-action" type="button" aria-label="แท่งย้อนหลัง" aria-haspopup="dialog"
+            onClick={() => setPanel('history')}><History size={19}/><span>ย้อนหลัง</span></button>
+          <button className="live-dock-action" type="button" aria-label="ไปแท่งล่าสุด" title="ไปแท่งล่าสุด"
+            data-following={follow} disabled={!bars.length} onClick={goLatest}><SkipForward size={19}/><span>ล่าสุด</span></button>
+        </>}/>
+      <div className="live-chart">
+        {bars.length ? <ChartBoundary resetKey={period}><ReplayChart live key={period} liveActions={chart}
+          bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
+          drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
+          selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingCancel={cancelDrawing}
+          liveSelection={drawingStrip} liveLegend={studies.length > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
+            <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
+              <i style={{backgroundColor: studyDefinitions[studies[0]].color}} aria-hidden="true"/>
+              {studyLabel(studies[0], lengths)}
+              {studies.length > 1 && <span>+{studies.length - 1}</span>}
+            </button>
+          </div>}
+          onDrawing={drawing => { saveDrawings([...drawings, drawing]); setSelected(drawing.id); setMode(null); }}
+          onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
+          onDrawingUndo={() => restoreDrawing(undo.current, redo.current)} onDrawingRedo={() => restoreDrawing(redo.current, undo.current)}
+          onHistoryEdge={loadAtChartEdge} onLeaveLatest={() => setFollow(false)}/></ChartBoundary>
+          : <div className="live-chart-empty" role="status"><span>{needsBackup && backup?.failed
+            ? 'โหลดแท่งราคาไม่ได้' : needsBackup ? 'กำลังโหลดข้อมูลย้อนหลัง' : 'กำลังโหลดแท่งราคาจาก Eightcap'}</span>
+            {needsBackup && backup?.failed && <button type="button" onClick={reconnect}><RefreshCw size={16}/>เชื่อมต่อใหม่</button>}
+          </div>}
+      </div>
+    </section>
+
+    <footer className="live-foot">
+      <span>Eightcap MT5 <span aria-hidden="true">·</span> Bid</span>
+      <span className="live-foot-status" role="status">{storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
+        (historical.length ? 'ข้อมูลสำรอง' : market.barError ? 'แสดงแท่งที่โหลดไว้' : '')}</span>
+      <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a>
+    </footer>
+
+    {panel === 'quotes' && <LivePanel title="ราคา XAUUSD" onClose={closePanel}>
+      <div className="live-details-head">
+        <span>Eightcap MT5 · Gold CFD</span>
+        <strong className="live-feed" data-live={quote?.status === 'live' && !market.quoteError}><i aria-hidden="true"/>{status}</strong>
       </div>
       <dl className="live-quotes">
         <div><dt>Bid</dt><dd>{quote ? price.format(quote.bid) : '—'}</dd></div>
         <div><dt>Ask</dt><dd>{quote ? price.format(quote.ask) : '—'}</dd></div>
         <div><dt>Spread (USD)</dt><dd>{quote ? price.format(quote.ask - quote.bid) : '—'}</dd></div>
       </dl>
-      <button className="live-icon" type="button" aria-label="เชื่อมต่อราคาใหม่" title="เชื่อมต่อราคาใหม่"
-        onClick={() => setRetry(value => value + 1)}><RefreshCw size={17}/></button>
-    </section>
-    <section className="live-desk" aria-label="พื้นที่วิเคราะห์ XAUUSD">
-      <div className="live-controls">
-        <div className="live-periods" role="group" aria-label="ช่วงเวลาแท่งราคา">
-          {periodList.map(tf => <button key={tf} type="button" aria-pressed={period === tf} onClick={() => selectPeriod(tf)}>{tf}</button>)}
-        </div>
-        <button className="live-studies-button" type="button" aria-haspopup="dialog" aria-label="อินดิเคเตอร์"
-          title="อินดิเคเตอร์ · เลือกสูตรคำนวณบนกราฟ" onClick={() => setShowStudies(true)}>
-          <ChartSpline size={19}/>{studies.length > 0 && <span className="live-study-count" aria-label={studies.length + ' ตัวที่เปิดอยู่'}>{studies.length}</span>}
+      <div className="live-panel-end">
+        <span>{quote ? clock.format(quote.time * 1000) + ' กรุงเทพฯ' : status}</span>
+        <button type="button" onClick={reconnect}><RefreshCw size={16}/>เชื่อมต่อใหม่</button>
+      </div>
+    </LivePanel>}
+
+    {panel === 'view' && <LivePanel title="มุมมองกราฟ" onClose={closePanel}>
+      <div className="live-panel-options">
+        <button type="button" aria-pressed={follow} onClick={() => { toggleFollow(); closePanel(); }}>
+          <Radio size={18}/><span>ติดตามแท่งล่าสุด</span>
         </button>
-        <button type="button" aria-pressed={follow} onClick={() => setFollow(value => !value)}><Radio size={15}/>ติดตามกราฟ</button>
+        <button type="button" disabled={!bars.length} onClick={() => { setFollow(false); chart.current?.fit(); closePanel(); }}>
+          <ScanLine size={18}/><span>พอดีช่วงที่โหลด</span>
+        </button>
+        <button type="button" onClick={() => { setFocusMode(true); closePanel(); }}>
+          <Maximize2 size={18}/><span>โหมดโฟกัสกราฟ</span>
+        </button>
+        <button type="button" disabled={!bars.length} onClick={() => { void chart.current?.exportPng(); closePanel(); }}>
+          <Download size={18}/><span>บันทึกภาพ PNG</span>
+        </button>
       </div>
-      {!!studies.length && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
-        {studies.map(study => <button key={study} type="button" onClick={() => setShowStudies(true)}>{studyLabel(study, lengths)}</button>)}
-      </div>}
-      <div className="live-chart-layout">
-        <LiveDrawingToolbar mode={mode} enabled={!hiddenDrawings && bars.length > 0 && drawings.length < 500}
-          magnet={magnet} hidden={hiddenDrawings} canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}
-          canDelete={Boolean(activeDrawing && !activeDrawing.locked)}
-          onPick={kind => { setMode(kind); setSelected(null); setFollow(false); }} onSelect={cancelDrawing}
-          onMagnet={() => setWorkspace(value => ({...value, magnet: !value.magnet}))}
-          onHide={() => {
-            cancelDrawing();
-            setWorkspace(value => ({...value, hiddenDrawings: !value.hiddenDrawings}));
-          }}
-          onUndo={() => { cancelDrawing(); restoreDrawing(undo.current, redo.current); }}
-          onRedo={() => { cancelDrawing(); restoreDrawing(redo.current, undo.current); }} onDelete={deleteDrawing}/>
-        <div className="live-chart">
-          {bars.length ? <ChartBoundary resetKey={period}><ReplayChart live key={period} bars={bars} trades={noTrades} plots={plots}
-            follow={follow} seconds={periods[period]} drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
-            selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingCancel={cancelDrawing}
-            onDrawing={drawing => { saveDrawings([...drawings, drawing]); setSelected(drawing.id); setMode(null); }}
-            onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
-            onDrawingUndo={() => restoreDrawing(undo.current, redo.current)}
-            onHistoryEdge={loadAtChartEdge}
-            onDrawingRedo={() => restoreDrawing(redo.current, undo.current)}/></ChartBoundary>
-            : <div className="live-chart-empty" role="status">{needsBackup && backup?.failed
-              ? 'โหลดแท่งราคาไม่ได้ ลองเชื่อมต่อใหม่' : needsBackup ? 'กำลังโหลดข้อมูลย้อนหลังที่บันทึกไว้' : 'กำลังโหลดแท่งราคาจาก Eightcap'}</div>}
-        </div>
-      </div>
-      {bars.length > 0 && <div className="live-history" aria-label="แท่งเทียนย้อนหลัง">
-        <div>
-          <strong>ย้อนหลังถึง {historyDate.format(bars[0].time * 1000)}</strong>
-          <span>{counts.format(market.closed.length || historical.length)} แท่งปิด ในกราฟ</span>
+    </LivePanel>}
+
+    {panel === 'history' && <LivePanel title="แท่งย้อนหลัง" onClose={closePanel}>
+      <div className="live-history" aria-label="แท่งเทียนย้อนหลัง">
+        <div className="live-history-detail">
+          <strong>{bars.length ? 'ย้อนหลังถึง ' + historyDate.format(bars[0].time * 1000) : 'กำลังโหลดแท่งราคา'}</strong>
+          <span>{counts.format(market.closed.length || historical.length)} แท่งปิด · {period === '1d' ? '1D' : period}</span>
           <span role="status">{historyLabel}</span>
         </div>
-        <button type="button" disabled={!market.closed.length || market.historyStatus === 'loading' || market.historyStatus === 'end'}
-          title={'โหลดครั้งละสูงสุด ' + counts.format(olderPageSize) + ' แท่ง'}
-          onClick={() => void market.loadOlder(true)}>
-          {market.historyStatus === 'error' ? 'ลองโหลดอีกครั้ง' : 'โหลดแท่งเก่า'}
-        </button>
-      </div>}
-      <div className="live-foot">
-        <span>{historical.length ? 'กราฟย้อนหลังถึง ' + clock.format(historical.at(-1)!.time * 1000)
-          : market.barError && market.closed.length ? 'แสดงแท่งล่าสุดที่โหลดไว้' : market.open ? 'แท่งปัจจุบันใช้ Bid ที่แอปรับมา'
-          : market.closed.length ? 'แสดงแท่งที่ปิดแล้ว' : 'กราฟราคา Bid'}</span>
-        <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a>
+        <div className="live-panel-options">
+          <button type="button" disabled={!market.closed.length || market.historyStatus === 'loading' || market.historyStatus === 'end'}
+            title={'โหลดครั้งละสูงสุด ' + counts.format(olderPageSize) + ' แท่ง'}
+            onClick={() => void market.loadOlder(true)}>
+            <History size={18}/><span>{market.historyStatus === 'error' ? 'ลองโหลดอีกครั้ง' : 'โหลดแท่งเก่า'}</span>
+          </button>
+          <button type="button" disabled={!bars.length} onClick={() => { setFollow(false); chart.current?.first(); closePanel(); }}>
+            <SkipBack size={18}/><span>ไปแท่งแรกที่โหลด</span>
+          </button>
+        </div>
       </div>
-    </section>
-    {activeDrawing && <section className="live-object" aria-label="แก้ไขวัตถุที่เลือก">
-      <strong>{drawingTools[activeDrawing.kind].name}</strong>
-      {activeMetrics && <span>Reward/Risk {activeMetrics.ratio.toFixed(2)} · ระยะ TP {price.format(activeMetrics.reward)} USD · ระยะ SL {price.format(activeMetrics.risk)} USD</span>}
-      <label className="live-object-color">สี <input aria-label="สีของวัตถุ" type="color" disabled={activeDrawing.locked}
-        defaultValue={/^#[0-9a-f]{6}$/i.test(activeDrawing.color ?? '') ? activeDrawing.color : '#d7b46a'}
-        key={activeDrawing.id + (activeDrawing.color ?? '')}
-        onBlur={e => {
-          if (e.target.value !== (activeDrawing.color ?? '#d7b46a')) changeDrawing({...activeDrawing, color: e.target.value});
-        }}/></label>
-      {drawingTools[activeDrawing.kind].text && <input aria-label="ข้อความบนกราฟ" defaultValue={activeDrawing.text}
-        disabled={activeDrawing.locked} key={activeDrawing.id + (activeDrawing.text ?? '')} maxLength={100}
-        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-        onBlur={e => { if (e.target.value !== activeDrawing.text) changeDrawing({...activeDrawing, text: e.target.value}); }}/>}
-      <button type="button" aria-pressed={Boolean(activeDrawing.locked)}
-        onClick={() => changeDrawing({...activeDrawing, locked: !activeDrawing.locked})}>{activeDrawing.locked ? 'ปลดล็อก' : 'ล็อกวัตถุ'}</button>
-      <button type="button" onClick={() => setSelected(null)}>เสร็จ</button>
-    </section>}
-    {storageFailed && <p role="alert">เบราว์เซอร์บันทึกการตั้งค่ากราฟลงเครื่องไม่ได้</p>}
-    {showStudies && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy}
+    </LivePanel>}
+
+    {panel === 'drawing' && activeDrawing && <LivePanel title={drawingTools[activeDrawing.kind].name} onClose={closePanel}>
+      <div className="live-object">
+        {activeMetrics && <span>Reward/Risk {activeMetrics.ratio.toFixed(2)} · ระยะ TP {price.format(activeMetrics.reward)} USD · ระยะ SL {price.format(activeMetrics.risk)} USD</span>}
+        <label className="live-object-color">สี <input aria-label="สีของวัตถุ" type="color" disabled={activeDrawing.locked}
+          defaultValue={/^#[0-9a-f]{6}$/i.test(activeDrawing.color ?? '') ? activeDrawing.color : '#d7b46a'}
+          key={activeDrawing.id + (activeDrawing.color ?? '')}
+          onBlur={e => {
+            if (e.target.value !== (activeDrawing.color ?? '#d7b46a')) changeDrawing({...activeDrawing, color: e.target.value});
+          }}/></label>
+        {drawingTools[activeDrawing.kind].text && <label>ข้อความบนกราฟ
+          <input aria-label="ข้อความบนกราฟ" defaultValue={activeDrawing.text} disabled={activeDrawing.locked}
+            key={activeDrawing.id + (activeDrawing.text ?? '')} maxLength={100}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            onBlur={e => { if (e.target.value !== activeDrawing.text) changeDrawing({...activeDrawing, text: e.target.value}); }}/>
+        </label>}
+      </div>
+    </LivePanel>}
+
+    {panel === 'studies' && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy}
       onLength={(study, length) => setWorkspace(value => ({...value, lengths: {...value.lengths, [study]: length}}))}
-      onClose={() => setShowStudies(false)}/>}
+      onClose={closePanel}/>}
   </main>;
 }

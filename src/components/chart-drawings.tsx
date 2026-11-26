@@ -250,16 +250,10 @@ export default function ChartDrawings(props: Props) {
   }, [props.host, props.confirmPlacement, props.mode]);
 
   useEffect(() => {
-    if (!props.mode || !props.confirmPlacement || !matchMedia('(max-width: 720px)').matches) return;
-    const controls = state.current.controlsHost;
-    if (controls && controls.getBoundingClientRect().top > window.innerHeight * .35) {
-      controls.scrollIntoView({block: 'start', behavior: 'instant'});
-    }
-  }, [props.mode, props.confirmPlacement]);
-
-  useEffect(() => {
     const pan = !props.mode || (props.confirmPlacement && !isStroke(props.mode));
-    props.api?.chart.applyOptions({handleScroll: {pressedMouseMove: pan, horzTouchDrag: pan, vertTouchDrag: !props.mode, mouseWheel: true}});
+    props.api?.chart.applyOptions({handleScroll: {
+      pressedMouseMove: pan, horzTouchDrag: pan, vertTouchDrag: !props.confirmPlacement && !props.mode, mouseWheel: true,
+    }});
   }, [props.api, props.mode, props.confirmPlacement]);
 
   useEffect(() => {
