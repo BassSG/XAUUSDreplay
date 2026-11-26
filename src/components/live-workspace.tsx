@@ -26,6 +26,8 @@ import {useDialog} from '../lib/use-dialog';
 import './live-workspace.css';
 
 const cameraKey = workspaceKey + '-camera';
+// Discard the too-wide saved viewport once after changing the live framing.
+const cameraVersion = 2;
 const emptyBars: Bar[] = [];
 const noTrades: Trade[] = [];
 const price = new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -69,7 +71,8 @@ function readWorkingChart() {
   const link = raw?.activeLayout;
   const active: ActiveLayout | null = link && typeof link.id === 'string' && typeof link.name === 'string'
     && Number.isInteger(link.revision) ? {id: link.id, name: link.name, revision: link.revision} : null;
-  const view = camera?.period === workspace.period && camera.active === (active?.id ?? null) ? readChartView(camera.view) : null;
+  const view = camera?.version === cameraVersion && camera?.period === workspace.period
+    && camera.active === (active?.id ?? null) ? readChartView(camera.view) : null;
   return {workspace, active, view, library};
 }
 
@@ -127,7 +130,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
   const saveCamera = useRef(() => {});
   saveCamera.current = () => {
-    try { localStorage.setItem(cameraKey, JSON.stringify({period, active: activeLayout?.id ?? null, view: currentView()})); }
+    try { localStorage.setItem(cameraKey, JSON.stringify({version: cameraVersion, period, active: activeLayout?.id ?? null, view: currentView()})); }
     catch { /* Named layouts are stored independently in IndexedDB. */ }
   };
   useEffect(() => {
