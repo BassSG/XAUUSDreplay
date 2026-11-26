@@ -23,8 +23,11 @@ const tickDate=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-d
 const ohlcNumber=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const prices=[['open','O','เปิด'],['high','H','สูงสุด'],['low','L','ต่ำสุด'],['close','C','ปิด']] as const;
 function latestLiveRange(count:number,width:number){
- const visible=Math.max(30,Math.round(width/(width<600?6.5:5.8)));
- const room=Math.max(6,Math.round(visible*.1));
+ // Reserve useful space for projected Pine zones while keeping the latest
+ // candle near the usual TradingView position instead of crowding it at the
+ // edge or showing too much old price action by default.
+ const visible=Math.max(30,Math.round(width/(width<600?6.5:6.25)));
+ const room=Math.max(6,Math.round(visible*.22));
  const to=count-1+room;
  return {from:to-visible,to};
 }
