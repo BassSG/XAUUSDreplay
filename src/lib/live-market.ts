@@ -1,4 +1,4 @@
-import type {Bar} from './engine.ts';
+import {brokerTimeToUtc, utcToBrokerTime, type Bar} from './engine.ts';
 
 export const periods = {'1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400};
 export type Period = keyof typeof periods;
@@ -62,12 +62,13 @@ export function readQuote(payload: unknown, now: number): Quote {
   return {bid, ask, time: timestamp, status: live ? 'live' : row.market_status === 'closed' ? 'closed' : 'stale'};
 }
 
-// The bridge provides closed bars. Sample the next bar only when its boundary
-// follows a confirmed broker bar; closed OHLC always replaces our observations.
+// Place the observed Bid in its own broker interval even when the closed-bar
+// response is behind the quote. Intervals with no observations stay empty.
 export function sampleOpenBar(closed: Bar | undefined, previous: Bar | null, quote: Quote, seconds: number): Bar | null {
   if (!closed || quote.status !== 'live') return null;
-  const time = closed.time + seconds;
-  if (quote.time < time || quote.time >= time + seconds) return null;
+  const brokerTime = utcToBrokerTime(quote.time);
+  const time = brokerTimeToUtc(Math.floor(brokerTime / seconds) * seconds);
+  if (time <= closed.time || time > quote.time) return null;
   const price = quote.bid;
   if (previous?.time === time) {
     if (previous.close === price) return previous;

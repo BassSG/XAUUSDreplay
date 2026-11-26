@@ -31,7 +31,17 @@ test('the open candle uses observed Bid and never fills a gap with fabricated ba
   const lower = readQuote({...quote, timestamp: now + 1, bid: 4014}, now + 1);
   assert.equal(sampleOpenBar(closed, partial, lower, 60).low, 4014);
   const afterGap = readQuote({...quote, timestamp: now + 120}, now + 120);
-  assert.equal(sampleOpenBar(closed, partial, afterGap, 60), null);
+  assert.deepEqual(sampleOpenBar(closed, partial, afterGap, 60), {
+    time: now + 120, open: 4015, high: 4015, low: 4015, close: 4015, volume: 0,
+  });
+});
+
+test('a live H4 candle starts at the broker boundary when last closed prices arrive late', () => {
+  const time = Date.parse('2026-11-26T04:15:02Z') / 1000;
+  const expected = Date.parse('2026-11-26T02:00:00Z') / 1000;
+  const stale = {...candle, time: Date.parse('2026-11-25T18:00:00Z') / 1000, volume: 20};
+  const live = readQuote({...quote, timestamp: time}, time);
+  assert.equal(sampleOpenBar(stale, null, live, 14400).time, expected);
 });
 
 test('closed or stale quotes remain visible as status and cannot update the chart', () => {
