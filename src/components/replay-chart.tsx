@@ -45,10 +45,12 @@ export type LiveChartActions = {
  viewport: () => LiveViewport | null;
  captureView: (follow: boolean) => ChartView | null;
  exportPng: () => Promise<void>;
+ copyPng: () => Promise<void>;
 };
 
 export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,hiddenDrawings=false,live=false,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;hiddenDrawings?:boolean;live?:boolean;liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
  const [expanded,setExpanded]=useState(false),[paneCount,setPaneCount]=useState(0),[focus,setFocus]=useState('draft');
+ const [snapshotMessage,setSnapshotMessage]=useState('');
  const [cursorTime,setCursorTime]=useState<number|null>(null);
  const livePriceMarker=useRef<LivePriceMarker|null>(null);
  const brandMark=useRef<HTMLImageElement>(null);
@@ -254,17 +256,77 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   return <svg className="drawing-overlay" width={w} height={h}><defs><clipPath id="pricePaneClip"><rect width={w} height={r.chart.panes()[0].getHeight()}/></clipPath></defs><g clipPath="url(#pricePaneClip)">{items}</g></svg>})();
  const priceAt=(clientY:number)=>{const r=ref.current;if(!r||!host.current)return null;const y=clientY-host.current.getBoundingClientRect().top;if(y<0||y>r.chart.panes()[0].getHeight())return null;const value=r.series.coordinateToPrice(y);return value===null?null:Math.round(value*100)/100;};
  const groups=[...new Set(levels.map(l=>l.tradeId||l.orderId||'draft'))];const handles=levels.filter(l=>(l.tradeId||l.orderId||'draft')===(groups.includes(focus)?focus:'draft')).map(l=>{const r=ref.current;if(!r)return null;const price=preview?.id===l.id?preview.price:l.price;const y=r.series.priceToCoordinate(price);if(y===null||y<0||y>r.chart.panes()[0].getHeight())return null;return <button key={l.id} className={'chart-price-handle '+l.kind+(l.pending?' pending-level':'')} style={{top:y-17,borderColor:l.color,color:l.color}} aria-label={l.label+' '+price.toFixed(2)+(l.editable?' ลากเพื่อปรับราคา':'')} disabled={!l.editable} onPointerDown={e=>{e.preventDefault();e.stopPropagation();levelRef.current.onDragStart?.();e.currentTarget.setPointerCapture(e.pointerId);if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};activeDrag.current={level:l,price:l.price};setPreview({id:l.id,price:l.price});}} onPointerMove={e=>{if(!activeDrag.current||activeDrag.current.level.id!==l.id)return;const value=priceAt(e.clientY);if(value===null)return;activeDrag.current.price=value;setPreview({id:l.id,price:value});if(l.draft)levelRef.current.onLevelPreview?.(l,value);}} onPointerUp={e=>{if(!activeDrag.current)return;const drag=activeDrag.current;activeDrag.current=null;if(ref.current)ref.current.dragRange=null;e.currentTarget.releasePointerCapture(e.pointerId);setPreview(null);if(drag.price!==drag.level.price)levelRef.current.onLevelCommit?.(drag.level,drag.price);}} onPointerCancel={()=>{if(activeDrag.current?.level.draft)levelRef.current.onLevelPreview?.(activeDrag.current.level,activeDrag.current.level.price);activeDrag.current=null;if(ref.current)ref.current.dragRange=null;setPreview(null);}} onKeyDown={e=>{if(e.key==='Escape'){if(activeDrag.current?.level.draft)levelRef.current.onLevelPreview?.(activeDrag.current.level,activeDrag.current.level.price);activeDrag.current=null;if(ref.current)ref.current.dragRange=null;setPreview(null);}if(e.key==='ArrowUp'||e.key==='ArrowDown'){e.preventDefault();levelRef.current.onDragStart?.();levelRef.current.onLevelCommit?.(l,Math.round((l.price+(e.key==='ArrowUp'?1:-1)*(e.shiftKey?1:.01))*100)/100);}}}><span>{l.label}</span><strong>{price.toFixed(2)}</strong>{l.editable&&<span className="handle-grip">⠿</span>}</button>;});
- async function exportChart(){const r=ref.current;if(!r)return;const canvas=r.chart.takeScreenshot(live);const ctx=canvas.getContext('2d');
+ async function chartPng(): Promise<Blob> {
+  const current=ref.current;
+  const container=host.current;
+  if(!current||!container||!container.clientWidth)throw Error('กราฟยังไม่พร้อมสร้างภาพ');
+  const canvas: HTMLCanvasElement=current.chart.takeScreenshot(live);
+  const ctx=canvas.getContext('2d');
+  if(!ctx)throw Error('สร้างภาพกราฟไม่สำเร็จ');
+  const scale=canvas.width/container.clientWidth;
   const mark=brandMark.current;
-  if(ctx&&mark?.naturalWidth&&host.current?.clientWidth){
-   const scale=canvas.width/host.current.clientWidth;
-   const bottom=r.chart.timeScale().height()+brandMarkInset;
+  if(mark?.naturalWidth){
+   const bottom=current.chart.timeScale().height()+brandMarkInset;
    ctx.save();
    ctx.globalAlpha=.85;
    ctx.drawImage(mark,brandMarkInset*scale,canvas.height-(bottom+brandMarkHeight)*scale,brandMarkWidth*scale,brandMarkHeight*scale);
    ctx.restore();
   }
-  const svgs=host.current?.parentElement?.querySelectorAll('.drawing-overlay,.user-drawing-overlay')||[];if(ctx)for(const svg of svgs){const clone=svg.cloneNode(true) as SVGElement;clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.querySelectorAll('[data-drawing-interaction]').forEach(el=>el.remove());const style=document.createElementNS('http://www.w3.org/2000/svg','style');style.textContent='.drawing-line,.drawing-fib{stroke:#d7b46a;stroke-width:1.4}.drawing-box{fill:#d7b46a18;stroke:#d7b46a}.drawing-label{fill:#d7b46a;font:11px sans-serif}';clone.prepend(style);const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const scale=canvas.width/(host.current?.clientWidth||canvas.width);ctx.drawImage(img,0,0,Number(clone.getAttribute('width'))*scale,Number(clone.getAttribute('height'))*scale);}finally{URL.revokeObjectURL(url);}}canvas.toBlob((blob:Blob|null)=>{if(!blob)return;const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=live?'XAUUSD-live.png':'XAUUSD-replay.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);});}
+  const overlays=container.parentElement?.querySelectorAll('.drawing-overlay,.user-drawing-overlay')??[];
+  for(const svg of overlays){
+   const clone=svg.cloneNode(true) as SVGElement;
+   clone.querySelectorAll('[data-drawing-interaction]').forEach(el=>el.remove());
+   const style=document.createElementNS('http://www.w3.org/2000/svg','style');
+   style.textContent='.drawing-line,.drawing-fib{stroke:#d7b46a;stroke-width:1.4}.drawing-box{fill:#d7b46a18;stroke:#d7b46a}.drawing-label{fill:#d7b46a;font:11px sans-serif}';
+   clone.prepend(style);
+   const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));
+   try {
+    const image=new Image();
+    image.src=url;
+    await image.decode();
+    ctx.drawImage(image,0,0,Number(clone.getAttribute('width'))*scale,Number(clone.getAttribute('height'))*scale);
+   } finally { URL.revokeObjectURL(url); }
+  }
+  return new Promise((resolve,reject)=>canvas.toBlob(blob=>{
+   if(blob)resolve(blob);
+   else reject(Error('สร้างภาพกราฟไม่สำเร็จ'));
+  },'image/png'));
+ }
+ async function exportChart(){
+  const blob=await chartPng();
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url;
+  link.download=live?'XAUUSD-live.png':'XAUUSD-replay.png';
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+ }
+ async function copyChart(){
+  if(!navigator.clipboard?.write||typeof ClipboardItem==='undefined'
+    ||(ClipboardItem.supports&&!ClipboardItem.supports('image/png'))){
+   throw Error('เบราว์เซอร์นี้คัดลอกรูปไม่ได้ ใช้ดาวน์โหลด PNG ได้');
+  }
+  // Start writing inside the click so Safari retains the user gesture during PNG creation.
+  const png=chartPng();
+  void png.catch(()=>{});
+  try {
+   await navigator.clipboard.write([new ClipboardItem({'image/png':png})]);
+  } catch(error) {
+   if(error instanceof DOMException&&error.name==='NotAllowedError'){
+    throw Error('เบราว์เซอร์ไม่อนุญาตให้คัดลอกรูป ใช้ดาวน์โหลด PNG ได้');
+   }
+   throw Error('คัดลอกรูปไม่สำเร็จ ใช้ดาวน์โหลด PNG ได้');
+  }
+ }
+ async function replaySnapshot(action:'copy'|'download'){
+  setSnapshotMessage('กำลังสร้างภาพกราฟ…');
+  try {
+   await (action==='copy'?copyChart():exportChart());
+   setSnapshotMessage(action==='copy'?'คัดลอกรูปกราฟแล้ว':'เริ่มดาวน์โหลด PNG แล้ว');
+  } catch(error) {
+   setSnapshotMessage(error instanceof Error?error.message:'สร้างภาพกราฟไม่สำเร็จ');
+  }
+ }
  useEffect(()=>{const next=levels.filter(l=>l.tradeId).at(-1)?.tradeId;if(next)setFocus(next);},[trades.filter(t=>t.remaining>0).length]);
  const tableGroups=new Map<string,PineTable[]>();for(const t of (showPineTables?pineTables:[]).filter(t=>t.cells?.some(row=>row.some(cell=>cell?.text?.trim())))){const pos=String(t.position||'top_right').replaceAll('_','-');tableGroups.set(pos,[...(tableGroups.get(pos)||[]),t]);}
  const tables=[...tableGroups].map(([position,group])=><div key={position} className={'pine-table-group pine-table-'+position}>{group.map(t=><details open key={t.indicatorId+'-'+t.id} className="pine-table" style={{background:cssColor(t.bgcolor,'#10151de6'),borderColor:cssColor(t.frame_color||t.border_color,'#334155')}}><summary className="pine-table-name">{t.indicatorName}</summary><table><tbody>{(t.cells||[]).map((row:any[],ri:number)=><tr key={ri}>{row.map((cell:any,ci:number)=><td key={ci} style={{background:cssColor(cell?.bgcolor,'transparent'),color:cssColor(cell?.text_color,'#dbe4ef'),textAlign:(cell?.text_halign||'left').replace('text.align_','') as any}} title={cell?.tooltip||''}>{cell?.text||''}</td>)}</tr>)}</tbody></table></details>)}</div>);
@@ -304,6 +366,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
     priceRange:axis.options().autoScale?null:axis.getVisibleRange(),paneSizes};
   },
   exportPng:exportChart,
+  copyPng:copyChart,
  }));
 
  const brandMarkBottom=(ref.current?.chart.timeScale().height()||26)+brandMarkInset;
@@ -352,7 +415,9 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
    <button onClick={goLatest}>แท่งล่าสุด</button>
    <button onClick={goLatest}>Reset</button>
    <button onClick={()=>setExpanded(v=>!v)}>{expanded?'ย่อกราฟ':'ขยายกราฟ'}</button>
-   <button onClick={()=>void exportChart()}>PNG</button>
+   <button onClick={()=>void replaySnapshot('download')}>PNG</button>
+   <button onClick={()=>void replaySnapshot('copy')}>คัดลอกรูป</button>
+   <span className="replay-snapshot-message" role="status">{snapshotMessage}</span>
    <button aria-pressed={showPineText} onClick={toggleText}>ข้อความอินดี้</button>
    <button aria-pressed={showPineTables} onClick={toggleTables}>Dashboard</button>
   </div>

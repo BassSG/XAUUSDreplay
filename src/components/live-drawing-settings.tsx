@@ -1,5 +1,5 @@
-import {useState} from 'react';
-import {drawingTools, fibDefaults, isLabelBox} from '../lib/drawing-definitions';
+import {useEffect, useRef, useState} from 'react';
+import {drawingTools, fibDefaults, isLabelBox, maxFibLevels} from '../lib/drawing-definitions';
 import {drawingFibLevels, placementError} from '../lib/drawing-geometry';
 import type {Drawing, DrawingStyle, FibLevel} from '../lib/engine';
 import {periodList} from '../lib/live-layouts';
@@ -16,16 +16,30 @@ function bangkokLocal(time: number) {
   return new Date((time + 7 * 3600) * 1000).toISOString().slice(0, 19);
 }
 function percent(value: number) { return Math.round(value * 100); }
+function levelInput(value: number, asPercent: boolean) {
+  return asPercent ? String(Number((value * 100).toPrecision(15))) : String(value);
+}
+function parseLevel(value: string, asPercent: boolean) {
+  const number = (asPercent ? value.trim().replace(/%$/, '') : value).trim();
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(number)) return NaN;
+  return Number(number) / (asPercent ? 100 : 1);
+}
 
 export default function LiveDrawingSettings({drawing, onSave, onClose}: {
   drawing: Drawing; onSave: (drawing: Drawing) => void; onClose: () => void;
 }) {
   const isFib = Boolean(fibDefaults[drawing.kind]);
+  const asPercent = drawing.kind !== 'fibTime';
   const isBox = isLabelBox(drawing.kind);
   const [tab, setTab] = useState<Tab>('text');
   const [draft, setDraft] = useState(drawing);
   const [anchors, setAnchors] = useState(() => drawing.points.map(p => ({time:bangkokLocal(p.time), price:String(p.price)})));
-  const [levels, setLevels] = useState(() => drawingFibLevels(drawing).map(level => ({...level, value:String(level.value)})));
+  const [levels, setLevels] = useState(() => drawingFibLevels(drawing).map((level, id) => ({
+    ...level, id, original: level.value, value:levelInput(level.value, asPercent),
+  })));
+  const nextLevelId = useRef(levels.length);
+  const [focusLevel, setFocusLevel] = useState<number | null>(null);
+  const activeLevelInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
   const style = draft.style ?? {};
   const fib = draft.fib;
@@ -34,6 +48,28 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
   const hasFill = isBox || ['ellipse','triangle','circle','channel','regression','ruler','long','short','flag'].includes(drawing.kind);
   const hasOutline = drawing.kind !== 'text' && drawing.kind !== 'note';
   const textDefaultColor = drawingTools[drawing.kind].text ? drawingInputColor(draft.color) : '#e7edf5';
+  useEffect(() => {
+    if (focusLevel === null || tab !== 'fib') return;
+    activeLevelInput.current?.focus();
+    activeLevelInput.current?.scrollIntoView({block:'nearest', inline:'nearest'});
+    setFocusLevel(null);
+  }, [focusLevel, tab]);
+
+  function addLevel() {
+    if (levels.length >= maxFibLevels) return;
+    const id = nextLevelId.current++;
+    setLevels(current => [...current, {id, value:'', original:NaN, enabled:true}]);
+    setFocusLevel(id);
+    setError('');
+  }
+
+  function resetLevels() {
+    const standard = fibDefaults[drawing.kind] ?? [];
+    setLevels(standard.map(value => ({
+      id: nextLevelId.current++, original:value, value:levelInput(value, asPercent), enabled:true,
+    })));
+    setError('');
+  }
   function property<K extends keyof Drawing>(key: K, value: Drawing[K]) {
     setDraft(current => ({...current, [key]:value}));
   }
@@ -54,9 +90,15 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
         ? 'ตรวจวัน เวลา และราคาของแต่ละจุด' : placementError(drawing.kind, points);
       if (issue) { setTab('coordinates'); setError(issue); return; }
     }
-    const parsedLevels: FibLevel[] = levels.map(level => ({...level, value:level.value.trim() ? Number(level.value) : NaN}));
-    if (isFib && parsedLevels.some(level => !Number.isFinite(level.value) || Math.abs(level.value) > 1000000)) {
-      setTab('fib'); setError('ใส่ตัวเลขระดับ Fibonacci ระหว่าง −1,000,000 ถึง 1,000,000 ให้ครบ'); return;
+    const parsedLevels: FibLevel[] = levels.map(({id, original, value, ...level}) => ({
+      ...level, value:value === levelInput(original, asPercent) ? original : parseLevel(value, asPercent),
+    }));
+    const invalidLevel = parsedLevels.findIndex(level => !Number.isFinite(level.value) || Math.abs(level.value) > 1000000);
+    if (isFib && invalidLevel !== -1) {
+      setTab('fib');
+      setFocusLevel(levels[invalidLevel].id);
+      setError('ตรวจตัวเลขของระดับที่ ' + (invalidLevel + 1) + (asPercent ? ' เช่น 161.8%' : ' เช่น 21'));
+      return;
     }
     const next = {...draft, points};
     if (isFib && (fib || JSON.stringify(parsedLevels) !== JSON.stringify(drawingFibLevels(drawing)))) {
@@ -135,12 +177,23 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
           <label>พื้นระหว่างระดับ <input type="range" min={0} max={100} value={percent(fib?.backgroundOpacity ?? 0)}
             onChange={e=>fibOption('backgroundOpacity',Number(e.target.value)/100)}/><output>{percent(fib?.backgroundOpacity ?? 0)}%</output></label>
         </div>}
+        <div className="drawing-fib-actions">
+          <button type="button" disabled={levels.length >= maxFibLevels} onClick={addLevel}>+ เพิ่มระดับ</button>
+          {drawing.kind === 'fib' && <button type="button" onClick={resetLevels}>ใช้ชุดมาตรฐาน EBW</button>}
+          <small>{levels.length}/{maxFibLevels}</small>
+        </div>
+        <p className="chart-hint">{asPercent ? 'ใส่ค่าเป็นเปอร์เซ็นต์ เช่น 161.8 แล้วกดบันทึก' : 'ใส่ตัวเลขจำนวนช่วง เช่น 21 แล้วกดบันทึก'}</p>
         <div className="drawing-fib-list">
           {levels.map((level,i) => {
             const update = (change: Partial<typeof level>) => setLevels(rows => rows.map((row,j) => i===j ? {...row,...change} : row));
-            return <div key={i} className="drawing-fib-row">
+            return <div key={level.id} className="drawing-fib-row">
               <input aria-label={'แสดงระดับ ' + (i+1)} type="checkbox" checked={level.enabled} onChange={e=>update({enabled:e.target.checked})}/>
-              <input aria-label={'ตัวเลขระดับ ' + (i+1)} type="number" step="any" value={level.value} onChange={e=>update({value:e.target.value})}/>
+              <label className="drawing-level-value">
+                <input aria-label={'ตัวเลขระดับ ' + (i+1) + (asPercent ? ' (%)' : '')} type="text" inputMode="decimal"
+                  ref={focusLevel === level.id ? activeLevelInput : undefined} value={level.value}
+                  placeholder={asPercent ? '161.8' : '21'} onChange={e=>update({value:e.target.value})}/>
+                {asPercent && <span>%</span>}
+              </label>
               <input aria-label={'สีระดับ ' + (i+1)} type="color" value={drawingInputColor(level.color,drawingInputColor(draft.color))}
                 onChange={e=>update({color:e.target.value})}/>
               <label className="drawing-level-opacity" title="ความทึบของเส้นระดับ">
@@ -154,7 +207,6 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
             </div>;
           })}
         </div>
-        <button type="button" disabled={levels.length>=24} onClick={()=>setLevels(rows=>[...rows,{value:'1',enabled:true}])}>เพิ่มระดับ</button>
       </>}
       {tab === 'coordinates' && <div className="drawing-anchor-list">
         {anchors.map((anchor,i) => {

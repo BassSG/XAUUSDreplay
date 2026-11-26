@@ -48,7 +48,13 @@ test('Fibonacci levels and anchored tick VWAP use price and volume before screen
  const index=time=>(time-10)/10;
  const view={width:200,height:200,bars,visibleFrom:0,visibleTo:2,index,atIndex,at:p=>atIndex(index(p.time),p.price)};
  const fib=drawingGeometry({id:'f',kind:'fib',points:[{time:10,price:100},{time:30,price:150}]},view);
- assert.ok(fib.some(mark=>mark.kind==='label'&&mark.value==='50% · 125.00'));
+ assert.deepEqual(fib.filter(mark=>mark.kind==='label').map(mark=>mark.value),[
+  '0% · 100.00','100% · 150.00','161.8% · 180.90','200% · 200.00',
+  '261.8% · 230.90','350% · 275.00','423.6% · 311.80','547.2% · 373.60',
+ ]);
+ const custom=drawingGeometry({id:'f',kind:'fib',points:[{time:10,price:100},{time:30,price:150}],
+  fib:{levels:[{value:1.75,enabled:true,text:'Target'},{value:.5,enabled:false}]}},view);
+ assert.deepEqual(custom.filter(mark=>mark.kind==='label').map(mark=>mark.value),['175% · 187.50 · Target']);
  const vwap=drawingGeometry({id:'v',kind:'vwap',points:[{time:10,price:108}]},view);
  assert.deepEqual(vwap.find(mark=>mark.kind==='path').points,[{x:10,y:200},{x:35,y:170},{x:60,y:170}]);
  assert.deepEqual(Object.values(drawingGroups).flatMap(g=>g.tools).sort(),[...drawingKinds].sort());

@@ -2,7 +2,7 @@ import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type Re
 import {
   ArrowLeft, ChartSpline, ChevronDown, Download, Ellipsis, History, LockKeyhole, LockKeyholeOpen,
   Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, SkipBack, SkipForward, Trash2, X,
-  CalendarDays, Code2, PanelsTopLeft, Settings2,
+  CalendarDays, Code2, Copy, PanelsTopLeft, Settings2,
 } from 'lucide-react';
 import ChartBoundary from './chart-boundary';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
@@ -87,6 +87,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [saveState, setSaveState] = useState<'ready' | 'saving' | 'saved' | 'error'>('ready');
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState('');
+  const [snapshot, setSnapshot] = useState<{busy: boolean; message: string; error?: boolean}>({busy:false,message:''});
   const [initialView, setInitialView] = useState(initial.view);
   const [layoutVersion, setLayoutVersion] = useState(0);
   const [draft, setDraft] = useState<ScriptDraft>(newScriptDraft);
@@ -336,6 +337,17 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
 
   function closePanel() { setPanel(null); setEditingDrawing(null); setEditorMessage(''); }
+  async function captureImage(action: 'copy' | 'download') {
+    const current = chart.current;
+    if (!current || snapshot.busy) return;
+    setSnapshot({busy:true, message:'กำลังสร้างภาพกราฟ…'});
+    try {
+      await (action === 'copy' ? current.copyPng() : current.exportPng());
+      setSnapshot({busy:false, message:action === 'copy' ? 'คัดลอกรูปกราฟแล้ว นำไปวางในแชตได้' : 'เริ่มดาวน์โหลด PNG แล้ว'});
+    } catch (error) {
+      setSnapshot({busy:false, error:true, message:error instanceof Error ? error.message : 'สร้างภาพกราฟไม่สำเร็จ'});
+    }
+  }
   function editDrawing(id: string) {
     setMode(null);
     setSelected(id);
@@ -422,7 +434,13 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           disabled={!bars.length && !viewport} onClick={goLatest}><SkipForward size={17}/></button>
         <button type="button" aria-label={focusMode ? 'ออกจากโหมดโฟกัส' : 'มุมมองกราฟ'}
           title={focusMode ? 'ออกจากโหมดโฟกัส' : 'มุมมองกราฟ'} aria-haspopup={focusMode ? undefined : 'dialog'}
-          onClick={() => focusMode ? setFocusMode(false) : setPanel('view')}>
+          onClick={() => {
+            if (focusMode) setFocusMode(false);
+            else {
+              setSnapshot(previous => previous.busy ? previous : {busy:false,message:''});
+              setPanel('view');
+            }
+          }}>
           {focusMode ? <Minimize2 size={19}/> : <Ellipsis size={21}/>}
         </button>
       </div>
@@ -524,10 +542,14 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         <button type="button" onClick={() => { setFocusMode(true); closePanel(); }}>
           <Maximize2 size={18}/><span>โหมดโฟกัสกราฟ</span>
         </button>
-        <button type="button" disabled={!bars.length} onClick={() => { void chart.current?.exportPng(); closePanel(); }}>
-          <Download size={18}/><span>บันทึกภาพ PNG</span>
+        <button type="button" disabled={!bars.length || snapshot.busy} onClick={() => { void captureImage('copy'); }}>
+          <Copy size={18}/><span>คัดลอกรูปกราฟ</span>
+        </button>
+        <button type="button" disabled={!bars.length || snapshot.busy} onClick={() => { void captureImage('download'); }}>
+          <Download size={18}/><span>ดาวน์โหลด PNG</span>
         </button>
       </div>
+      {snapshot.message && <p role="status" className={(snapshot.error ? 'chart-error' : 'chart-feedback') + ' live-snapshot-status'}>{snapshot.message}</p>}
     </LivePanel>}
 
     {panel === 'history' && <LivePanel title="แท่งย้อนหลัง" onClose={closePanel}>

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {decodeChunk} from './bundled-chunk.ts';
-import {drawingKinds, strokeMax} from './drawing-definitions.ts';
+import {drawingKinds, maxFibLevels, strokeMax} from './drawing-definitions.ts';
 import type { Bar, Session } from './engine';
 import type { Dataset } from './types';
 import type {LiveLayoutFile} from './live-layouts.ts';
@@ -55,7 +55,7 @@ const drawingStyle = z.object({
 }).partial();
 const drawingFib = z.object({
  levels:z.array(z.object({value:z.number().finite().min(-1000000).max(1000000),enabled:z.boolean(),
-  color:drawingColor.optional(),opacity:z.number().min(0).max(1).optional(),text:z.string().max(120).optional()})).max(24),
+  color:drawingColor.optional(),opacity:z.number().min(0).max(1).optional(),text:z.string().max(120).optional()})).max(maxFibLevels),
  reverse:z.boolean().optional(),showPrice:z.boolean().optional(),format:z.enum(['ratio','percent','none']).optional(),
  showTrend:z.boolean().optional(),
  labelPosition:z.enum(['left','center','right']).optional(),backgroundOpacity:z.number().min(0).max(1).optional(),
