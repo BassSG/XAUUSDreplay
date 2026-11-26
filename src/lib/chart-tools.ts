@@ -1,8 +1,8 @@
 import type {Bar,Drawing,DrawingPoint} from './engine.ts';
+import {drawingKinds,drawingTools,type DrawingKind} from './drawing-definitions.ts';
 
 export type XY={x:number;y:number};
-export const drawingNames={hline:'เส้นแนวนอน',vline:'เส้นแนวตั้ง',trend:'เส้นแนวโน้ม',ray:'เส้นรังสี',rect:'โซนราคา',fib:'Fibonacci',ruler:'วัดระยะ',position:'ช่วงราคา',text:'ข้อความ'};
-export const onePoint=(kind:Drawing['kind'])=>['hline','vline','text'].includes(kind);
+export const drawingNames=Object.fromEntries(drawingKinds.map(kind=>[kind,drawingTools[kind].name])) as Record<DrawingKind,string>;
 
 // Fractional logical coordinates preserve anchors between candles and in empty
 // space. Only revealed timestamps are used; no future market data is consulted.

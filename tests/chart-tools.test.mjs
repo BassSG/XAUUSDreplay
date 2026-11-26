@@ -1,8 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {logicalAtTime,timeAtLogical,moveDrawing,rayEnd,replayBatch,replayRange} from '../src/lib/chart-tools.ts';
+import {drawingGeometry, positionMetrics, placementError} from '../src/lib/drawing-geometry.ts';
+import {drawingGroups,drawingKinds} from '../src/lib/drawing-definitions.ts';
 
 const timeline=[{time:1700000000},{time:1700000300},{time:1700000600},{time:1700259900},{time:1700260200}];
+
+test('Long and Short measure the confirmed prices and reject a stop or target on the wrong side', () => {
+ const points=[{time:10,price:2000},{time:30,price:2030},{time:30,price:1990}];
+ assert.deepEqual(positionMetrics('long',points),{reward:30,risk:10,ratio:3});
+ assert.deepEqual(positionMetrics('short',[points[0],points[2],points[1]]),{reward:10,risk:30,ratio:1/3});
+ assert.equal(placementError('long',points),null);
+ assert.match(placementError('long',[points[0],points[2]]),/Take Profit/);
+ assert.match(placementError('long',[points[0],points[1],{time:40,price:2001}]),/Stop Loss/);
+});
+
+test('Fibonacci levels and anchored tick VWAP use price and volume before screen projection', () => {
+ const bars=[{time:10,open:100,high:100,low:100,close:100,volume:1},
+  {time:20,open:120,high:120,low:120,close:120,volume:3},
+  {time:30,open:200,high:200,low:200,close:200,volume:0}];
+ const atIndex=(index,price)=>({x:index*25+10,y:(200-price)*2});
+ const index=time=>(time-10)/10;
+ const view={width:200,height:200,bars,visibleFrom:0,visibleTo:2,index,atIndex,at:p=>atIndex(index(p.time),p.price)};
+ const fib=drawingGeometry({id:'f',kind:'fib',points:[{time:10,price:100},{time:30,price:150}]},view);
+ assert.ok(fib.some(mark=>mark.kind==='label'&&mark.value==='50% · 125.00'));
+ const vwap=drawingGeometry({id:'v',kind:'vwap',points:[{time:10,price:108}]},view);
+ assert.deepEqual(vwap.find(mark=>mark.kind==='path').points,[{x:10,y:200},{x:35,y:170},{x:60,y:170}]);
+ assert.deepEqual(Object.values(drawingGroups).flatMap(g=>g.tools).sort(),[...drawingKinds].sort());
+});
 test('anchors round-trip between candles, across weekend gaps and in empty future space',()=>{
  for(const logical of [-3,0,.5,1.3,2.25,3.5,4,9]){
   const time=timeAtLogical(logical,timeline,300);

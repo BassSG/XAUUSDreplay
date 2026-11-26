@@ -1,93 +1,520 @@
-import {useEffect,useRef,useState} from 'react';
+import {useEffect, useId, useRef, useState} from 'react';
 import type {PointerEvent as ReactPointerEvent} from 'react';
-import type {Bar,Drawing,DrawingKind,DrawingPoint} from '../lib/engine';
-import {drawingNames,logicalAtTime,timeAtLogical,rayEnd,moveDrawing,onePoint,type XY} from '../lib/chart-tools';
+import {createPortal} from 'react-dom';
+import type {IChartApi, ISeriesApi, MouseEventParams} from 'lightweight-charts';
+import type {Bar, Drawing, DrawingKind, DrawingPoint} from '../lib/engine';
+import {logicalAtTime, moveDrawing, timeAtLogical, type XY} from '../lib/chart-tools';
+import {drawingTools, isStroke, strokeMax, variableDrawingsMax} from '../lib/drawing-definitions';
+import {drawingGeometry, placementError, positionMetrics, type DrawingMark, type DrawingView} from '../lib/drawing-geometry';
 
-type Api={chart:any;series:any};
-type Props={api:Api|null;host:HTMLDivElement|null;timeline:Bar[];offset:number;seconds:number;drawings:Drawing[];mode:DrawingKind|null;hidden:boolean;magnet:boolean;selected:string|null;pricePicking:boolean;onSelect:(id:string|null)=>void;onCreate:(d:Drawing)=>void;onChange:(d:Drawing)=>void;onCancel:()=>void;onDelete:()=>void;onUndo:()=>void;onRedo:()=>void;onDragStart:()=>void;onDragEnd:()=>void;};
-export default function ChartDrawings(props:Props){
- const [draft,setDraft]=useState<DrawingPoint|null>(null),[hover,setHover]=useState<DrawingPoint|null>(null),[moving,setMoving]=useState<Drawing|null>(null);
- const active=useRef<{original:Drawing;start:DrawingPoint;handle:number|null;target:Element;pointerId:number;changed:boolean}|null>(null);
- const state=useRef(props);state.current=props;const draftRef=useRef(draft);draftRef.current=draft;const moveRef=useRef(moving);moveRef.current=moving;
- function pointAt(x:number,y:number):DrawingPoint|null{
-  const p=state.current;if(!p.api||!p.timeline.length)return null;
-  if(x<0||x>p.api.chart.timeScale().width()||y<0||y>p.api.chart.panes()[0].getHeight())return null;
-  const logical=p.api.chart.timeScale().coordinateToLogical(x);let price=p.api.series.coordinateToPrice(y);
-  if(logical===null||price===null||!Number.isFinite(price)||price<=0)return null;
-  if(p.magnet){const index=Math.round(logical+p.offset),bar=p.timeline[index];if(bar){const snap=[bar.open,bar.high,bar.low,bar.close].sort((a,b)=>Math.abs(a-price)-Math.abs(b-price))[0];if(Math.abs((p.api.series.priceToCoordinate(snap)??Infinity)-y)<=14){price=snap;return {time:bar.time,price:Math.round(price*100)/100};}}}
-  const time=timeAtLogical(logical+p.offset,p.timeline,p.seconds);return time>0?{time,price:Math.round(price*100)/100}:null;
- }
- function eventPoint(e:ReactPointerEvent){const rect=state.current.host?.getBoundingClientRect();return rect?pointAt(e.clientX-rect.left,e.clientY-rect.top):null;}
- function cancelDrag(){const drag=active.current;active.current=null;if(drag){if(drag.target.hasPointerCapture(drag.pointerId))drag.target.releasePointerCapture(drag.pointerId);state.current.onDragEnd();}setMoving(null);}
- useEffect(()=>{draftRef.current=null;setDraft(null);setHover(null);cancelDrag();},[props.mode,props.hidden,props.seconds]);
- useEffect(()=>{if(props.selected&&!props.drawings.some(d=>d.id===props.selected))props.onSelect(null);},[props.drawings,props.selected]);
- useEffect(()=>{
-  const api=props.api;if(!api)return;
-  const click=(e:any)=>{
-   const p=state.current;if(!e.point||(e.paneIndex??0)!==0)return;
-   if(!p.mode){p.onSelect(null);return;}
-   const point=pointAt(e.point.x,e.point.y);if(!point)return;
-   if(onePoint(p.mode)){p.onCreate({id:crypto.randomUUID(),kind:p.mode,points:[point],...(p.mode==='text'?{text:'Note'}:{})});setDraft(null);setHover(null);return;}
-   if(!draftRef.current){draftRef.current=point;setDraft(point);setHover(point);return;}
-   const first=draftRef.current;if(Math.abs(first.time-point.time)<1&&Math.abs(first.price-point.price)<.01)return;
-   p.onCreate({id:crypto.randomUUID(),kind:p.mode,points:[first,point]});draftRef.current=null;setDraft(null);setHover(null);
+type Api = {chart: IChartApi; series: ISeriesApi<'Candlestick'>};
+type Props = {
+  api: Api | null; host: HTMLDivElement | null; controlsHost?: HTMLDivElement | null;
+  confirmPlacement?: boolean; timeline: Bar[]; offset: number; seconds: number;
+  drawings: Drawing[]; mode: DrawingKind | null; hidden: boolean; magnet: boolean;
+  selected: string | null; pricePicking: boolean;
+  onSelect: (id: string | null) => void; onCreate: (d: Drawing) => void; onChange: (d: Drawing) => void;
+  onCancel: () => void; onDelete: () => void; onUndo: () => void; onRedo: () => void;
+  onDragStart: () => void; onDragEnd: () => void;
+};
+type Draft = {anchors: DrawingPoint[]; candidate: DrawingPoint | null; hover: DrawingPoint | null; price: string};
+type DrawingDrag = {original: Drawing; start: DrawingPoint; handle: number | null; target: Element; pointerId: number};
+type Stroke = {pointerId: number; x: number; y: number};
+const emptyDraft: Draft = {anchors: [], candidate: null, hover: null, price: ''};
+const gold = '#d7b46a';
+const dateTime = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+});
+
+function projectedMark(mark: DrawingMark, color: string, selected: boolean, hit: boolean) {
+  const stroke = mark.color ?? color;
+  const strokeWidth = mark.width ?? (selected ? 2 : 1.5);
+  const style = hit ? {
+    stroke: 'transparent', strokeWidth: Math.max(17, strokeWidth), fill: mark.fill ? 'transparent' : 'none',
+    pointerEvents: mark.fill ? 'all' : 'stroke',
+  } : {
+    stroke, strokeWidth, fill: mark.fill ? stroke : 'none', fillOpacity: mark.fill, opacity: mark.opacity,
+    strokeDasharray: mark.dash, vectorEffect: 'non-scaling-stroke', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
   };
-  const crosshair=(e:any)=>{if(state.current.mode&&e.point&&(e.paneIndex??0)===0)setHover(pointAt(e.point.x,e.point.y));else setHover(null);};
-  api.chart.subscribeClick(click);api.chart.subscribeCrosshairMove(crosshair);
-  return()=>{api.chart.unsubscribeClick(click);api.chart.unsubscribeCrosshairMove(crosshair);};
- },[props.api]);
- useEffect(()=>{props.api?.chart.applyOptions({handleScroll:{pressedMouseMove:!props.mode,horzTouchDrag:!props.mode,vertTouchDrag:!props.mode,mouseWheel:true}});},[props.api,props.mode]);
- useEffect(()=>{
-  const key=(e:KeyboardEvent)=>{
-   if(e.altKey||(e.target as HTMLElement)?.isContentEditable||['INPUT','TEXTAREA','SELECT'].includes((e.target as HTMLElement)?.tagName)||document.querySelector('[aria-modal="true"]'))return;
-   const p=state.current;
-   if(e.key==='Escape'){if(active.current){cancelDrag();return;}setDraft(null);draftRef.current=null;setHover(null);p.onCancel();}
-   if((e.key==='Delete'||e.key==='Backspace')&&p.selected){e.preventDefault();p.onDelete();}
-   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();setDraft(null);draftRef.current=null;p.onCancel();if(e.shiftKey)p.onRedo();else p.onUndo();}
-   if(e.ctrlKey&&e.key.toLowerCase()==='y'){e.preventDefault();setDraft(null);draftRef.current=null;p.onCancel();p.onRedo();}
-  };
-  window.addEventListener('keydown',key);return()=>{window.removeEventListener('keydown',key);cancelDrag();};
- },[]);
- function begin(e:ReactPointerEvent<SVGGElement>,d:Drawing,handle:number|null){
-  if(e.button!==0||state.current.mode||state.current.pricePicking)return;
-  e.preventDefault();e.stopPropagation();state.current.onSelect(d.id);if(d.locked)return;
-  const point=eventPoint(e);if(!point)return;
-  e.currentTarget.setPointerCapture(e.pointerId);state.current.onDragStart();active.current={original:d,start:point,handle,target:e.currentTarget,pointerId:e.pointerId,changed:false};setMoving(d);
- }
- function drag(e:ReactPointerEvent<SVGGElement>){const a=active.current;if(!a||a.pointerId!==e.pointerId)return;const end=eventPoint(e);if(!end)return;const p=state.current,next=moveDrawing(a.original,a.start,end,a.handle,p.timeline,p.seconds);a.changed=JSON.stringify(next.points)!==JSON.stringify(a.original.points);moveRef.current=next;setMoving(next);}
- function end(e:ReactPointerEvent<SVGGElement>){const a=active.current;if(!a||a.pointerId!==e.pointerId)return;const result=moveRef.current;active.current=null;if(a.target.hasPointerCapture(e.pointerId))a.target.releasePointerCapture(e.pointerId);state.current.onDragEnd();setMoving(null);if(a.changed&&result)state.current.onChange(result);}
- const api=props.api;if(!api)return null;
- const width=api.chart.timeScale().width(),height=api.chart.panes()[0].getHeight();
- const xy=(p:DrawingPoint):XY=>({x:api.chart.timeScale().logicalToCoordinate(logicalAtTime(p.time,props.timeline,props.seconds)-props.offset)??NaN,y:api.series.priceToCoordinate(p.price)??NaN});
- const preview=props.mode&&hover?{id:'preview',kind:props.mode,points:onePoint(props.mode)?[hover]:draft?[draft,hover]:[hover],text:props.mode==='text'?'Note':undefined} as Drawing:null;
- const list=props.hidden?[]:props.drawings.map(d=>moving?.id===d.id?moving:d);
- if(preview)list.push(preview);
- return <>
-  <svg className="user-drawing-overlay" width={width} height={height} aria-label="เส้นและวัตถุที่วาดบนกราฟ">
-   <defs><clipPath id="userPriceClip"><rect width={width} height={height}/></clipPath></defs>
-   <g clipPath="url(#userPriceClip)">{list.map(d=>{
-    const a=xy(d.points[0]),b=d.points[1]?xy(d.points[1]):null;if(!Number.isFinite(a.y)||!Number.isFinite(a.x))return null;
-    const isPreview=d.id==='preview',selected=!isPreview&&props.selected===d.id,color=d.color||'#d7b46a',interactive=!isPreview&&!props.mode&&!props.pricePicking;
-    const strokes:any[]=[];const hits:any[]=[];
-    const line=(a:XY,b:XY,key:string,dash?:string)=>{strokes.push(<line key={key} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={selected?2:1.5} strokeDasharray={dash} vectorEffect="non-scaling-stroke"/>);hits.push(<line key={key} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth="18" pointerEvents="stroke"/>);};
-    if(d.kind==='hline')line({x:0,y:a.y},{x:width,y:a.y},'h');
-    else if(d.kind==='vline')line({x:a.x,y:0},{x:a.x,y:height},'v');
-    else if(d.kind==='text'){strokes.push(<text key="text" x={a.x+5} y={a.y-8} fill={color} fontSize="12">{d.text||'Note'}</text>);hits.push(<rect key="text" x={a.x-3} y={a.y-24} width={Math.max(44,(d.text||'Note').length*7+12)} height="30" fill="transparent" pointerEvents="all"/>);}
-    else if(b&&Number.isFinite(b.x)&&Number.isFinite(b.y)){
-     if(d.kind==='trend')line(a,b,'trend');
-     else if(d.kind==='ray')line(a,rayEnd(a,b,width,height),'ray');
-     else if(d.kind==='fib'){for(const level of [0,.236,.382,.5,.618,.786,1]){const y=a.y+(b.y-a.y)*level;line({x:Math.min(a.x,b.x),y},{x:Math.max(a.x,b.x),y},String(level),'5 4');strokes.push(<text key={'t'+level} x={Math.min(width-50,Math.max(a.x,b.x)+5)} y={y-3} fill={color} fontSize="11">{Math.round(level*1000)/10}%</text>);}}
-     else {const box={x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.max(1,Math.abs(a.x-b.x)),height:Math.max(1,Math.abs(a.y-b.y))};strokes.push(<rect key="box" {...box} fill={d.kind==='rect'?color+'18':d.points[1].price>=d.points[0].price?'#35c4a022':'#ef6b7922'} stroke={color} strokeWidth={selected?2:1.5}/>);hits.push(<rect key="box" {...box} fill="transparent" stroke="transparent" strokeWidth="16" pointerEvents="all"/>);
-      if(d.kind!=='rect'){const delta=d.points[1].price-d.points[0].price,count=Math.abs(logicalAtTime(d.points[1].time,props.timeline,props.seconds)-logicalAtTime(d.points[0].time,props.timeline,props.seconds));strokes.push(<text key="value" x={box.x+6} y={box.y+16} fill={color} fontSize="11">{delta.toFixed(2)} USD · {(delta/d.points[0].price*100).toFixed(2)}% · {Math.round(count)} แท่ง</text>);}
-     }
+  if (mark.kind === 'label') {
+    const {x, y} = mark.at;
+    const width = Math.max(26, mark.value.length * 6.2 + 10);
+    if (hit) return <rect x={x - 4} y={y - 13} width={width} height={20} fill="transparent" pointerEvents="all"/>;
+    return <>
+      {mark.background && <rect x={x - 4} y={y - 12} width={width} height={16} rx={3} fill="#10151d" fillOpacity={.92}/>}
+      <text x={x} y={y} fontFamily="Segoe UI, sans-serif" fontSize={11} fill={stroke}>{mark.value}</text>
+    </>;
+  }
+  if (mark.kind === 'curve') return <path d={mark.d} {...style}/>;
+  if (mark.kind === 'ellipse') return <ellipse cx={mark.center.x} cy={mark.center.y} rx={mark.rx} ry={mark.ry} {...style}/>;
+  const points = mark.points.map(({x, y}) => x + ',' + y).join(' ');
+  if (mark.closed) return <polygon points={points} {...style}/>;
+  return <polyline points={points} {...style}/>;
+}
+
+function roundPrice(price: number) {
+  return Math.round(price * 100) / 100;
+}
+
+function completeDrawing(kind: DrawingKind, points: DrawingPoint[], confirmPlacement: boolean) {
+  return {id: crypto.randomUUID(), kind, points,
+    ...(drawingTools[kind].text ? {text: confirmPlacement ? 'ข้อความ' : 'Note'} : {})};
+}
+
+export default function ChartDrawings(props: Props) {
+  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [moving, setMoving] = useState<Drawing | null>(null);
+  const state = useRef(props);
+  const draftRef = useRef(draft);
+  const movingRef = useRef(moving);
+  const active = useRef<DrawingDrag | null>(null);
+  const candidateDrag = useRef<number | null>(null);
+  const stroke = useRef<Stroke | null>(null);
+  const clipId = useId();
+  state.current = props;
+
+  function updateDraft(next: Draft) {
+    draftRef.current = next;
+    setDraft(next);
+  }
+
+  function resetDraft() {
+    candidateDrag.current = null;
+    stroke.current = null;
+    updateDraft(emptyDraft);
+  }
+
+  function chooseCandidate(point: DrawingPoint) {
+    updateDraft({...draftRef.current, candidate: point, hover: null, price: point.price.toFixed(2)});
+  }
+
+  function indexAt(time: number) {
+    const {timeline, seconds} = state.current;
+    return logicalAtTime(time, timeline, seconds);
+  }
+
+  function pointAt(x: number, y: number): DrawingPoint | null {
+    const {api, timeline, offset, seconds, magnet, mode} = state.current;
+    if (!api || !timeline.length) return null;
+    if (x < 0 || x > api.chart.timeScale().width() || y < 0 || y > api.chart.panes()[0].getHeight()) return null;
+    const logical = api.chart.timeScale().coordinateToLogical(x);
+    const price = api.series.coordinateToPrice(y);
+    if (logical === null || price === null || !Number.isFinite(price) || price < .01) return null;
+    const bar = timeline[Math.round(logical + offset)];
+    if (mode === 'vwap' && bar) return {time: bar.time, price: roundPrice(bar.close)};
+    if (magnet && bar) {
+      const snap = [bar.open, bar.high, bar.low, bar.close].sort((a, b) =>
+        Math.abs(a - price) - Math.abs(b - price))[0];
+      if (Math.abs((api.series.priceToCoordinate(snap) ?? Infinity) - y) <= 14) return {time: bar.time, price: roundPrice(snap)};
     }
-    return <g key={d.id} data-drawing-id={d.id} data-kind={d.kind} data-selected={selected||undefined} opacity={isPreview?.7:1}>
-     <g pointerEvents="none">{strokes}</g>
-     {interactive&&<g data-drawing-interaction="body" className={d.locked?'drawing-locked':'drawing-hit'} onPointerDown={e=>begin(e,d,null)} onPointerMove={drag} onPointerUp={end} onPointerCancel={cancelDrag} onLostPointerCapture={()=>{if(active.current)cancelDrag();}}>{hits}</g>}
-     {(selected||isPreview)&&d.points.map((p,i)=>{const point=xy(p);const cx=d.kind==='hline'?Math.max(10,Math.min(width-10,point.x)):point.x,cy=d.kind==='vline'?Math.max(10,Math.min(height-10,point.y)):point.y;return <g key={i} data-drawing-interaction="handle" data-handle={i} onPointerDown={e=>begin(e,d,i)} onPointerMove={drag} onPointerUp={end} onPointerCancel={cancelDrag}><circle cx={cx} cy={cy} r={selected?5:4} fill="#10151d" stroke={color} strokeWidth="2"/><circle cx={cx} cy={cy} r="13" fill="transparent" pointerEvents={selected&&!d.locked&&interactive?'all':'none'} className="drawing-anchor"/></g>;})}
+    const time = timeAtLogical(logical + offset, timeline, seconds);
+    return time > 0 ? {time, price: roundPrice(price)} : null;
+  }
+
+  function coordinates(event: Pick<PointerEvent, 'clientX' | 'clientY'>) {
+    const rect = state.current.host?.getBoundingClientRect();
+    return rect ? {x: event.clientX - rect.left, y: event.clientY - rect.top} : null;
+  }
+
+  function eventPoint(event: ReactPointerEvent) {
+    const p = coordinates(event);
+    return p ? pointAt(p.x, p.y) : null;
+  }
+
+  function setMovingDrawing(next: Drawing | null) {
+    movingRef.current = next;
+    setMoving(next);
+  }
+
+  function cancelDrag() {
+    const drag = active.current;
+    active.current = null;
+    if (drag) {
+      if (drag.target.hasPointerCapture(drag.pointerId)) drag.target.releasePointerCapture(drag.pointerId);
+      state.current.onDragEnd();
+    }
+    setMovingDrawing(null);
+  }
+
+  function save(kind: DrawingKind, points: DrawingPoint[]) {
+    const p = state.current;
+    resetDraft();
+    p.onCreate(completeDrawing(kind, points, Boolean(p.confirmPlacement)));
+  }
+
+  function accept(point: DrawingPoint) {
+    const {mode, timeline} = state.current;
+    if (!mode) return;
+    const {anchors} = draftRef.current;
+    const points = [...anchors, point];
+    if (placementError(mode, points, timeline, indexAt)) return;
+    const tool = drawingTools[mode];
+    if (points.length === (tool.variable ? variableDrawingsMax : tool.points.length)) save(mode, points);
+    else updateDraft({...emptyDraft, anchors: points});
+  }
+
+  function confirm() {
+    const current = draftRef.current;
+    const {mode} = state.current;
+    if (!mode) return;
+    if (isStroke(mode)) {
+      if (!stroke.current && current.anchors.length >= 2) save(mode, current.anchors);
+    } else if (current.candidate && roundPrice(Number(current.price)) > 0 && Number.isFinite(Number(current.price))) {
+      accept(current.candidate);
+    }
+  }
+
+  function undoPoint() {
+    const current = draftRef.current;
+    const mode = state.current.mode;
+    if (!mode) return;
+    if (isStroke(mode)) resetDraft();
+    else if (current.candidate) updateDraft({...emptyDraft, anchors: current.anchors});
+    else updateDraft({...emptyDraft, anchors: current.anchors.slice(0, -1)});
+  }
+
+  useEffect(() => {
+    resetDraft();
+    cancelDrag();
+  }, [props.mode, props.hidden, props.seconds]);
+
+  useEffect(() => {
+    if (props.selected && !props.drawings.some(d => d.id === props.selected)) props.onSelect(null);
+  }, [props.drawings, props.selected]);
+
+  useEffect(() => {
+    const api = props.api;
+    if (!api) return;
+    const click = (event: MouseEventParams) => {
+      const p = state.current;
+      if (!event.point || (event.paneIndex ?? 0) !== 0 || p.hidden) return;
+      if (!p.mode) {
+        p.onSelect(null);
+        return;
+      }
+      if (isStroke(p.mode)) return;
+      if (p.confirmPlacement) return;
+      const point = pointAt(event.point.x, event.point.y);
+      if (point) accept(point);
+    };
+    const move = (event: MouseEventParams) => {
+      const {mode, hidden} = state.current;
+      const current = draftRef.current;
+      if (!mode || hidden || current.candidate || isStroke(mode)) return;
+      const point = event.point && (event.paneIndex ?? 0) === 0 ? pointAt(event.point.x, event.point.y) : null;
+      if (current.hover?.time === point?.time && current.hover?.price === point?.price) return;
+      updateDraft({...current, hover: point});
+    };
+    api.chart.subscribeClick(click);
+    api.chart.subscribeCrosshairMove(move);
+    return () => {
+      api.chart.unsubscribeClick(click);
+      api.chart.unsubscribeCrosshairMove(move);
+    };
+  }, [props.api]);
+
+  useEffect(() => {
+    const host = props.host;
+    if (!host || !props.confirmPlacement) return;
+    let start: {id: number; x: number; y: number} | null = null;
+    const startTap = (event: PointerEvent) => {
+      const {mode, hidden} = state.current;
+      if (!mode || hidden || isStroke(mode) || !event.isPrimary || event.button !== 0) {
+        start = null;
+        return;
+      }
+      start = {id: event.pointerId, x: event.clientX, y: event.clientY};
+    };
+    const moveTap = (event: PointerEvent) => {
+      if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) start = null;
+    };
+    const endTap = (event: PointerEvent) => {
+      if (!start || start.id !== event.pointerId) return;
+      start = null;
+      const position = coordinates(event);
+      const point = position ? pointAt(position.x, position.y) : null;
+      if (point && state.current.mode) chooseCandidate(point);
+    };
+    const cancelTap = () => { start = null; };
+    host.addEventListener('pointerdown', startTap, true);
+    host.addEventListener('pointermove', moveTap, true);
+    host.addEventListener('pointerup', endTap, true);
+    host.addEventListener('pointercancel', cancelTap, true);
+    return () => {
+      host.removeEventListener('pointerdown', startTap, true);
+      host.removeEventListener('pointermove', moveTap, true);
+      host.removeEventListener('pointerup', endTap, true);
+      host.removeEventListener('pointercancel', cancelTap, true);
+    };
+  }, [props.host, props.confirmPlacement, props.mode]);
+
+  useEffect(() => {
+    if (!props.mode || !props.confirmPlacement || !matchMedia('(max-width: 720px)').matches) return;
+    const controls = state.current.controlsHost;
+    if (controls && controls.getBoundingClientRect().top > window.innerHeight * .35) {
+      controls.scrollIntoView({block: 'start', behavior: 'instant'});
+    }
+  }, [props.mode, props.confirmPlacement]);
+
+  useEffect(() => {
+    const pan = !props.mode || (props.confirmPlacement && !isStroke(props.mode));
+    props.api?.chart.applyOptions({handleScroll: {pressedMouseMove: pan, horzTouchDrag: pan, vertTouchDrag: !props.mode, mouseWheel: true}});
+  }, [props.api, props.mode, props.confirmPlacement]);
+
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.altKey || target?.isContentEditable || document.querySelector('[aria-modal="true"]')) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return;
+      const p = state.current;
+      if (event.key === 'Escape') {
+        if (active.current) cancelDrag();
+        else {
+          resetDraft();
+          p.onCancel();
+        }
+      } else if (event.key === 'Enter' && p.mode && p.confirmPlacement && !target?.closest('button, a')) {
+        event.preventDefault();
+        confirm();
+      } else if (event.key.startsWith('Arrow') && p.mode && p.confirmPlacement && draftRef.current.candidate) {
+        const candidate = draftRef.current.candidate;
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          const index = Math.round(indexAt(candidate.time)) + (event.key === 'ArrowLeft' ? -1 : 1);
+          const time = timeAtLogical(index, p.timeline, p.seconds);
+          const bar = p.timeline[index];
+          if (time > 0) chooseCandidate({time, price: p.mode === 'vwap' && bar ? roundPrice(bar.close) : candidate.price});
+        } else if (p.mode !== 'vwap') {
+          chooseCandidate({...candidate, price: Math.max(.01, roundPrice(candidate.price + (event.key === 'ArrowUp' ? .01 : -.01)))});
+        }
+        event.preventDefault();
+      } else if ((event.key === 'Delete' || event.key === 'Backspace') && p.selected) {
+        event.preventDefault();
+        p.onDelete();
+      } else if ((event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) {
+        event.preventDefault();
+        resetDraft();
+        p.onCancel();
+        if (event.shiftKey || event.key.toLowerCase() === 'y') p.onRedo();
+        else p.onUndo();
+      }
+    };
+    window.addEventListener('keydown', key);
+    return () => {
+      window.removeEventListener('keydown', key);
+      cancelDrag();
+    };
+  }, []);
+
+  function beginMove(event: ReactPointerEvent<SVGGElement>, drawing: Drawing, handle: number | null) {
+    const p = state.current;
+    if (event.button !== 0 || p.mode || p.pricePicking || active.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    p.onSelect(drawing.id);
+    if (drawing.locked) return;
+    const point = eventPoint(event);
+    if (!point) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    p.onDragStart();
+    active.current = {original: drawing, start: point, handle, target: event.currentTarget, pointerId: event.pointerId};
+    setMovingDrawing(drawing);
+  }
+
+  function dragDrawing(event: ReactPointerEvent<SVGGElement>) {
+    const drag = active.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const end = eventPoint(event);
+    if (!end) return;
+    const p = state.current;
+    const next = moveDrawing(drag.original, drag.start, end, drag.handle, p.timeline, p.seconds);
+    if (p.confirmPlacement && placementError(next.kind, next.points, p.timeline, indexAt)) return;
+    setMovingDrawing(next);
+  }
+
+  function endMove(event: ReactPointerEvent<SVGGElement>) {
+    const drag = active.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const next = movingRef.current;
+    cancelDrag();
+    if (next && next.points.some((p, i) => p.time !== drag.original.points[i].time || p.price !== drag.original.points[i].price)) {
+      state.current.onChange(next);
+    }
+  }
+
+  function moveCandidate(event: ReactPointerEvent<HTMLDivElement>) {
+    if (candidateDrag.current !== event.pointerId) return;
+    const point = eventPoint(event);
+    if (point) chooseCandidate(point);
+  }
+
+  function startStroke(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || stroke.current) return;
+    const position = coordinates(event);
+    if (!position) return;
+    const point = pointAt(position.x, position.y);
+    if (!point) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    stroke.current = {...position, pointerId: event.pointerId};
+    updateDraft({...emptyDraft, anchors: [point]});
+  }
+
+  function moveStroke(event: ReactPointerEvent<HTMLDivElement>) {
+    const path = stroke.current;
+    if (!path || path.pointerId !== event.pointerId) return;
+    const position = coordinates(event);
+    if (!position || Math.hypot(position.x - path.x, position.y - path.y) < 4) return;
+    const point = pointAt(position.x, position.y);
+    if (!point) return;
+    const points = draftRef.current.anchors;
+    const retained = points.length >= strokeMax ? points.filter((_, i) => i % 2 === 0) : points;
+    stroke.current = {...position, pointerId: event.pointerId};
+    updateDraft({...emptyDraft, anchors: [...retained, point]});
+  }
+
+  function stopStroke(event: ReactPointerEvent<HTMLDivElement>) {
+    if (stroke.current?.pointerId !== event.pointerId) return;
+    stroke.current = null;
+    updateDraft({...draftRef.current});
+  }
+
+  const api = props.api;
+  if (!api) return null;
+  const scale = api.chart.timeScale();
+  const width = scale.width();
+  const height = api.chart.panes()[0].getHeight();
+  const range = scale.getVisibleLogicalRange();
+  const atIndex = (index: number, price: number): XY => ({
+    x: scale.logicalToCoordinate((index - props.offset) as Parameters<typeof scale.logicalToCoordinate>[0]) ?? NaN,
+    y: api.series.priceToCoordinate(price) ?? NaN,
+  });
+  const xy = (p: DrawingPoint) => atIndex(indexAt(p.time), p.price);
+  const view: DrawingView = {width, height, bars: props.timeline, index: indexAt, at: xy, atIndex,
+    visibleFrom: (range?.from ?? 0) + props.offset, visibleTo: (range?.to ?? props.timeline.length) + props.offset};
+
+  const mode = props.hidden ? null : props.mode;
+  const tool = mode ? drawingTools[mode] : null;
+  const freehand = Boolean(mode && isStroke(mode));
+  const cursor = draft.candidate ?? draft.hover;
+  const aim = cursor ? xy(cursor) : null;
+  const previewPoints = cursor ? [...draft.anchors, cursor] : draft.anchors;
+  const canDragAim = Boolean(draft.candidate && props.confirmPlacement);
+  const candidateError = draft.candidate && mode
+    ? roundPrice(Number(draft.price)) <= 0 || !Number.isFinite(Number(draft.price)) ? 'ใส่ราคาตั้งแต่ 0.01' : placementError(mode, previewPoints, props.timeline, indexAt)
+    : null;
+  const ready = freehand ? draft.anchors.length >= 2 && !stroke.current : Boolean(draft.candidate && !candidateError);
+  const metrics = (mode === 'long' || mode === 'short') ? positionMetrics(mode, previewPoints) : null;
+  const controls = mode && tool && props.confirmPlacement && <section className="live-placement" aria-label="วางจุดบนกราฟ">
+    <div className="live-placement-info">
+      <strong>{tool.name}</strong>
+      <span role="status">{candidateError ?? (freehand
+        ? ready ? 'ตรวจเส้นตัวอย่าง แล้วกดยืนยันเส้น' : 'ลากนิ้วหรือเมาส์เพื่อวาดตัวอย่าง'
+        : (tool.variable ? 'จุดที่ ' + (draft.anchors.length + 1) : tool.points[draft.anchors.length] ?? tool.points[0])
+          + (draft.candidate ? ' · ลากจุดหรือแตะเพื่อเลื่อน' : ' · แตะกราฟเพื่อเล็ง'))}</span>
+    </div>
+    <div className="live-placement-actions">
+      {!freehand && <label className="live-placement-price">
+        <span>ราคา</span>
+        <input type="number" inputMode="decimal" min={.01} step={.01} value={draft.price}
+          placeholder="—" disabled={!draft.candidate || mode === 'vwap'} aria-label="ราคาจุดตัวอย่าง"
+          onChange={event => {
+            const current = draftRef.current;
+            const value = event.target.valueAsNumber;
+            const price = roundPrice(value);
+            if (current.candidate) updateDraft({...current, price: event.target.value,
+              candidate: Number.isFinite(price) && price > 0 ? {...current.candidate, price} : current.candidate});
+          }} onKeyDown={event => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              if (ready) confirm();
+            }
+            if (event.key === 'Escape') props.onCancel();
+          }}/>
+      </label>}
+      <button type="button" className="live-place-confirm" disabled={!ready} onClick={confirm}
+        onPointerUp={event => {
+          if (event.pointerType !== 'touch' || !event.isPrimary) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
+            confirm();
+          }
+        }}>
+        {freehand ? 'ยืนยันเส้น' : 'ยืนยันจุด'}
+      </button>
+      {tool.variable && <button type="button" disabled={draft.anchors.length < 2}
+        onClick={() => save(mode, draftRef.current.anchors)}>จบเส้น</button>}
+      <button type="button" disabled={!draft.anchors.length && !draft.candidate} onClick={undoPoint}>ย้อนจุด</button>
+      <button type="button" onClick={props.onCancel}>ยกเลิก</button>
+    </div>
+    {!freehand && <div className="live-placement-coordinate">
+      {draft.candidate && dateTime.format(draft.candidate.time * 1000) + ' กรุงเทพฯ'}
+      {metrics && <span>Reward/Risk {metrics.ratio.toFixed(2)}</span>}
+    </div>}
+  </section>;
+
+  const draw = (drawing: Drawing, preview = false) => {
+    const selected = !preview && props.selected === drawing.id;
+    const color = drawing.color || gold;
+    const interactive = !preview && !mode && !props.pricePicking;
+    const marks = drawingGeometry(drawing, view);
+    const handles = isStroke(drawing.kind)
+      ? [0, drawing.points.length - 1].filter((index, i, self) => self.indexOf(index) === i)
+      : drawing.points.map((_, i) => i);
+    return <g key={drawing.id} data-drawing-id={preview ? undefined : drawing.id} data-kind={drawing.kind}
+      data-selected={selected || undefined} data-drawing-interaction={preview ? 'preview' : undefined} opacity={preview ? .78 : 1}>
+      <g pointerEvents="none">{marks.map((mark, index) => <g key={index}>{projectedMark(mark, color, selected, false)}</g>)}</g>
+      {interactive && <g data-drawing-interaction="body" className={drawing.locked ? 'drawing-locked' : 'drawing-hit'}
+        onPointerDown={event => beginMove(event, drawing, null)} onPointerMove={dragDrawing}
+        onPointerUp={endMove} onPointerCancel={cancelDrag} onLostPointerCapture={() => { if (active.current) cancelDrag(); }}>
+        {marks.map((mark, index) => <g key={index}>{projectedMark(mark, color, selected, true)}</g>)}
+      </g>}
+      {(selected || preview) && handles.map(i => {
+        if (preview && cursor && i === drawing.points.length - 1 && !freehand) return null;
+        const {x, y} = xy(drawing.points[i]);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        const cx = drawing.kind === 'hline' ? Math.max(10, Math.min(width - 10, x)) : x;
+        const cy = drawing.kind === 'vline' ? Math.max(10, Math.min(height - 10, y)) : y;
+        return <g key={i} data-drawing-interaction="handle" data-handle={i} onPointerDown={event => beginMove(event, drawing, i)}
+          onPointerMove={dragDrawing} onPointerUp={endMove} onPointerCancel={cancelDrag}
+          onLostPointerCapture={() => { if (active.current) cancelDrag(); }}>
+          <circle cx={cx} cy={cy} r={selected ? 5 : 4} fill="#10151d" stroke={color} strokeWidth="2"/>
+          <circle cx={cx} cy={cy} r="14" fill="transparent"
+            pointerEvents={selected && !drawing.locked && interactive ? 'all' : 'none'} className="drawing-anchor"/>
+        </g>;
+      })}
     </g>;
-   })}</g>
-  </svg>
-  {props.mode&&<div className="drawing-instruction" role="status">{drawingNames[props.mode]} · {onePoint(props.mode)?'คลิก / แตะเพื่อวาง':draft?'เลือกจุดที่สอง':'เลือกจุดแรก'} <button onClick={()=>{setDraft(null);draftRef.current=null;props.onCancel();}}>ยกเลิก · Esc</button></div>}
- </>;
+  };
+
+  return <>
+    <svg className="user-drawing-overlay" width={width} height={height} aria-label="เส้นและวัตถุที่วาดบนกราฟ">
+      <defs><clipPath id={clipId}><rect width={width} height={height}/></clipPath></defs>
+      <g clipPath={'url(#' + clipId + ')'}>
+        {!props.hidden && props.drawings.map(drawing => draw(moving?.id === drawing.id ? moving : drawing))}
+        {mode && previewPoints.length > 0 && draw({id: 'preview', kind: mode, points: previewPoints,
+          text: tool?.text ? props.confirmPlacement ? 'ข้อความ' : 'Note' : undefined}, true)}
+        {mode && aim && !freehand && Number.isFinite(aim.x) && Number.isFinite(aim.y) && <g data-drawing-interaction="aim">
+          {canDragAim && <path d={`M 0 ${aim.y} H ${width} M ${aim.x} 0 V ${height}`} stroke={gold} strokeOpacity={.55} strokeDasharray="3 5"/>}
+          <circle cx={aim.x} cy={aim.y} r={canDragAim ? 7 : 4} fill="#10151d" stroke="#f0cb83" strokeWidth="2"/>
+        </g>}
+      </g>
+    </svg>
+    {mode && canDragAim && aim && aim.x >= 0 && aim.x <= width && aim.y >= 0 && aim.y <= height
+      && <div className="live-aim-target" data-drawing-interaction="aim-target" aria-hidden="true" style={{left: aim.x, top: aim.y}}
+        onPointerDown={event => {
+          if (event.button !== 0 || candidateDrag.current !== null) return;
+          event.preventDefault();
+          candidateDrag.current = event.pointerId;
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }} onPointerMove={moveCandidate} onPointerUp={() => { candidateDrag.current = null; }}
+        onPointerCancel={() => { candidateDrag.current = null; }} onLostPointerCapture={() => { candidateDrag.current = null; }}/>}
+    {freehand && <div className="live-stroke-target" aria-hidden="true" style={{width, height}}
+      onPointerDown={startStroke} onPointerMove={moveStroke} onPointerUp={stopStroke}
+      onPointerCancel={stopStroke} onLostPointerCapture={stopStroke}/>}
+    {controls && (props.controlsHost ? createPortal(controls, props.controlsHost) : controls)}
+    {mode && tool && !props.confirmPlacement && <div className="drawing-instruction" role="status">
+      {tool.name} · {tool.points.length === 1 ? 'คลิก / แตะเพื่อวาง' : draft.anchors.length ? 'เลือกจุดที่สอง' : 'เลือกจุดแรก'}
+      <button type="button" onClick={props.onCancel}>ยกเลิก · Esc</button>
+    </div>}
+  </>;
 }

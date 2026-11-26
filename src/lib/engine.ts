@@ -3,7 +3,8 @@ export type CandleCalendar='utc'|'eightcap';
 export type Side='long'|'short';
 export type OrderType='market'|'limit'|'stop';
 export type IndicatorSpec={id:string;name:string;source:string;enabled:boolean;builtinId?:string;inputs?:Record<string,string|number|boolean>};
-export type DrawingKind='hline'|'vline'|'trend'|'ray'|'rect'|'fib'|'ruler'|'text'|'position';
+export type {DrawingKind} from './drawing-definitions.ts';
+import type {DrawingKind} from './drawing-definitions.ts';
 export type DrawingPoint={time:number;price:number};
 export type Drawing={id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;text?:string;color?:string};
 export type Command={

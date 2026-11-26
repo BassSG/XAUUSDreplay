@@ -1,9 +1,11 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {ArrowLeft, Crosshair, Eye, EyeOff, Magnet, Radio, Redo2, RefreshCw, SlidersHorizontal, Trash2, Undo2} from 'lucide-react';
+import {ArrowLeft, ChartSpline, Radio, RefreshCw} from 'lucide-react';
 import ChartBoundary from './chart-boundary';
 import ReplayChart from './replay-chart';
+import LiveDrawingToolbar from './live-drawing-toolbar';
 import LiveStudyPanel from './live-study-panel';
-import {drawingNames} from '../lib/chart-tools';
+import {drawingKinds, drawingTools, isStroke, strokeMax, variableDrawingsMax} from '../lib/drawing-definitions';
+import {positionMetrics} from '../lib/drawing-geometry';
 import type {Bar, Drawing, DrawingKind, Trade} from '../lib/engine';
 import {historyCatalog, loadBefore} from '../lib/history';
 import {olderPageSize, periods, type Period} from '../lib/live-market';
@@ -14,7 +16,6 @@ import './live-workspace.css';
 const storageKey = 'xau-live-workspace-v1';
 const periodList = Object.keys(periods) as Period[];
 const studyList = Object.keys(studyDefinitions) as LiveStudy[];
-const drawingList = Object.keys(drawingNames) as DrawingKind[];
 const emptyBars: Bar[] = [];
 const noTrades: Trade[] = [];
 const price = new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -48,11 +49,16 @@ function loadWorkspace(): Workspace {
       lengths,
       magnet: stored.magnet === true,
       hiddenDrawings: stored.hiddenDrawings === true,
-      drawings: Array.isArray(stored.drawings) ? stored.drawings.filter((d: Drawing | null) =>
-        d && drawingList.includes(d.kind) && typeof d.id === 'string' &&
-        Array.isArray(d.points) && d.points.length > 0 &&
-        d.points.every(p => p && Number.isFinite(p.time) && p.time > 0 && Number.isFinite(p.price) && p.price > 0)
-      ).slice(0, 500) : [],
+      drawings: Array.isArray(stored.drawings) ? stored.drawings.filter((d: Drawing | null) => {
+        if (!d || !drawingKinds.includes(d.kind) || typeof d.id !== 'string' || !Array.isArray(d.points)) return false;
+        const tool = drawingTools[d.kind];
+        const variable = tool.variable || isStroke(d.kind);
+        const max = isStroke(d.kind) ? strokeMax : tool.variable ? variableDrawingsMax : tool.points.length;
+        return d.points.length >= (variable ? 2 : max) && d.points.length <= max
+          && (d.text === undefined || typeof d.text === 'string') && (d.color === undefined || typeof d.color === 'string')
+          && d.points.every(p => p && Number.isSafeInteger(p.time) && p.time > 0 && p.time < 8640000000000
+            && Number.isFinite(p.price) && p.price > 0);
+      }).slice(0, 500) : [],
     };
   } catch {
     return defaults;
@@ -107,6 +113,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     : historical, [market.closed, market.open, historical]);
   const plots = useMemo(() => livePlots(bars, studies, lengths), [bars, studies, lengths]);
   const activeDrawing = drawings.find(d => d.id === selected);
+  const activeMetrics = activeDrawing?.kind === 'long' || activeDrawing?.kind === 'short'
+    ? positionMetrics(activeDrawing.kind, activeDrawing.points) : null;
   const quote = market.quote;
   const status = market.quoteError ? 'การเชื่อมต่อขัดข้อง' : quote?.status === 'live' ? 'ราคาสด'
     : quote?.status === 'closed' ? 'ตลาดปิด' : quote ? 'ราคาล่าช้า' : 'กำลังเชื่อมต่อ';
@@ -178,8 +186,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         <div className="live-periods" role="group" aria-label="ช่วงเวลาแท่งราคา">
           {periodList.map(tf => <button key={tf} type="button" aria-pressed={period === tf} onClick={() => selectPeriod(tf)}>{tf}</button>)}
         </div>
-        <button className="live-studies-button" type="button" aria-haspopup="dialog" onClick={() => setShowStudies(true)}>
-          <SlidersHorizontal size={15}/>อินดิเคเตอร์{studies.length ? ' (' + studies.length + ')' : ''}
+        <button className="live-studies-button" type="button" aria-haspopup="dialog" aria-label="อินดิเคเตอร์"
+          title="อินดิเคเตอร์ · เลือกสูตรคำนวณบนกราฟ" onClick={() => setShowStudies(true)}>
+          <ChartSpline size={19}/>{studies.length > 0 && <span className="live-study-count" aria-label={studies.length + ' ตัวที่เปิดอยู่'}>{studies.length}</span>}
         </button>
         <button type="button" aria-pressed={follow} onClick={() => setFollow(value => !value)}><Radio size={15}/>ติดตามกราฟ</button>
       </div>
@@ -187,25 +196,17 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         {studies.map(study => <button key={study} type="button" onClick={() => setShowStudies(true)}>{studyLabel(study, lengths)}</button>)}
       </div>}
       <div className="live-chart-layout">
-        <aside className="live-tools" aria-label="เครื่องมือวาด">
-          <button type="button" aria-pressed={!mode} onClick={cancelDrawing}><Crosshair size={15}/>เลือก</button>
-          {drawingList.map(kind => <button key={kind} type="button" disabled={hiddenDrawings || !bars.length || drawings.length >= 500}
-            aria-pressed={mode === kind} onClick={() => { setMode(kind); setSelected(null); }}>{drawingNames[kind]}</button>)}
-          <div className="live-drawing-actions">
-            <button className="live-icon" type="button" aria-label="ดูดจุดเข้าหาราคาแท่ง" title="ดูดจุดเข้าหาราคาแท่ง" aria-pressed={magnet}
-              onClick={() => setWorkspace(value => ({...value, magnet: !value.magnet}))}><Magnet size={16}/></button>
-            <button className="live-icon" type="button" aria-label="ซ่อนเส้นวาด" title="ซ่อนเส้นวาด" aria-pressed={hiddenDrawings} onClick={() => {
-              cancelDrawing();
-              setWorkspace(value => ({...value, hiddenDrawings: !value.hiddenDrawings}));
-            }}>{hiddenDrawings ? <EyeOff size={16}/> : <Eye size={16}/>}</button>
-            <button className="live-icon" type="button" aria-label="ย้อนการวาด" title="ย้อนการวาด" disabled={!undo.current.length}
-              onClick={() => restoreDrawing(undo.current, redo.current)}><Undo2 size={16}/></button>
-            <button className="live-icon" type="button" aria-label="ทำการวาดซ้ำ" title="ทำการวาดซ้ำ" disabled={!redo.current.length}
-              onClick={() => restoreDrawing(redo.current, undo.current)}><Redo2 size={16}/></button>
-            <button className="live-icon" type="button" aria-label="ลบวัตถุที่เลือก" title="ลบวัตถุที่เลือก"
-              disabled={!activeDrawing || activeDrawing.locked} onClick={deleteDrawing}><Trash2 size={16}/></button>
-          </div>
-        </aside>
+        <LiveDrawingToolbar mode={mode} enabled={!hiddenDrawings && bars.length > 0 && drawings.length < 500}
+          magnet={magnet} hidden={hiddenDrawings} canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}
+          canDelete={Boolean(activeDrawing && !activeDrawing.locked)}
+          onPick={kind => { setMode(kind); setSelected(null); setFollow(false); }} onSelect={cancelDrawing}
+          onMagnet={() => setWorkspace(value => ({...value, magnet: !value.magnet}))}
+          onHide={() => {
+            cancelDrawing();
+            setWorkspace(value => ({...value, hiddenDrawings: !value.hiddenDrawings}));
+          }}
+          onUndo={() => { cancelDrawing(); restoreDrawing(undo.current, redo.current); }}
+          onRedo={() => { cancelDrawing(); restoreDrawing(redo.current, undo.current); }} onDelete={deleteDrawing}/>
         <div className="live-chart">
           {bars.length ? <ChartBoundary resetKey={period}><ReplayChart live key={period} bars={bars} trades={noTrades} plots={plots}
             follow={follow} seconds={periods[period]} drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
@@ -239,11 +240,21 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       </div>
     </section>
     {activeDrawing && <section className="live-object" aria-label="แก้ไขวัตถุที่เลือก">
-      <strong>{drawingNames[activeDrawing.kind]}</strong>
-      {activeDrawing.kind === 'text' && <input aria-label="ข้อความบนกราฟ" defaultValue={activeDrawing.text} key={activeDrawing.id}
-        maxLength={100} onBlur={e => { if (e.target.value !== activeDrawing.text) changeDrawing({...activeDrawing, text: e.target.value}); }}/>}
+      <strong>{drawingTools[activeDrawing.kind].name}</strong>
+      {activeMetrics && <span>Reward/Risk {activeMetrics.ratio.toFixed(2)} · ระยะ TP {price.format(activeMetrics.reward)} USD · ระยะ SL {price.format(activeMetrics.risk)} USD</span>}
+      <label className="live-object-color">สี <input aria-label="สีของวัตถุ" type="color" disabled={activeDrawing.locked}
+        defaultValue={/^#[0-9a-f]{6}$/i.test(activeDrawing.color ?? '') ? activeDrawing.color : '#d7b46a'}
+        key={activeDrawing.id + (activeDrawing.color ?? '')}
+        onBlur={e => {
+          if (e.target.value !== (activeDrawing.color ?? '#d7b46a')) changeDrawing({...activeDrawing, color: e.target.value});
+        }}/></label>
+      {drawingTools[activeDrawing.kind].text && <input aria-label="ข้อความบนกราฟ" defaultValue={activeDrawing.text}
+        disabled={activeDrawing.locked} key={activeDrawing.id + (activeDrawing.text ?? '')} maxLength={100}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        onBlur={e => { if (e.target.value !== activeDrawing.text) changeDrawing({...activeDrawing, text: e.target.value}); }}/>}
       <button type="button" aria-pressed={Boolean(activeDrawing.locked)}
         onClick={() => changeDrawing({...activeDrawing, locked: !activeDrawing.locked})}>{activeDrawing.locked ? 'ปลดล็อก' : 'ล็อกวัตถุ'}</button>
+      <button type="button" onClick={() => setSelected(null)}>เสร็จ</button>
     </section>}
     {storageFailed && <p role="alert">เบราว์เซอร์บันทึกการตั้งค่ากราฟลงเครื่องไม่ได้</p>}
     {showStudies && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy}

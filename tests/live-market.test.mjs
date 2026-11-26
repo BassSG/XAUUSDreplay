@@ -108,3 +108,15 @@ test('adjusted moving averages, Bollinger Bands and Wilder RSI use the configure
   assert.deepEqual(values('RSI 2'), [null, null, 100, 100]);
   assert.equal(studyLabel('ema20', {ema20: -1}), 'EMA 20');
 });
+
+test('WMA, tick-weighted averages, Donchian Channels and OBV work across moving windows', () => {
+  const bars = [[10, 0], [13, 0], [16, 3], [10, 1]].map(([close, volume], i) =>
+    ({time: now + i * 60, open: close, high: close + 1, low: close - 1, close, volume}));
+  const studies = livePlots(bars, ['wma', 'vwma', 'donchian', 'obv'], {wma: 2, vwma: 2, donchian: 2});
+  const values = name => studies.find(series => series.name === name).data.map(point => point.value);
+  assert.deepEqual(values('WMA 2'), [null, 12, 15, 12]);
+  assert.deepEqual(values('VWMA (Tick Volume) 2'), [null, null, 16, 14.5]);
+  assert.deepEqual(values('Donchian High'), [null, 14, 17, 17]);
+  assert.deepEqual(values('Donchian Low'), [null, 9, 12, 9]);
+  assert.deepEqual(values('OBV (Tick Volume)'), [0, 0, 3, 2]);
+});
