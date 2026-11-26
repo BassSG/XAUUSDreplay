@@ -59,9 +59,11 @@ function harness(network = async request => new Response('network: ' + key(reque
       }
     },
   };
+  const notifications = [], opened = [];
   const self = {
     location: {origin},
-    clients: {async claim() { counters.claim++; }},
+    registration: {async showNotification(title, options) {notifications.push({title, options});}},
+    clients: {async claim() { counters.claim++; }, async matchAll() {return [];}, async openWindow(url) {opened.push(url);}},
     skipWaiting() { counters.skipWaiting++; return Promise.resolve(); },
     addEventListener(type, callback) { handlers.set(type, callback); },
   };
@@ -70,7 +72,7 @@ function harness(network = async request => new Response('network: ' + key(reque
     fetch: async (...args) => { calls.push(args[0]); return network(...args); },
   });
   return {
-    stores, counters, calls, precached,
+    stores, counters, calls, precached, notifications, opened,
     async dispatch(type, details = {}) {
       const waits = [];
       let response;
@@ -194,4 +196,16 @@ test('install identity and icons resolve within the GitHub Pages app scope', asy
   const html = await readFile(path.join(root, 'index.html'), 'utf8');
   assert.match(html, /rel="manifest" href="%BASE_URL%manifest\.webmanifest"/);
   assert.match(html, /rel="apple-touch-icon" href="%BASE_URL%icons\/apple-touch-icon\.png"/);
+});
+
+test('a push can display with every page closed and opens the alerts panel when tapped', async () => {
+  const sw = harness();
+  await sw.dispatch('push', {data: {json: () => ({title:'EBW · XAUUSD',body:'Bid ถึงเป้า',tag:'rule-1'})}});
+  assert.equal(sw.notifications.length, 1);
+  assert.equal(sw.notifications[0].title, 'EBW · XAUUSD');
+  assert.equal(sw.notifications[0].options.tag, 'rule-1');
+  let closed = false;
+  await sw.dispatch('notificationclick', {notification:{data: sw.notifications[0].options.data, close() {closed = true;}}});
+  assert.equal(closed, true);
+  assert.deepEqual(sw.opened,[base+'?mode=live&panel=alerts']);
 });

@@ -1,6 +1,6 @@
 import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {
-  ArrowLeft, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
+  ArrowLeft, Bell, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
   Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, SkipBack, SkipForward, Trash2, X,
   CalendarDays, Code2, Copy, PanelsTopLeft, Settings2,
 } from 'lucide-react';
@@ -11,6 +11,7 @@ import LiveDrawingToolbar from './live-drawing-toolbar';
 import LiveDrawingSettings, {drawingInputColor} from './live-drawing-settings';
 import LiveStudyPanel from './live-study-panel';
 import LiveAppearance from './live-appearance';
+import LiveAlertPanel from './live-alert-panel';
 import LiveLayoutPanel, {type ActiveLayout} from './live-layout-panel';
 import LivePineEditor, {newScriptDraft, type ScriptDraft} from './live-pine-editor';
 import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readChartView, workspaceKey} from '../lib/live-layouts';
@@ -24,7 +25,9 @@ import {olderPageSize, periods, type Period} from '../lib/live-market';
 import {studyDefinitions, studyLabel, type LiveStudy} from '../lib/live-indicators';
 import {useLiveFeed, useLiveMarket} from '../lib/use-live-market';
 import {useDialog} from '../lib/use-dialog';
+import {alertText, usePriceAlerts} from '../lib/use-price-alerts';
 import './live-workspace.css';
+import './live-alerts.css';
 
 const cameraKey = workspaceKey + '-camera';
 // Discard the too-wide saved viewport once after changing the live framing.
@@ -99,7 +102,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [viewport, setViewport] = useState<LiveViewport | null>(initial.view?.follow ? null : initial.view?.viewport ?? null);
   const [retry, setRetry] = useState(0);
   const [storageFailed, setStorageFailed] = useState(false);
-  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'objects' | 'studies' | 'appearance' | 'layouts' | 'pine' | null>(null);
+  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'objects' | 'studies' | 'appearance' | 'layouts' | 'pine' | 'alerts' | null>(() =>
+    new URLSearchParams(location.search).get('panel') === 'alerts' ? 'alerts' : null);
   const [editingDrawing, setEditingDrawing] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const [historyDay, setHistoryDay] = useState('');
@@ -111,6 +115,16 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const redo = useRef<Drawing[][]>([]);
   const sixCharts = chartLayout === 'six';
   const feed = useLiveFeed(retry);
+  const alerts = usePriceAlerts(feed.quoteError ? null : feed.quote);
+  const armedAlerts = alerts.state.rules.filter(rule => rule.status === 'armed');
+
+  useEffect(() => {
+    function openAlerts(event: MessageEvent) {
+      if (event.data === 'EBW_OPEN_ALERTS') setPanel('alerts');
+    }
+    navigator.serviceWorker?.addEventListener('message', openAlerts);
+    return () => navigator.serviceWorker?.removeEventListener('message', openAlerts);
+  }, []);
   const market = useLiveMarket(period, retry, feed, viewport?.time ?? null);
   const {bars, historical, needsBackup, backupFailed} = useLiveBars(period, market, retry, Boolean(viewport));
 
@@ -366,6 +380,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const primaryChart = bars.length
     ? <ChartBoundary resetKey={viewportKey}>
       <ReplayChart live compact={sixCharts} key={viewportKey} liveActions={chart}
+        alertLevels={[...new Set(armedAlerts.map(rule => rule.level))]}
         liveViewport={viewport} initialView={initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
         fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
         bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
@@ -441,6 +456,11 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         {totalStudies > 0 && <span className="live-study-count" aria-label={totalStudies + ' ตัวที่เปิดอยู่'}>{totalStudies}</span>}
       </button>
       <div className="live-view-actions">
+        <button className="live-alert-button" type="button" aria-label="แจ้งเตือนราคา" aria-haspopup="dialog" title="แจ้งเตือนราคา"
+          data-armed={armedAlerts.length > 0} onClick={() => setPanel('alerts')}>
+          <Bell size={17}/><span className="live-wide-label">แจ้งเตือน</span>
+          {armedAlerts.length > 0 && <small className="live-study-count">{armedAlerts.length}</small>}
+        </button>
         <button type="button" className="live-grid-toggle" aria-pressed={sixCharts} aria-label={layoutAction} title={layoutAction}
           onClick={() => changeChartLayout(sixCharts ? 'single' : 'six')}>
           <LayoutGrid size={17}/><span className="live-wide-label">6 ไทม์เฟรม</span>
@@ -506,6 +526,18 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       <span className="live-foot-status" role="status" title={chartStatus}>{chartStatus}</span>
       <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a>
     </footer>
+
+    {alerts.notice && <aside className="alerts-toast" role="status" aria-label="ถึงราคาแจ้งเตือน">
+      <Bell size={18} aria-hidden="true"/>
+      <button type="button" onClick={() => {setPanel('alerts'); alerts.setNotice(null);}}>
+        <strong>{alerts.notice.label || 'EBW · XAUUSD'}</strong><small>{alertText(alerts.notice)}</small>
+      </button>
+      <button type="button" className="live-icon" aria-label="ปิดข้อความแจ้งเตือน" onClick={() => alerts.setNotice(null)}><X size={16}/></button>
+    </aside>}
+
+    {panel === 'alerts' && <LivePanel title="แจ้งเตือนราคา XAUUSD" onClose={closePanel}>
+      <LiveAlertPanel alerts={alerts} bid={quote?.status === 'live' && !market.quoteError ? quote.bid : undefined}/>
+    </LivePanel>}
 
     {panel === 'quotes' && <LivePanel title="ราคา XAUUSD" onClose={closePanel}>
       <div className="live-details-head">

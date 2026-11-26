@@ -1,0 +1,16 @@
+name = "ebw-price-alerts"
+main = "index.mjs"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+ALERT_WEB_ORIGIN = "https://basssg.github.io"
+VAPID_SUBJECT = "https://basssg.github.io/XAUUSDreplay/"
+
+[[durable_objects.bindings]]
+name = "ALERT_HUB"
+class_name = "AlertHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AlertHub"]

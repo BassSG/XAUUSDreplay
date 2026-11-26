@@ -11,10 +11,11 @@
     "dev": "vite --host 127.0.0.1 --port 5199",
     "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 5199",
-    "test": "node --experimental-strip-types --test tests/engine.test.mjs tests/storage.test.mjs tests/pwa.test.mjs tests/pine.test.mjs tests/history.test.mjs tests/indicator-upgrade.test.mjs tests/chart-tools.test.mjs tests/live-market.test.mjs tests/live-layouts.test.mjs",
+    "test": "node --experimental-strip-types --test tests/engine.test.mjs tests/storage.test.mjs tests/pwa.test.mjs tests/pine.test.mjs tests/history.test.mjs tests/indicator-upgrade.test.mjs tests/chart-tools.test.mjs tests/live-market.test.mjs tests/live-layouts.test.mjs tests/price-alerts.test.mjs tests/alert-service.test.mjs",
     "data:prepare": "node --experimental-strip-types scripts/prepare-data.mjs"
   },
   "dependencies": {
+    "@block65/webcrypto-web-push": "2.0.0",
     "fflate": "^0.8.3",
     "lightweight-charts": "^5.0.0",
     "lucide-react": "^1.31.0",

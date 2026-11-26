@@ -15,6 +15,7 @@ export type PinePlot={name:string;style:string;lineStyle?:string;overlay:boolean
 const brandMarkUrl = import.meta.env.BASE_URL + 'icons/ebw-mark.png';
 const brandMarkWidth = 48, brandMarkHeight = 13, brandMarkInset = 10;
 const noLevels: ChartLevel[] = [];
+const noAlertLevels: number[] = [];
 const noFills: PineBand[] = [];
 export type PineShape={indicatorId:string;indicatorName:string;time:number;shape:string;location:string;color:string;text:string;textcolor:string;size:string};
 export type PineDrawing={kind:'line'|'box'|'label'|'linefill';indicatorId:string;indicatorName:string;overlay?:boolean;[key:string]:any};
@@ -48,7 +49,7 @@ export type LiveChartActions = {
  copyPng: () => Promise<void>;
 };
 
-export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,onToggleMagnet,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
+export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,onToggleMagnet,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,alertLevels=noAlertLevels,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;alertLevels?:number[];liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
  const [expanded,setExpanded]=useState(false),[paneCount,setPaneCount]=useState(0),[focus,setFocus]=useState('draft');
  const pricePaneClip=useId();
  const [snapshotMessage,setSnapshotMessage]=useState('');
@@ -153,6 +154,15 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   r.data=bars;r.count=bars.length;r.offset=barIndexOffset;setViewTick(v=>v+1);
  },[bars,follow,barIndexOffset,live,liveViewport,seconds]);
  useEffect(()=>{const r=ref.current;if(!r)return;r.series.applyOptions({autoscaleInfoProvider:(base:Function)=>{const info=base();if(!info)return info;if(r.dragRange)return {...info,priceRange:r.dragRange};const selected=levels.some(l=>(l.tradeId||l.orderId||'draft')===focus)?focus:'draft';const prices=levels.filter(l=>(l.tradeId||l.orderId||'draft')===selected).map(l=>l.price).filter(p=>Number.isFinite(p)&&p>0);const range={minValue:Math.min(info.priceRange.minValue,...prices),maxValue:Math.max(info.priceRange.maxValue,...prices)};r.lastRange=range;return {...info,priceRange:range};}});setViewTick(v=>v+1)},[levels,focus]);
+ const alertPrices=alertLevels.join(',');
+ useEffect(()=>{
+  const current=ref.current;
+  if(!current||!alertPrices)return;
+  const lines=alertPrices.split(',').map(Number).map(price=>current.series.createPriceLine({
+   price,color:'#bb9658',lineStyle:2,lineWidth:1,axisLabelVisible:true,title:'Alert',
+  }));
+  return()=>{if(ref.current===current)for(const line of lines)current.series.removePriceLine(line)};
+ },[alertPrices]);
  useEffect(()=>{const r=ref.current;if(!r)return;for(const line of r.lines)r.series.removePriceLine(line);r.lines=[];
   const selected=levels.some(l=>(l.tradeId||l.orderId||'draft')===focus)?focus:'draft';
   for(const l of levels.filter(l=>(l.tradeId||l.orderId||'draft')===selected))r.lines.push(r.series.createPriceLine({price:preview?.id===l.id?preview.price:l.price,color:l.color,lineWidth:1,lineStyle:l.pending||l.draft?2:0,axisLabelVisible:true,title:l.label}));
