@@ -1,11 +1,12 @@
 import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {
-  ArrowLeft, ChartSpline, ChevronDown, Download, Ellipsis, History, LockKeyhole, LockKeyholeOpen,
+  ArrowLeft, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
   Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, SkipBack, SkipForward, Trash2, X,
   CalendarDays, Code2, Copy, PanelsTopLeft, Settings2,
 } from 'lucide-react';
 import ChartBoundary from './chart-boundary';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
+import LiveOverviewChart, {LiveChartTile, timeframeName} from './live-overview-chart';
 import LiveDrawingToolbar from './live-drawing-toolbar';
 import LiveDrawingSettings, {drawingInputColor} from './live-drawing-settings';
 import LiveStudyPanel from './live-study-panel';
@@ -14,22 +15,20 @@ import LiveLayoutPanel, {type ActiveLayout} from './live-layout-panel';
 import LivePineEditor, {newScriptDraft, type ScriptDraft} from './live-pine-editor';
 import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readChartView, workspaceKey} from '../lib/live-layouts';
 import {saveLiveAutoSave, saveLiveLayout, type SavedLayout} from '../lib/storage';
-import {usePine} from '../lib/use-pine';
+import {useLiveBars, useLiveStudies} from '../lib/use-live-chart';
 import type {LiveViewport} from '../lib/chart-tools';
 import {drawingTools} from '../lib/drawing-definitions';
 import {positionMetrics} from '../lib/drawing-geometry';
-import type {Bar, Drawing, DrawingKind, IndicatorSpec, Trade} from '../lib/engine';
-import {historyCatalog, loadBefore} from '../lib/history';
-import {candleWindow, olderPageSize, periods, type Period} from '../lib/live-market';
-import {livePlots, studyDefinitions, studyLabel, type LiveStudy} from '../lib/live-indicators';
-import {useLiveMarket} from '../lib/use-live-market';
+import type {Drawing, DrawingKind, IndicatorSpec, Trade} from '../lib/engine';
+import {olderPageSize, periods, type Period} from '../lib/live-market';
+import {studyDefinitions, studyLabel, type LiveStudy} from '../lib/live-indicators';
+import {useLiveFeed, useLiveMarket} from '../lib/use-live-market';
 import {useDialog} from '../lib/use-dialog';
 import './live-workspace.css';
 
 const cameraKey = workspaceKey + '-camera';
 // Discard the too-wide saved viewport once after changing the live framing.
 const cameraVersion = 2;
-const emptyBars: Bar[] = [];
 const noTrades: Trade[] = [];
 const price = new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const clock = new Intl.DateTimeFormat('en-GB', {
@@ -82,7 +81,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [initial] = useState(readWorkingChart);
   const [workspace, setWorkspace] = useState(initial.workspace);
   const [library, setLibrary] = useState(initial.library);
-  const {period, studies, lengths, drawings, magnet, hiddenDrawings, stayInDrawingMode, appearance, scripts} = workspace;
+  const {period, chartLayout, studies, lengths, drawings, magnet, hiddenDrawings, stayInDrawingMode, appearance, scripts} = workspace;
   const [activeLayout, setActiveLayout] = useState(initial.active);
   const [saveState, setSaveState] = useState<'ready' | 'saving' | 'saved' | 'error'>('ready');
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -99,7 +98,6 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [follow, setFollow] = useState(initial.view?.follow ?? true);
   const [viewport, setViewport] = useState<LiveViewport | null>(initial.view?.follow ? null : initial.view?.viewport ?? null);
   const [retry, setRetry] = useState(0);
-  const [backup, setBackup] = useState<{period: Period; bars: Bar[]; failed?: boolean}>();
   const [storageFailed, setStorageFailed] = useState(false);
   const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'objects' | 'studies' | 'appearance' | 'layouts' | 'pine' | null>(null);
   const [editingDrawing, setEditingDrawing] = useState<string | null>(null);
@@ -111,8 +109,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const saveInProgress = useRef(false);
   const undo = useRef<Drawing[][]>([]);
   const redo = useRef<Drawing[][]>([]);
-  const market = useLiveMarket(period, retry, viewport?.time ?? null);
-  const needsBackup = !viewport && market.barError && market.closed.length === 0;
+  const sixCharts = chartLayout === 'six';
+  const feed = useLiveFeed(retry);
+  const market = useLiveMarket(period, retry, feed, viewport?.time ?? null);
+  const {bars, historical, needsBackup, backupFailed} = useLiveBars(period, market, retry, Boolean(viewport));
 
   useEffect(() => {
     if (!focusMode || mode || selected || panel) return;
@@ -187,27 +187,6 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     };
   }, []);
 
-  useEffect(() => {
-    if (!needsBackup) return;
-    let active = true;
-    async function loadBackup() {
-      try {
-        const datasets = await historyCatalog();
-        const dataset = datasets.filter(d => d.timeframe === periods[period] && d.id.startsWith('eightcap-'))
-          .sort((a, b) => b.end - a.end)[0];
-        const bars = dataset ? await loadBefore(dataset.id, dataset.end + 1, 1500) : [];
-        if (active) setBackup({period, bars, failed: !bars.length});
-      } catch {
-        if (active) setBackup({period, bars: [], failed: true});
-      }
-    }
-    void loadBackup();
-    return () => { active = false; };
-  }, [period, needsBackup, retry]);
-
-  const historical = needsBackup && backup?.period === period ? backup.bars : emptyBars;
-  const bars = market.bars.length ? market.bars : historical;
-  const builtInPlots = useMemo(() => livePlots(bars, studies, lengths), [bars, studies, lengths]);
   const proposedScripts = useMemo(() => !trial ? scripts : scripts.some(s => s.id === trial.id)
     ? scripts.map(s => s.id === trial.id ? trial : s) : [...scripts, trial], [scripts, trial]);
   const jobs = useMemo(() => proposedScripts.filter(s => s.enabled), [proposedScripts]);
@@ -226,16 +205,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     : market.historyStatus === 'error' ? 'โหลดแท่งเก่าไม่สำเร็จ'
     : market.historyStatus === 'end' ? 'ถึงข้อมูลเก่าสุดที่ Eightcap ส่งมาแล้ว' : '';
   const liveNow = follow && !market.archive && !historical.length && quote?.status === 'live' && !market.quoteError;
-  const minuteBased = market.bars.length > market.closed.length;
-  const last = minuteBased ? market.minuteTime : market.closed.at(-1)?.time;
-  const through = last === undefined ? undefined : candleWindow(last, minuteBased ? 60 : periods[period]).close;
-  const pineFrame = {asOf: through ?? (bars.length ? candleWindow(bars.at(-1)!.time, periods[period]).close : 0),
-    minutes: market.archive || historical.length ? emptyBars : market.minutes, nativeHistory: true};
-  const pineSession = ['live', market.key, market.archive, Boolean(historical.length)].join(':');
-  const pine = usePine(undefined, jobs.length > 0, bars, periods[period], pineSession, jobs,
-    bars, periods[period], 'eightcap', false, pineFrame);
-  const plots = useMemo(() => [...builtInPlots, ...pine.plots], [builtInPlots, pine.plots]);
-  const enabledScripts = scripts.filter(s => s.enabled);
+  const {pine, plots, through, minuteBased} = useLiveStudies(period, market, bars, historical, studies, lengths, jobs);
+  const enabledScripts = useMemo(() => scripts.filter(s => s.enabled), [scripts]);
   const totalStudies = studies.length + enabledScripts.length;
   useEffect(() => {
     if (!trial) return;
@@ -310,6 +281,11 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setViewport(follow ? null : chart.current?.viewport() ?? viewport);
     setWorkspace(current => ({...current, period: value}));
     cancelDrawing();
+  }
+  function changeChartLayout(value: 'single' | 'six', timeframe = period) {
+    if (timeframe !== period) selectPeriod(timeframe);
+    else setInitialView(follow ? null : currentView());
+    setWorkspace(current => ({...current, chartLayout: value}));
   }
   function toggleStudy(study: LiveStudy) {
     setWorkspace(value => ({...value, studies: value.studies.includes(study)
@@ -387,6 +363,38 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     </div>
   </section>;
 
+  const primaryChart = bars.length
+    ? <ChartBoundary resetKey={viewportKey}>
+      <ReplayChart live compact={sixCharts} key={viewportKey} liveActions={chart}
+        liveViewport={viewport} initialView={initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
+        fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
+        bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
+        drawings={visibleDrawings} drawingMode={mode} magnet={magnet} onToggleMagnet={toggleMagnet} hiddenDrawings={hiddenDrawings}
+        selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingEdit={editDrawing} onDrawingCancel={cancelDrawing}
+        liveSelection={drawingToolsOverlay} liveLegend={totalStudies > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
+          <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
+            <i style={{backgroundColor: studies.length ? studyDefinitions[studies[0]].color : pine.plots[0]?.color ?? '#e2bc73'}} aria-hidden="true"/>
+            {studies.length ? studyLabel(studies[0], lengths) : enabledScripts[0]?.name}
+            {totalStudies > 1 && <span>+{totalStudies - 1}</span>}
+          </button>
+          {(pine.error || pine.warnings.length > 0) && <button type="button" onClick={() => setPanel('pine')} title={pine.error || pine.warnings.join(' · ')}>ดูข้อความ Pine</button>}
+        </div>}
+        onDrawing={drawing => {
+          saveDrawings([...drawings, drawing]);
+          if (stayInDrawingMode) setSelected(null);
+          else { setSelected(drawing.id); setMode(null); }
+        }}
+        onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
+        onDrawingUndo={() => restoreDrawing(undo.current, redo.current)} onDrawingRedo={() => restoreDrawing(redo.current, undo.current)}
+        onHistoryEdge={loadAtChartEdge} onLeaveLatest={() => setFollow(false)}/>
+    </ChartBoundary>
+    : <div className="live-chart-empty" role="status"><span>{market.findingWindow ? 'กำลังโหลดช่วงเวลาเดิม'
+          : market.barError && (viewport || backupFailed) ? 'โหลดแท่งราคาไม่ได้'
+            : needsBackup ? 'กำลังโหลดข้อมูลย้อนหลัง' : 'กำลังโหลดแท่งราคาจาก Eightcap'}</span>
+          {market.barError && (viewport || backupFailed) && <button type="button" onClick={reconnect}><RefreshCw size={16}/>เชื่อมต่อใหม่</button>}
+        </div>;
+
+  const layoutAction = sixCharts ? 'สลับเป็นกราฟเดียว' : 'เปิดกราฟ 6 ไทม์เฟรม';
   return <main className="live-workspace" data-focus={focusMode}>
     <header className="live-header">
       <h1>
@@ -422,7 +430,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     <div className="live-controls" aria-label="มุมมองราคา XAUUSD">
       <div className="live-periods" role="group" aria-label="ช่วงเวลาแท่งราคา">
         {periodList.map(tf => <button key={tf} type="button" aria-pressed={period === tf}
-          onClick={() => selectPeriod(tf)}>{tf === '1d' ? '1D' : tf}</button>)}
+          onClick={() => {
+            selectPeriod(tf);
+            if (sixCharts) document.getElementById('live-tile-' + tf)?.scrollIntoView({block: 'nearest'});
+          }}>{timeframeName(tf)}</button>)}
       </div>
       <button className="live-studies-button" type="button" aria-haspopup="dialog" aria-label="อินดิเคเตอร์"
         title="อินดิเคเตอร์" onClick={() => setPanel('studies')}>
@@ -430,6 +441,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         {totalStudies > 0 && <span className="live-study-count" aria-label={totalStudies + ' ตัวที่เปิดอยู่'}>{totalStudies}</span>}
       </button>
       <div className="live-view-actions">
+        <button type="button" className="live-grid-toggle" aria-pressed={sixCharts} aria-label={layoutAction} title={layoutAction}
+          onClick={() => changeChartLayout(sixCharts ? 'single' : 'six')}>
+          <LayoutGrid size={17}/><span className="live-wide-label">6 ไทม์เฟรม</span>
+        </button>
         <button className="live-wide-action" type="button" aria-pressed={follow} title="ติดตามแท่งล่าสุด"
           aria-label="ติดตามแท่งล่าสุด" onClick={toggleFollow}><Radio size={17}/></button>
         <button className="live-wide-action" type="button" aria-haspopup="dialog" title="แท่งย้อนหลัง"
@@ -476,33 +491,13 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         </>}/>
       <div className="live-chart" style={{'--chart-bg': appearance.background, '--chart-ink': appearance.text,
         '--chart-up': appearance.upColor, '--chart-down': appearance.downColor} as CSSProperties}>
-        {bars.length ? <ChartBoundary resetKey={viewportKey}><ReplayChart live key={viewportKey} liveActions={chart}
-          liveViewport={viewport} initialView={initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
-          fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
-          bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
-          drawings={visibleDrawings} drawingMode={mode} magnet={magnet} onToggleMagnet={toggleMagnet} hiddenDrawings={hiddenDrawings}
-          selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingEdit={editDrawing} onDrawingCancel={cancelDrawing}
-          liveSelection={drawingToolsOverlay} liveLegend={totalStudies > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
-            <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
-              <i style={{backgroundColor: studies.length ? studyDefinitions[studies[0]].color : pine.plots[0]?.color ?? '#e2bc73'}} aria-hidden="true"/>
-              {studies.length ? studyLabel(studies[0], lengths) : enabledScripts[0]?.name}
-              {totalStudies > 1 && <span>+{totalStudies - 1}</span>}
-            </button>
-            {(pine.error || pine.warnings.length > 0) && <button type="button" onClick={() => setPanel('pine')} title={pine.error || pine.warnings.join(' · ')}>ดูข้อความ Pine</button>}
-          </div>}
-          onDrawing={drawing => {
-            saveDrawings([...drawings, drawing]);
-            if (stayInDrawingMode) setSelected(null);
-            else { setSelected(drawing.id); setMode(null); }
-          }}
-          onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
-          onDrawingUndo={() => restoreDrawing(undo.current, redo.current)} onDrawingRedo={() => restoreDrawing(redo.current, undo.current)}
-          onHistoryEdge={loadAtChartEdge} onLeaveLatest={() => setFollow(false)}/></ChartBoundary>
-          : <div className="live-chart-empty" role="status"><span>{market.findingWindow ? 'กำลังโหลดช่วงเวลาเดิม'
-            : market.barError && (viewport || backup?.failed) ? 'โหลดแท่งราคาไม่ได้'
-              : needsBackup ? 'กำลังโหลดข้อมูลย้อนหลัง' : 'กำลังโหลดแท่งราคาจาก Eightcap'}</span>
-            {market.barError && (viewport || backup?.failed) && <button type="button" onClick={reconnect}><RefreshCw size={16}/>เชื่อมต่อใหม่</button>}
-          </div>}
+        {sixCharts ? <div className="live-chart-grid" aria-label="XAUUSD 6 ไทม์เฟรม">
+          {periodList.map(tf => <LiveChartTile key={tf} period={tf} active={tf === period}
+            onSelect={() => selectPeriod(tf)} onExpand={() => changeChartLayout('single', tf)}>
+            {tf === period ? primaryChart : <LiveOverviewChart period={tf} feed={feed} retry={retry} onRetry={reconnect}
+              workspace={workspace} scripts={enabledScripts} layoutVersion={layoutVersion}/>}
+          </LiveChartTile>)}
+        </div> : primaryChart}
       </div>
     </section>
 

@@ -35,7 +35,8 @@ function restoreHistory(
 
 const now = () => Math.floor(Date.now() / 1000);
 
-function useLiveFeed(retry: number) {
+export function useLiveFeed(retry: number) {
+  const historyCache = useRef(new Map<Period, SavedHistory>());
   const [quoteState, setQuote] = useState<{quote: Quote | null; quoteError: boolean}>({quote: null, quoteError: false});
   const [minuteState, setMinutes] = useState({rows: emptyBars, minuteError: false});
   const minuteCache = useRef(emptyBars);
@@ -101,19 +102,20 @@ function useLiveFeed(retry: number) {
       clearTimeout(minuteTimer);
     };
   }, [retry, serverNow]);
-  return {...quoteState, ...minuteState, minuteCache, serverNow};
+  return {...quoteState, ...minuteState, minuteCache, serverNow, historyCache};
 }
 
-export function useLiveMarket(period: Period, retry: number, anchorTime: number | null = null) {
+export type LiveFeed = ReturnType<typeof useLiveFeed>;
+
+export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anchorTime: number | null = null, warm = true) {
   const key = period + ':' + (anchorTime ?? 'latest');
   const seconds = periods[period];
-  const {quote, quoteError, rows: minutes, minuteError, minuteCache, serverNow} = useLiveFeed(retry);
-  const [data, setData] = useState(() => restoreHistory(key, period, anchorTime, undefined));
+  const {quote, quoteError, rows: minutes, minuteError, minuteCache, serverNow, historyCache: cache} = feed;
+  const [data, setData] = useState(() => restoreHistory(key, period, anchorTime, cache.current.get(period)));
   const [progress, setProgress] = useState<{key: string; loaded: number} | null>(null);
   const currentData = useRef(data);
   currentData.current = data;
   const active = useRef<FeedRun | null>(null);
-  const cache = useRef(new Map<Period, SavedHistory>());
 
   useEffect(() => {
     if (!data.archive && data.closed.length) {
@@ -253,11 +255,11 @@ export function useLiveMarket(period: Period, retry: number, anchorTime: number 
 
   const warmed = useRef(new Set<Period>());
   useEffect(() => {
-    if (anchorTime !== null || view.archive || view.closed.length < recentBarsSize ||
+    if (!warm || anchorTime !== null || view.archive || view.closed.length < recentBarsSize ||
         view.historyStatus !== 'ready' || warmed.current.has(period)) return;
     warmed.current.add(period);
     if (view.closed.length < recentBarsSize + 2 * olderPageSize) void loadOlder(false, 2 * olderPageSize);
-  }, [anchorTime, period, view.archive, view.closed.length, view.historyStatus, loadOlder]);
+  }, [warm, anchorTime, period, view.archive, view.closed.length, view.historyStatus, loadOlder]);
 
   return {...view, bars, minutes, quote, quoteError, minuteError, minuteTime: minutes.at(-1)?.time,
     serverNow, loadOlder, progress: progress?.key === key ? progress : null,

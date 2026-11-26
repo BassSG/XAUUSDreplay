@@ -40,7 +40,7 @@ const drawing = drawingSchema.extend({id: z.string().min(1).max(128)}).refine(d 
 const favoriteTools = z.array(z.enum(drawingKinds)).max(drawingKinds.length).default([]);
 const favoritePosition = z.object({x: z.number().min(0).max(1), y: z.number().min(0).max(1)}).default({x: .5, y: .82});
 const workspaceSchema = z.object({
-  period: z.enum(periodList), studies: z.array(z.enum(studyIds)),
+  period: z.enum(periodList), chartLayout: z.enum(['single', 'six']).default('single'), studies: z.array(z.enum(studyIds)),
   lengths: z.record(z.enum(studyIds), z.number().int().min(1).max(500)),
   drawings: z.array(drawing).max(500),
   scripts: z.array(indicatorSchema).refine(rows => new Set(rows.map(row => row.id)).size === rows.length),
@@ -58,6 +58,7 @@ export function loadLiveWorkspace(value: unknown): LiveWorkspaceState {
     ? list.flatMap(item => { const parsed = schema.safeParse(item); return parsed.success ? [parsed.data] : []; }) : [];
   return {
     period: fields.period.catch('1m').parse(row.period),
+    chartLayout: fields.chartLayout.catch('single').parse(row.chartLayout),
     studies: Array.isArray(row.studies) ? [...new Set(items(row.studies, z.enum(studyIds)))] : ['ema20'],
     lengths: fields.lengths.catch({}).parse(row.lengths),
     drawings: items(row.drawings, drawing).slice(0, 500),

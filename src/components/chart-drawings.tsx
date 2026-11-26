@@ -11,7 +11,7 @@ import {drawingGeometry, placementError, positionMetrics, type DrawingMark, type
 type Api = {chart: IChartApi; series: ISeriesApi<'Candlestick'>};
 type Props = {
   api: Api | null; host: HTMLDivElement | null; controlsHost?: HTMLDivElement | null;
-  confirmPlacement?: boolean; timeline: Bar[]; offset: number; seconds: number;
+  confirmPlacement?: boolean; readOnly?: boolean; timeline: Bar[]; offset: number; seconds: number;
   drawings: Drawing[]; mode: DrawingKind | null; hidden: boolean; magnet: boolean;
   selected: string | null; pricePicking: boolean;
   onSelect: (id: string | null) => void; onCreate: (d: Drawing) => void; onChange: (d: Drawing) => void;
@@ -252,7 +252,7 @@ export default function ChartDrawings(props: Props) {
 
   useEffect(() => {
     const api = props.api;
-    if (!api) return;
+    if (!api || props.readOnly) return;
     const click = (event: MouseEventParams) => {
       const p = state.current;
       if (!event.point || (event.paneIndex ?? 0) !== 0 || p.hidden) return;
@@ -281,11 +281,11 @@ export default function ChartDrawings(props: Props) {
       api.chart.unsubscribeClick(click);
       api.chart.unsubscribeCrosshairMove(move);
     };
-  }, [props.api]);
+  }, [props.api, props.readOnly]);
 
   useEffect(() => {
     const host = props.host;
-    if (!host || !props.confirmPlacement) return;
+    if (!host || !props.confirmPlacement || props.readOnly) return;
     let start: {id: number; x: number; y: number} | null = null;
     const startTap = (event: PointerEvent) => {
       const {mode, hidden} = state.current;
@@ -320,7 +320,7 @@ export default function ChartDrawings(props: Props) {
       host.removeEventListener('pointerup', endTap, true);
       host.removeEventListener('pointercancel', cancelTap, true);
     };
-  }, [props.host, props.confirmPlacement, confirmPlacement, props.mode]);
+  }, [props.host, props.confirmPlacement, confirmPlacement, props.mode, props.readOnly]);
 
   useEffect(() => {
     const pan = !props.mode || (confirmPlacement && !isStroke(props.mode));
@@ -330,6 +330,7 @@ export default function ChartDrawings(props: Props) {
   }, [props.api, props.mode, confirmPlacement]);
 
   useEffect(() => {
+    if (props.readOnly) return;
     function setCtrlMagnet(pressed: boolean) {
       if (ctrlMagnet.current === pressed) return;
       ctrlMagnet.current = pressed;
@@ -387,7 +388,7 @@ export default function ChartDrawings(props: Props) {
       window.removeEventListener('blur', blur);
       cancelDrag();
     };
-  }, [confirmPlacement]);
+  }, [confirmPlacement, props.readOnly]);
 
   function beginMove(event: ReactPointerEvent<SVGGElement>, drawing: Drawing, handle: number | null) {
     const p = state.current;
@@ -591,7 +592,7 @@ export default function ChartDrawings(props: Props) {
   const draw = (drawing: Drawing, preview = false) => {
     const selected = !preview && props.selected === drawing.id;
     const color = drawing.color || gold;
-    const interactive = !preview && !mode && !props.pricePicking;
+    const interactive = !props.readOnly && !preview && !mode && !props.pricePicking;
     const marks = drawingGeometry(drawing, view);
     const body = marks.find(mark => mark.kind === 'path' && mark.closed);
     const captionClip = body?.kind === 'path' && marks.some(mark => mark.kind === 'label' && mark.centered)
