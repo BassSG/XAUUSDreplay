@@ -34,32 +34,6 @@ const historyDate = new Intl.DateTimeFormat('en-GB', {
 const counts = new Intl.NumberFormat('en-US');
 const shortClock = new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'});
 
-function LiveCandleClock({seconds, serverNow, through}: {seconds: number; serverNow: () => number; through?: number}) {
-  const [stamp, setStamp] = useState(serverNow);
-  useEffect(() => {
-    const update = () => setStamp(previous => Math.max(previous, serverNow()));
-    update();
-    const interval = setInterval(update, 250);
-    return () => clearInterval(interval);
-  }, [serverNow]);
-  let window;
-  try {
-    window = candleWindow(stamp, seconds);
-  } catch {
-    return null;
-  }
-  const left = Math.max(0, window.close - stamp);
-  const minutes = Math.floor(left / 60);
-  const two = (value: number) => String(value).padStart(2, '0');
-  const duration = (minutes >= 60 ? Math.floor(minutes / 60) + ':' : '') + two(minutes % 60) + ':' + two(left % 60);
-  const asOf = through === undefined ? '' : 'OHLC ถึง ' + shortClock.format(through * 1000);
-  return <div className="live-candle-clock" data-open={window.open} data-close={window.close} data-through={through}
-    title={'เวลาเปิด–ปิดแท่งตาม MT5 · ปิด ' + shortClock.format(window.close * 1000) + ' กรุงเทพฯ'}>
-    <span>ปิดใน <strong>{duration}</strong></span>
-    {asOf && <span>{asOf}</span>}
-  </div>;
-}
-
 function LivePanel({title, onClose, children}: {title: string; onClose: () => void; children: ReactNode}) {
   const id = useId();
   useDialog(true, onClose);
@@ -183,6 +157,11 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const minuteBased = market.bars.length > market.closed.length;
   const last = minuteBased ? market.minuteTime : market.closed.at(-1)?.time;
   const through = last === undefined ? undefined : candleWindow(last, minuteBased ? 60 : periods[period]).close;
+  const chartStatus = storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
+    (market.windowUnavailable ? 'ไม่พบช่วงเวลาเดิมในไทม์เฟรมนี้' : market.archive ? 'มุมมองย้อนหลัง'
+      : historical.length ? 'ข้อมูลสำรอง' : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
+        : liveNow && through !== undefined ? 'OHLC ถึง ' + shortClock.format(through * 1000)
+          : minuteBased ? 'OHLC จาก 1m ที่ปิดแล้ว' : '');
   const viewportKey = period + (market.archive ? '-archive' : '-current');
 
   function cancelDrawing() {
@@ -317,19 +296,16 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         </>}/>
       <div className="live-chart">
         {bars.length ? <ChartBoundary resetKey={viewportKey}><ReplayChart live key={viewportKey} liveActions={chart}
-          liveViewport={viewport} liveBid={liveNow ? quote.bid : undefined}
+          liveViewport={viewport} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
           bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
           drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
           selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingCancel={cancelDrawing}
-          liveSelection={drawingStrip} liveLegend={<div className="live-chart-extras">
-            {studies.length > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
-              <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
+          liveSelection={drawingStrip} liveLegend={studies.length > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
+            <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
               <i style={{backgroundColor: studyDefinitions[studies[0]].color}} aria-hidden="true"/>
               {studyLabel(studies[0], lengths)}
               {studies.length > 1 && <span>+{studies.length - 1}</span>}
-              </button>
-            </div>}
-            {liveNow && <LiveCandleClock seconds={periods[period]} serverNow={market.serverNow} through={through}/>}
+            </button>
           </div>}
           onDrawing={drawing => { saveDrawings([...drawings, drawing]); setSelected(drawing.id); setMode(null); }}
           onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
@@ -345,10 +321,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
 
     <footer className="live-foot">
       <span>Eightcap MT5 <span aria-hidden="true">·</span> Bid</span>
-      <span className="live-foot-status" role="status">{storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
-        (market.windowUnavailable ? 'ไม่พบช่วงเวลาเดิมในไทม์เฟรมนี้' : market.archive ? 'มุมมองย้อนหลัง'
-          : historical.length ? 'ข้อมูลสำรอง' : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
-            : minuteBased ? 'OHLC จาก 1m ที่ปิดแล้ว' : '')}</span>
+      <span className="live-foot-status" role="status" title={chartStatus}>{chartStatus}</span>
       <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a>
     </footer>
 
