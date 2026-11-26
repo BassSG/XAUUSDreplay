@@ -66,6 +66,7 @@ export const drawingTools = {
 export type DrawingKind = keyof typeof drawingTools;
 export const drawingKinds = Object.keys(drawingTools) as [DrawingKind, ...DrawingKind[]];
 export const isStroke = (kind: DrawingKind) => kind === 'brush' || kind === 'highlighter';
+export const isLabelBox = (kind: DrawingKind) => kind === 'rect' || kind === 'rotated' || kind === 'gannBox' || kind === 'position';
 export const variableDrawingsMax = 64;
 export const strokeMax = 160;
 

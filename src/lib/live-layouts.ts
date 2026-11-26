@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {drawingTools, isStroke, strokeMax, variableDrawingsMax} from './drawing-definitions.ts';
+import {drawingKinds, drawingTools, isStroke, strokeMax, variableDrawingsMax} from './drawing-definitions.ts';
 import {periods, type Period} from './live-market.ts';
 import {studyDefinitions, type LiveStudy} from './live-indicators.ts';
 import {drawingSchema, indicatorSchema} from './storage.ts';
@@ -37,12 +37,15 @@ const drawing = drawingSchema.extend({id: z.string().min(1).max(128)}).refine(d 
   if (isStroke(d.kind)) return count >= 2 && count <= strokeMax;
   return tool.variable ? count >= 2 && count <= variableDrawingsMax : count === tool.points.length;
 }).refine(d => d.points.every(point => point.time < 8640000000000));
+const favoriteTools = z.array(z.enum(drawingKinds)).max(drawingKinds.length).default([]);
+const favoritePosition = z.object({x: z.number().min(0).max(1), y: z.number().min(0).max(1)}).default({x: .5, y: .82});
 const workspaceSchema = z.object({
   period: z.enum(periodList), studies: z.array(z.enum(studyIds)),
   lengths: z.record(z.enum(studyIds), z.number().int().min(1).max(500)),
   drawings: z.array(drawing).max(500),
   scripts: z.array(indicatorSchema).refine(rows => new Set(rows.map(row => row.id)).size === rows.length),
   magnet: z.boolean(), hiddenDrawings: z.boolean(), stayInDrawingMode: z.boolean().default(false), appearance: appearanceSchema,
+  favoriteTools, favoritePosition,
 });
 export type LiveWorkspaceState = z.infer<typeof workspaceSchema>;
 
@@ -61,6 +64,8 @@ export function loadLiveWorkspace(value: unknown): LiveWorkspaceState {
     scripts: fields.scripts.catch([]).parse(row.scripts),
     magnet: row.magnet === true, hiddenDrawings: row.hiddenDrawings === true,
     stayInDrawingMode: fields.stayInDrawingMode.parse(row.stayInDrawingMode),
+    favoriteTools: [...new Set(items(row.favoriteTools, z.enum(drawingKinds)))],
+    favoritePosition: favoritePosition.catch({x: .5, y: .82}).parse(row.favoritePosition),
     appearance: appearanceSchema.catch(defaultAppearance).parse(row.appearance),
   };
 }

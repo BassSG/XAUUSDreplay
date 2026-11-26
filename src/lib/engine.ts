@@ -6,7 +6,7 @@ export type IndicatorSpec={id:string;name:string;source:string;enabled:boolean;b
 export type {DrawingKind} from './drawing-definitions.ts';
 import type {DrawingKind} from './drawing-definitions.ts';
 export type DrawingPoint={time:number;price:number};
-export type Drawing={id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;text?:string;color?:string};
+export type Drawing={id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;text?:string;color?:string;fillColor?:string;textColor?:string};
 export type Command={
  id:string;at:number;type:'open'|'close'|'stop'|'protect'|'cancel'|'modify';
  side?:Side;lots?:number;sl?:number;tp?:number;tradeId?:string;orderId?:string;fraction?:number;

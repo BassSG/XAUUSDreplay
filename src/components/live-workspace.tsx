@@ -15,7 +15,7 @@ import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readCha
 import {saveLiveAutoSave, saveLiveLayout, type SavedLayout} from '../lib/storage';
 import {usePine} from '../lib/use-pine';
 import type {LiveViewport} from '../lib/chart-tools';
-import {drawingTools} from '../lib/drawing-definitions';
+import {drawingTools, isLabelBox} from '../lib/drawing-definitions';
 import {positionMetrics} from '../lib/drawing-geometry';
 import type {Bar, Drawing, DrawingKind, IndicatorSpec, Trade} from '../lib/engine';
 import {historyCatalog, loadBefore} from '../lib/history';
@@ -73,7 +73,12 @@ function readWorkingChart() {
     && Number.isInteger(link.revision) ? {id: link.id, name: link.name, revision: link.revision} : null;
   const view = camera?.version === cameraVersion && camera?.period === workspace.period
     && camera.active === (active?.id ?? null) ? readChartView(camera.view) : null;
-  return {workspace, active, view, library};
+  // Start on the live edge. A saved layout can still open its historical view.
+  return {workspace, active, view: view?.follow ? view : null, library};
+}
+
+function inputColor(value: string | undefined, fallback = '#d7b46a') {
+  return value && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
 }
 
 export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
@@ -343,8 +348,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
 
   const drawingStrip = activeDrawing && <section className="live-object-strip" aria-label="แก้ไขวัตถุที่เลือก">
-    <button type="button" className="live-object-name" title="ตั้งค่าวัตถุที่เลือก" aria-haspopup="dialog"
-      onClick={() => setPanel('drawing')}><Pencil size={15}/><span>{drawingTools[activeDrawing.kind].name}</span></button>
+    <button type="button" className="live-object-name" title="แก้สีและข้อความของวัตถุ" aria-haspopup="dialog"
+      onClick={() => setPanel('drawing')}><Pencil size={15}/><span>{drawingTools[activeDrawing.kind].name}</span>
+      <i className="live-object-swatch" style={{background: inputColor(activeDrawing.color)}} aria-hidden="true"/></button>
     {activeMetrics && <span className="live-object-ratio">R/R {activeMetrics.ratio.toFixed(2)}</span>}
     <div className="live-object-actions">
       <button type="button" className="live-icon" aria-label={activeDrawing.locked ? 'ปลดล็อกวัตถุ' : 'ล็อกวัตถุ'}
@@ -418,6 +424,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
 
     <section className="live-chart-layout" aria-label="กราฟ XAUUSD">
       <LiveDrawingToolbar mode={mode} enabled={!hiddenDrawings && bars.length > 0 && drawings.length < 500}
+        favorites={workspace.favoriteTools} favoritePosition={workspace.favoritePosition}
+        onFavorite={kind => setWorkspace(value => ({...value, favoriteTools: value.favoriteTools.includes(kind)
+          ? value.favoriteTools.filter(tool => tool !== kind) : [...value.favoriteTools, kind]}))}
+        onMoveFavorites={position => setWorkspace(value => ({...value, favoritePosition: position}))}
         magnet={magnet} hidden={hiddenDrawings} stayInDrawingMode={stayInDrawingMode}
         canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}
         canDelete={Boolean(activeDrawing && !activeDrawing.locked)}
@@ -545,21 +555,42 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     </LivePanel>}
 
     {panel === 'drawing' && activeDrawing && <LivePanel title={drawingTools[activeDrawing.kind].name} onClose={closePanel}>
-      <div className="live-object">
+      <form className="live-object" key={activeDrawing.id} onSubmit={event => {
+        event.preventDefault();
+        if (activeDrawing.locked) return;
+        const next = {...activeDrawing};
+        let changed = false;
+        for (const field of ['color', 'fillColor', 'textColor', 'text'] as const) {
+          const input = event.currentTarget.elements.namedItem(field);
+          if ((input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) && input.value !== input.defaultValue) {
+            next[field] = input.value;
+            changed = true;
+          }
+        }
+        if (changed) changeDrawing(next);
+        closePanel();
+      }}>
         {activeMetrics && <span>Reward/Risk {activeMetrics.ratio.toFixed(2)} · ระยะ TP {price.format(activeMetrics.reward)} USD · ระยะ SL {price.format(activeMetrics.risk)} USD</span>}
-        <label className="live-object-color">สี <input aria-label="สีของวัตถุ" type="color" disabled={activeDrawing.locked}
-          defaultValue={/^#[0-9a-f]{6}$/i.test(activeDrawing.color ?? '') ? activeDrawing.color : '#d7b46a'}
-          key={activeDrawing.id + (activeDrawing.color ?? '')}
-          onBlur={e => {
-            if (e.target.value !== (activeDrawing.color ?? '#d7b46a')) changeDrawing({...activeDrawing, color: e.target.value});
-          }}/></label>
-        {drawingTools[activeDrawing.kind].text && <label>ข้อความบนกราฟ
-          <input aria-label="ข้อความบนกราฟ" defaultValue={activeDrawing.text} disabled={activeDrawing.locked}
-            key={activeDrawing.id + (activeDrawing.text ?? '')} maxLength={100}
-            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-            onBlur={e => { if (e.target.value !== activeDrawing.text) changeDrawing({...activeDrawing, text: e.target.value}); }}/>
+        <div className="live-object-palette">
+          <label className="live-object-color">สีเส้น <input name="color" type="color" disabled={activeDrawing.locked}
+            defaultValue={inputColor(activeDrawing.color)}/></label>
+          {isLabelBox(activeDrawing.kind) && <>
+            <label className="live-object-color">สีพื้น <input name="fillColor" type="color" disabled={activeDrawing.locked}
+              defaultValue={inputColor(activeDrawing.fillColor, inputColor(activeDrawing.color))}/></label>
+            <label className="live-object-color">สีข้อความ <input name="textColor" type="color" disabled={activeDrawing.locked}
+              defaultValue={inputColor(activeDrawing.textColor, '#e7edf5')}/></label>
+          </>}
+        </div>
+        {isLabelBox(activeDrawing.kind) ? <label className="live-object-text">ข้อความในกล่อง
+          <textarea name="text" rows={3} maxLength={1000} placeholder="เช่น โซนรอราคา" defaultValue={activeDrawing.text} disabled={activeDrawing.locked}/>
+        </label> : drawingTools[activeDrawing.kind].text && <label className="live-object-text">ข้อความบนกราฟ
+          <input name="text" maxLength={1000} defaultValue={activeDrawing.text} disabled={activeDrawing.locked}/>
         </label>}
-      </div>
+        <div className="layout-actions">
+          <button type="submit" className="primary" disabled={activeDrawing.locked}>บันทึก</button>
+          <button type="button" onClick={closePanel}>ยกเลิก</button>
+        </div>
+      </form>
     </LivePanel>}
 
     {panel === 'appearance' && <LivePanel title="รูปลักษณ์กราฟ" onClose={closePanel} previewChart>

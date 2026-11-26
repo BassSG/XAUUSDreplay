@@ -27,18 +27,27 @@ const dateTime = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 });
 
-function projectedMark(mark: DrawingMark, color: string, selected: boolean, hit: boolean) {
-  const stroke = mark.color ?? color;
+function projectedMark(mark: DrawingMark, drawing: Drawing, selected: boolean, hit: boolean) {
+  const stroke = mark.kind === 'label' && mark.centered ? mark.color ?? gold
+    : (drawing.kind === 'long' || drawing.kind === 'short' ? mark.color : drawing.color) ?? mark.color ?? drawing.color ?? gold;
   const strokeWidth = mark.width ?? (selected ? 2 : 1.5);
   const style = hit ? {
     stroke: 'transparent', strokeWidth: Math.max(17, strokeWidth), fill: mark.fill ? 'transparent' : 'none',
     pointerEvents: mark.fill ? 'all' : 'stroke',
   } : {
-    stroke, strokeWidth, fill: mark.fill ? stroke : 'none', fillOpacity: mark.fill, opacity: mark.opacity,
+    stroke, strokeWidth, fill: mark.fill ? drawing.fillColor ?? stroke : 'none', fillOpacity: mark.fill, opacity: mark.opacity,
     strokeDasharray: mark.dash, vectorEffect: 'non-scaling-stroke', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
   };
   if (mark.kind === 'label') {
     const {x, y} = mark.at;
+    if (mark.centered) {
+      if (hit) return null;
+      const lines = mark.value.split('\n');
+      return <text x={x} y={y - (lines.length - 1) * 7} textAnchor="middle" dominantBaseline="central"
+        fontFamily="Segoe UI, sans-serif" fontSize={12} fill={stroke}>
+        {lines.map((line, index) => <tspan key={index} x={x} dy={index ? 14 : 0}>{line || '\u00a0'}</tspan>)}
+      </text>;
+    }
     const width = Math.max(26, mark.value.length * 6.2 + 10);
     if (hit) return <rect x={x - 4} y={y - 13} width={width} height={20} fill="transparent" pointerEvents="all"/>;
     return <>
@@ -204,7 +213,7 @@ export default function ChartDrawings(props: Props) {
         return;
       }
       if (isStroke(p.mode)) return;
-      if (confirmPlacement) return;
+      if (p.confirmPlacement) return;
       const point = pointAt(event.point.x, event.point.y);
       if (point) accept(point);
     };
@@ -222,11 +231,11 @@ export default function ChartDrawings(props: Props) {
       api.chart.unsubscribeClick(click);
       api.chart.unsubscribeCrosshairMove(move);
     };
-  }, [props.api, confirmPlacement]);
+  }, [props.api]);
 
   useEffect(() => {
     const host = props.host;
-    if (!host || !confirmPlacement) return;
+    if (!host || !props.confirmPlacement) return;
     let start: {id: number; x: number; y: number} | null = null;
     const startTap = (event: PointerEvent) => {
       const {mode, hidden} = state.current;
@@ -244,7 +253,11 @@ export default function ChartDrawings(props: Props) {
       start = null;
       const position = coordinates(event);
       const point = position ? pointAt(position.x, position.y) : null;
-      if (point && state.current.mode) chooseCandidate(point);
+      const {mode, hidden} = state.current;
+      if (!point || !mode || hidden || isStroke(mode)) return;
+      // The chart library can consume the second click of a fast pair as a double click.
+      if (confirmPlacement) chooseCandidate(point);
+      else accept(point);
     };
     const cancelTap = () => { start = null; };
     host.addEventListener('pointerdown', startTap, true);
@@ -257,7 +270,7 @@ export default function ChartDrawings(props: Props) {
       host.removeEventListener('pointerup', endTap, true);
       host.removeEventListener('pointercancel', cancelTap, true);
     };
-  }, [props.host, confirmPlacement, props.mode]);
+  }, [props.host, props.confirmPlacement, confirmPlacement, props.mode]);
 
   useEffect(() => {
     const pan = !props.mode || (confirmPlacement && !isStroke(props.mode));
@@ -467,16 +480,25 @@ export default function ChartDrawings(props: Props) {
     const color = drawing.color || gold;
     const interactive = !preview && !mode && !props.pricePicking;
     const marks = drawingGeometry(drawing, view);
+    const body = marks.find(mark => mark.kind === 'path' && mark.closed);
+    const captionClip = body?.kind === 'path' && marks.some(mark => mark.kind === 'label' && mark.centered)
+      ? clipId + '-caption-' + drawing.id : undefined;
     const handles = isStroke(drawing.kind)
       ? [0, drawing.points.length - 1].filter((index, i, self) => self.indexOf(index) === i)
       : drawing.points.map((_, i) => i);
     return <g key={drawing.id} data-drawing-id={preview ? undefined : drawing.id} data-kind={drawing.kind}
       data-selected={selected || undefined} data-drawing-interaction={preview ? 'preview' : undefined} opacity={preview ? .78 : 1}>
-      <g pointerEvents="none">{marks.map((mark, index) => <g key={index}>{projectedMark(mark, color, selected, false)}</g>)}</g>
+      {captionClip && body?.kind === 'path' && <clipPath id={captionClip}>
+        <polygon points={body.points.map(({x, y}) => x + ',' + y).join(' ')}/>
+      </clipPath>}
+      <g pointerEvents="none">{marks.map((mark, index) => <g key={index}
+        clipPath={captionClip && mark.kind === 'label' && mark.centered ? 'url(#' + captionClip + ')' : undefined}>
+        {projectedMark(mark, drawing, selected, false)}
+      </g>)}</g>
       {interactive && <g data-drawing-interaction="body" className={drawing.locked ? 'drawing-locked' : 'drawing-hit'}
         onPointerDown={event => beginMove(event, drawing, null)} onPointerMove={dragDrawing}
         onPointerUp={endMove} onPointerCancel={cancelDrag} onLostPointerCapture={() => { if (active.current) cancelDrag(); }}>
-        {marks.map((mark, index) => <g key={index}>{projectedMark(mark, color, selected, true)}</g>)}
+        {marks.map((mark, index) => <g key={index}>{projectedMark(mark, drawing, selected, true)}</g>)}
       </g>}
       {(selected || preview) && handles.map(i => {
         if (preview && cursor && i === drawing.points.length - 1 && !freehand) return null;

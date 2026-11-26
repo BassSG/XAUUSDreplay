@@ -1,4 +1,4 @@
-import {useState, type ReactNode} from 'react';
+import {useRef, useState, type ReactNode} from 'react';
 import {
   ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Brush, CalendarRange, ChartCandlestick,
   ChartColumnIncreasing, ChartLine, ChartNoAxesCombined, Circle, CornerUpRight, Crosshair,
@@ -6,7 +6,7 @@ import {
   ListTree, Magnet, MessageSquare, Minus, MousePointer2, MoveHorizontal, MoveUpRight,
   MoveVertical, PanelsLeftBottom, PencilRuler, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
   StickyNote, Tag, Trash2, TrendingDown, TrendingUp, Triangle, TriangleRight, Type,
-  Repeat, Undo2, Waypoints, Workflow, X, type LucideIcon,
+  GripVertical, Repeat, Star, Undo2, Waypoints, Workflow, X, type LucideIcon,
 } from 'lucide-react';
 import {drawingGroups, drawingKinds, drawingTools, type DrawingKind} from '../lib/drawing-definitions';
 import {useDialog} from '../lib/use-dialog';
@@ -42,9 +42,10 @@ const keywords: Partial<Record<DrawingKind, string>> = {
   short: 'risk reward rr sell',
 };
 
-function DrawingPicker({group, enabled, actions, onClose, onPick}: {
+function DrawingPicker({group, enabled, actions, onClose, onPick, favorites, toggleFavorite}: {
   group: ToolGroup | 'all'; enabled: boolean; actions: ReactNode;
   onClose: () => void; onPick: (kind: DrawingKind) => void;
+  favorites: DrawingKind[]; toggleFavorite: (kind: DrawingKind) => void;
 }) {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState(group);
@@ -78,11 +79,16 @@ function DrawingPicker({group, enabled, actions, onClose, onPick}: {
               {tools.map(kind => {
                 const Icon = icons[kind];
                 const tool = drawingTools[kind];
-                return <button key={kind} className="live-picker-option" type="button" title={tool.help} disabled={!enabled}
+                return <div className="live-picker-item" key={kind}>
+                <button className="live-picker-option" type="button" title={tool.help} disabled={!enabled}
                   aria-label={tool.name} aria-describedby={'drawing-help-' + kind} onClick={() => onPick(kind)}>
                   <Icon size={19} aria-hidden="true"/>
                   <span><strong>{tool.name}</strong><small id={'drawing-help-' + kind}>{tool.help}</small></span>
-                </button>;
+                </button>
+                <button type="button" className="live-favorite-star" aria-label={'รายการโปรด: ' + tool.name}
+                  title={'ปักหมุด ' + tool.name} aria-pressed={favorites.includes(kind)}
+                  onClick={() => toggleFavorite(kind)}><Star size={17} fill={favorites.includes(kind) ? 'currentColor' : 'none'}/></button>
+                </div>;
               })}
             </div>
           </section>;
@@ -97,10 +103,63 @@ type Props = {
   mode: DrawingKind | null; enabled: boolean; magnet: boolean; hidden: boolean; stayInDrawingMode: boolean;
   canUndo: boolean; canRedo: boolean; canDelete: boolean;
   navigation: ReactNode;
+  favorites: DrawingKind[]; favoritePosition: {x: number; y: number};
+  onFavorite: (kind: DrawingKind) => void; onMoveFavorites: (position: Props['favoritePosition']) => void;
   onPick: (kind: DrawingKind) => void; onSelect: () => void; onMagnet: () => void;
   onStayInDrawingMode: () => void;
   onHide: () => void; onUndo: () => void; onRedo: () => void; onDelete: () => void;
 };
+
+function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => void}) {
+  const bounds = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  const drag = useRef<{id: number; x: number; y: number; start: Props['favoritePosition']; next: Props['favoritePosition']} | null>(null);
+  const [preview, setPreview] = useState<Props['favoritePosition'] | null>(null);
+  const position = preview ?? props.favoritePosition;
+  const clamp = (n: number) => Math.min(1, Math.max(0, n));
+  return <div className="live-favorite-area" ref={bounds}>
+    <div className="live-favorite-bar" ref={bar} role="toolbar" aria-label="เครื่องมือโปรด"
+      style={{left: position.x * 100 + '%', top: position.y * 100 + '%',
+        transform: `translate(${-position.x * 100}%, ${-position.y * 100}%)`}}>
+      <button type="button" className="live-favorite-grip" title="ลากเพื่อย้ายแถบเครื่องมือโปรด" aria-label="ย้ายแถบเครื่องมือโปรด"
+        onPointerDown={e => {
+          if (e.button !== 0 || drag.current) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          drag.current = {id: e.pointerId, x: e.clientX, y: e.clientY, start: position, next: position};
+        }}
+        onPointerMove={e => {
+          const start = drag.current;
+          if (start?.id !== e.pointerId || !bounds.current || !bar.current) return;
+          const w = bounds.current.clientWidth - bar.current.offsetWidth;
+          const h = bounds.current.clientHeight - bar.current.offsetHeight;
+          start.next = {x: w > 0 ? clamp(start.start.x + (e.clientX - start.x) / w) : start.start.x,
+            y: h > 0 ? clamp(start.start.y + (e.clientY - start.y) / h) : start.start.y};
+          setPreview(start.next);
+        }}
+        onPointerUp={e => {
+          if (drag.current?.id !== e.pointerId) return;
+          props.onMoveFavorites(drag.current.next);
+          drag.current = null; setPreview(null);
+        }}
+        onLostPointerCapture={() => { drag.current = null; setPreview(null); }}
+        onKeyDown={e => {
+          const shifts: Record<string, [number, number]> = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]};
+          const shift = shifts[e.key];
+          if (!shift) return;
+          e.preventDefault(); e.stopPropagation();
+          props.onMoveFavorites({x: clamp(position.x + shift[0] * .05), y: clamp(position.y + shift[1] * .05)});
+        }}><GripVertical size={17}/></button>
+      <div className="live-favorite-list">
+        {props.favorites.map(kind => {
+          const Icon = icons[kind];
+          const tool = drawingTools[kind];
+          return <button type="button" key={kind} title={tool.name + ' · ' + tool.help} aria-label={tool.name}
+            aria-pressed={props.mode === kind} disabled={!props.enabled} onClick={() => pick(kind)}><Icon size={17}/></button>;
+        })}
+      </div>
+    </div>
+  </div>;
+}
 
 function DrawingActions({props, inPicker = false}: {props: Props; inPicker?: boolean}) {
   return <div className={'live-drawing-actions' + (inPicker ? ' live-picker-actions' : '')}
@@ -155,7 +214,9 @@ export default function LiveDrawingToolbar(props: Props) {
       <DrawingActions props={props}/>
       {props.navigation}
     </aside>
+    {props.favorites.length > 0 && <FavoriteBar props={props} pick={pick}/>}
     {picker && <DrawingPicker group={picker} enabled={props.enabled} actions={<DrawingActions props={props} inPicker/>}
+      favorites={props.favorites} toggleFavorite={props.onFavorite}
       onClose={() => setPicker(null)} onPick={pick}/>}
   </>;
 }

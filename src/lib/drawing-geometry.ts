@@ -7,7 +7,7 @@ export type DrawingMark = Style & (
   | {kind: 'path'; points: XY[]; closed?: boolean}
   | {kind: 'curve'; d: string}
   | {kind: 'ellipse'; center: XY; rx: number; ry: number}
-  | {kind: 'label'; at: XY; value: string; background?: boolean}
+  | {kind: 'label'; at: XY; value: string; background?: boolean; centered?: boolean}
 );
 export type DrawingView = {
   width: number; height: number; bars: Bar[]; visibleFrom: number; visibleTo: number;
@@ -15,6 +15,13 @@ export type DrawingView = {
   at: (point: DrawingPoint) => XY;
   atIndex: (index: number, price: number) => XY;
 };
+
+function boxCaption(drawing: Drawing, a: XY, b: XY): DrawingMark[] {
+  const value = drawing.text?.trim();
+  if (!value) return [];
+  return [{kind: 'label', at: {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2},
+    value, centered: true, color: drawing.textColor ?? '#e7edf5'}];
+}
 
 const retracements = [0, .236, .382, .5, .618, .786, 1];
 const extensions = [0, .382, .618, 1, 1.272, 1.618, 2, 2.618];
@@ -242,7 +249,7 @@ export function drawingGeometry(drawing: Drawing, view: DrawingView): DrawingMar
     case 'arrow': return arrow(a, b, [line(a, b)]);
     case 'info': return [line(a, b), label(point(xLabel(b.x + 6, 162), b.y - 6), priceDelta, true),
       label(point(xLabel(b.x + 6, 162), b.y + 12), timeDelta(), true)];
-    case 'rect': return [box(a, b)];
+    case 'rect': return [box(a, b), ...boxCaption(drawing, a, b)];
     case 'circle': return [{kind: 'ellipse', center: a, rx: Math.hypot(dx, dy), ry: Math.hypot(dx, dy), fill: .08}];
     case 'ellipse': return [{kind: 'ellipse', center: shift(a, dx / 2, dy / 2), rx: Math.abs(dx) / 2, ry: Math.abs(dy) / 2, fill: .08}];
     case 'triangle': return [path(projected, {fill: .12}, Boolean(c))];
@@ -275,13 +282,14 @@ export function drawingGeometry(drawing: Drawing, view: DrawingView): DrawingMar
         const y = view.at({time: first.time, price: first.price + ratio * change}).y;
         marks.push(line(point(x, top), point(x, bottom), dash), line(point(left, y), point(right, y), dash));
       }
-      return marks;
+      return [...marks, ...boxCaption(drawing, a, b)];
     }
     case 'channel': case 'fibChannel': case 'rotated': {
       if (!c || Math.hypot(dx, dy) < .001) return [line(a, b)];
       const offset = ((c.x - a.x) * -dy + (c.y - a.y) * dx) / (dx * dx + dy * dy);
       const x = -dy * offset, y = dx * offset;
       const marks = [path([a, b, shift(b, x, y), shift(a, x, y)], {fill: .11}, true)];
+      if (kind === 'rotated') return [...marks, ...boxCaption(drawing, a, shift(b, x, y))];
       if (kind === 'channel') marks.push(line(shift(a, x / 2, y / 2), shift(b, x / 2, y / 2), dash));
       if (kind === 'fibChannel') for (const ratio of [...retracements.slice(1), 1.618, 2.618]) {
         const end = shift(b, x * ratio, y * ratio);
@@ -300,7 +308,8 @@ export function drawingGeometry(drawing: Drawing, view: DrawingView): DrawingMar
     case 'position': case 'ruler':
       return [box(a, b, {color: change >= 0 ? success : loss, fill: .12}),
         label(point(xLabel(left + 5, 162), top + 16), priceDelta, true),
-        label(point(xLabel(left + 5, 162), top + 34), timeDelta(), true)];
+        label(point(xLabel(left + 5, 162), top + 34), timeDelta(), true),
+        ...(kind === 'position' ? boxCaption(drawing, a, b) : [])];
     case 'priceRange': {
       const x = Math.max(10, Math.min(width - 10, b.x));
       return [line(point(x - 6, a.y), point(x + 6, a.y)), line(point(x - 6, b.y), point(x + 6, b.y)),
