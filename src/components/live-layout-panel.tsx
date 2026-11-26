@@ -30,8 +30,10 @@ export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     let mounted = true;
-    listLiveLayouts().then(records => { if (mounted) setRows(records); }).catch(e => { if (mounted) setError(e.message); });
-    return () => { mounted = false; };
+    const refresh = () => listLiveLayouts().then(records => { if (mounted) setRows(records); }).catch(e => { if (mounted) setError(e.message); });
+    void refresh();
+    window.addEventListener('xau-live-layouts-changed', refresh);
+    return () => { mounted = false; window.removeEventListener('xau-live-layouts-changed', refresh); };
   }, []);
 
   async function act(task: () => Promise<void>) {
@@ -71,22 +73,23 @@ export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props
       <button className="primary" disabled={busy || !name.trim()} onClick={() => save(!active)}><Save size={16}/>{active ? 'บันทึกทับเลย์เอาต์นี้' : 'บันทึกเลย์เอาต์'}</button>
       {active && <button disabled={busy || !name.trim()} onClick={() => save(true)}><Plus size={16}/>บันทึกเป็นชุดใหม่</button>}
     </div>
-    <h3>เลย์เอาต์ในเครื่อง</h3>
+    <h3>เลย์เอาต์และบันทึกในเครื่อง</h3>
+    <p className="chart-hint">กราฟนี้บันทึกอัตโนมัติทุก 5 นาทีและกดบันทึกได้จากแถบบน ขณะนี้ข้อมูลยังอยู่ในเบราว์เซอร์เครื่องนี้</p>
     {!rows.length && <p className="chart-hint">เลย์เอาต์ที่บันทึกจะอยู่ที่นี่</p>}
     <div className="layout-list">
       {rows.map(row => <div className="layout-row" key={row.id}>
         <button className="layout-open" disabled={busy} title={'เปิด ' + row.file.name} onClick={() => onOpen(row)}>
-          <FolderOpen size={17}/><span><strong>{row.file.name}</strong><small>{row.file.workspace.period} · {new Date(row.updated).toLocaleString('th-TH', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})}{active?.id === row.id ? ' · กำลังใช้' : ''}</small></span>
+          <FolderOpen size={17}/><span><strong>{row.isAutoSave ? 'บันทึกอัตโนมัติ' : row.file.name}</strong><small>{row.file.workspace.period} · {new Date(row.updated).toLocaleString('th-TH', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})}{active?.id === row.id ? ' · กำลังใช้' : ''}</small></span>
         </button>
-        {removing === row.id ? <>
+        {!row.isAutoSave && (removing === row.id ? <>
           <button disabled={busy} onClick={() => void act(async () => {
             await deleteLiveLayout(row); if (active?.id === row.id) onSave(null); setRemoving(''); setMessage('ลบเลย์เอาต์แล้ว');
           })}>ยืนยันลบ</button><button onClick={() => setRemoving('')}>ยกเลิก</button>
-        </> : <button className="live-icon" aria-label={'ลบ ' + row.file.name} disabled={busy} onClick={() => setRemoving(row.id)}><Trash2 size={16}/></button>}
+        </> : <button className="live-icon" aria-label={'ลบ ' + row.file.name} disabled={busy} onClick={() => setRemoving(row.id)}><Trash2 size={16}/></button>)}
       </div>)}
     </div>
     <div className="layout-transfer">
-      <p className="chart-hint">ย้ายกราฟไปอีกเครื่องโดยส่งออกไฟล์ แล้วนำเข้าในเบราว์เซอร์ปลายทาง</p>
+      <p className="chart-hint">ย้ายกราฟไปอีกเครื่องได้ด้วยการส่งออกไฟล์แล้วนำเข้า ส่วนซิงก์อัตโนมัติข้ามเครื่องจะต้องเชื่อมต่อบริการคลาวด์</p>
       <div className="layout-actions">
         <button onClick={() => downloadLayout(capture(name.trim() || 'XAUUSD'))}><Download size={16}/>ส่งออกกราฟนี้</button>
         <button disabled={busy} onClick={() => fileInput.current?.click()}><Upload size={16}/>นำเข้าเลย์เอาต์</button>

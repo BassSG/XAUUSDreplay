@@ -1,7 +1,7 @@
 import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {
   ArrowLeft, ChartSpline, ChevronDown, Download, Ellipsis, History, LockKeyhole, LockKeyholeOpen,
-  Maximize2, Minimize2, Pencil, Radio, RefreshCw, ScanLine, SkipBack, SkipForward, Trash2, X,
+  Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, SkipBack, SkipForward, Trash2, X,
   CalendarDays, Code2, PanelsTopLeft, Settings2,
 } from 'lucide-react';
 import ChartBoundary from './chart-boundary';
@@ -12,7 +12,7 @@ import LiveAppearance from './live-appearance';
 import LiveLayoutPanel, {type ActiveLayout} from './live-layout-panel';
 import LivePineEditor, {newScriptDraft, type ScriptDraft} from './live-pine-editor';
 import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readChartView, workspaceKey} from '../lib/live-layouts';
-import type {SavedLayout} from '../lib/storage';
+import {saveLiveAutoSave, saveLiveLayout, type SavedLayout} from '../lib/storage';
 import {usePine} from '../lib/use-pine';
 import type {LiveViewport} from '../lib/chart-tools';
 import {drawingTools} from '../lib/drawing-definitions';
@@ -82,6 +82,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [library, setLibrary] = useState(initial.library);
   const {period, studies, lengths, drawings, magnet, hiddenDrawings, appearance, scripts} = workspace;
   const [activeLayout, setActiveLayout] = useState(initial.active);
+  const [saveState, setSaveState] = useState<'ready' | 'saving' | 'saved' | 'error'>('ready');
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState('');
   const [initialView, setInitialView] = useState(initial.view);
   const [layoutVersion, setLayoutVersion] = useState(0);
   const [draft, setDraft] = useState<ScriptDraft>(newScriptDraft);
@@ -100,6 +103,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [historyDay, setHistoryDay] = useState('');
   const [fitHistory, setFitHistory] = useState(false);
   const chart = useRef<LiveChartActions>(null);
+  const saveWorkingCopy = useRef<() => Promise<void>>(async () => {});
+  const saveInProgress = useRef(false);
   const undo = useRef<Drawing[][]>([]);
   const redo = useRef<Drawing[][]>([]);
   const market = useLiveMarket(period, retry, viewport?.time ?? null);
@@ -130,7 +135,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
   const saveCamera = useRef(() => {});
   saveCamera.current = () => {
-    try { localStorage.setItem(cameraKey, JSON.stringify({version: cameraVersion, period, active: activeLayout?.id ?? null, view: currentView()})); }
+    try { localStorage.setItem(cameraKey, JSON.stringify({version: cameraVersion, period, active: activeLayout?.id ?? null, view: currentView(), savedAt: Date.now()})); }
     catch { /* Named layouts are stored independently in IndexedDB. */ }
   };
   useEffect(() => {
@@ -139,6 +144,43 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     window.addEventListener('pagehide', save);
     document.addEventListener('visibilitychange', onHidden);
     return () => { window.removeEventListener('pagehide', save); document.removeEventListener('visibilitychange', onHidden); };
+  }, []);
+
+  saveWorkingCopy.current = async () => {
+    if (saveInProgress.current) return;
+    saveInProgress.current = true;
+    setSaveState('saving');
+    saveCamera.current();
+    try {
+      const file = makeLayoutFile(activeLayout?.name ?? 'กราฟปัจจุบัน', workspace, currentView(), library);
+      await saveLiveAutoSave(file);
+      if (activeLayout) {
+        try { rememberLayout(await saveLiveLayout(file, activeLayout)); }
+        catch (error) {
+          setSavedAt(Date.now());
+          setSaveError('สำรองฉบับล่าสุดแล้ว แต่เลย์เอาต์เดิมอัปเดตไม่ได้: ' + (error instanceof Error ? error.message : 'ไม่ทราบสาเหตุ'));
+          setSaveState('saved');
+          return;
+        }
+      }
+      setSavedAt(Date.now());
+      setSaveError('');
+      setSaveState('saved');
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'ไม่ทราบสาเหตุ');
+      setSaveState('error');
+    } finally {
+      saveInProgress.current = false;
+    }
+  };
+  useEffect(() => {
+    const timer = window.setInterval(() => { void saveWorkingCopy.current(); }, 5 * 60 * 1000);
+    const onHidden = () => { if (document.hidden) void saveWorkingCopy.current(); };
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onHidden);
+    };
   }, []);
 
   useEffect(() => {
@@ -222,12 +264,12 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
   function openLayout(row: SavedLayout) {
     setWorkspace(row.file.workspace);
-    setLibrary(saved => mergeScripts(row.file.workspace.scripts, saved));
+    setLibrary(saved => mergeScripts(saved, row.file.library ?? row.file.workspace.scripts));
     setFollow(row.file.view.follow);
     setViewport(row.file.view.follow ? null : row.file.view.viewport);
     setInitialView(row.file.view);
     setLayoutVersion(v => v + 1);
-    rememberLayout(row);
+    rememberLayout(row.isAutoSave ? null : row);
     undo.current = []; redo.current = [];
     cancelDrawing(); setDraft(newScriptDraft); setTrial(null); setEditorError(''); setEditorMessage('');
     closePanel();
@@ -333,6 +375,12 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         </span>
       </div>
       <div className="live-chart-settings">
+        <button className="header-save" type="button" aria-label="บันทึกกราฟตอนนี้" title={saveError || (saveState === 'error' ? 'บันทึกไม่สำเร็จ' : saveState === 'saved' && savedAt ? 'บันทึกล่าสุด ' + new Date(savedAt).toLocaleTimeString('th-TH', {hour: '2-digit', minute: '2-digit'}) + ' · เก็บในเครื่องนี้' : 'บันทึกกราฟตอนนี้ · เก็บในเครื่องนี้')} disabled={saveState === 'saving'} onClick={() => void saveWorkingCopy.current()}>
+          <Save size={17}/><span>บันทึก</span>
+        </button>
+        <span className="live-save-status" data-state={saveState} role="status" aria-live="polite">
+          {saveState === 'saving' ? 'กำลังบันทึก…' : saveState === 'error' ? 'บันทึกไม่สำเร็จ' : savedAt ? 'บันทึก ' + new Date(savedAt).toLocaleTimeString('th-TH', {hour: '2-digit', minute: '2-digit'}) : 'อัตโนมัติ 5 นาที'}
+        </span>
         <button className="header-layout" type="button" aria-label="เลย์เอาต์" title="บันทึกและเปิดเลย์เอาต์"
           aria-haspopup="dialog" onClick={() => setPanel('layouts')}><PanelsTopLeft size={18}/><span>{activeLayout?.name ?? 'เลย์เอาต์'}</span></button>
         <button type="button" aria-label="ตั้งค่ารูปลักษณ์กราฟ" title="ตั้งค่ารูปลักษณ์กราฟ"
@@ -512,7 +560,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       <LiveAppearance value={appearance} onChange={next => setWorkspace(v => ({...v, appearance: next}))}/>
     </LivePanel>}
     {panel === 'layouts' && <LivePanel title="เลย์เอาต์" onClose={closePanel}>
-      <LiveLayoutPanel active={activeLayout} capture={name => makeLayoutFile(name, workspace, currentView())}
+      <LiveLayoutPanel active={activeLayout} capture={name => makeLayoutFile(name, workspace, currentView(), library)}
         onSave={rememberLayout} onOpen={openLayout}/>
     </LivePanel>}
     {panel === 'pine' && <LivePanel title="Pine Editor" onClose={closePanel} wide>

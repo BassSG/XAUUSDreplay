@@ -104,14 +104,27 @@ async function transaction<T>(names: string[], mode: IDBTransactionMode, work: (
 }
 export async function resetStorageConnection() { const db = await database?.catch(() => undefined); db?.close(); database = undefined; catalogRequest = undefined; }
 
-export type SavedLayout = {id: string; revision: number; updated: number; file: LiveLayoutFile};
+export type SavedLayout = {id: string; revision: number; updated: number; file: LiveLayoutFile; isAutoSave?: boolean};
 type LayoutRevision = Pick<SavedLayout, 'id' | 'revision'>;
 const layoutPrefix = 'live-layout/';
+const autoSaveId = '00000000-0000-4000-8000-000000000001';
 export function listLiveLayouts(): Promise<SavedLayout[]> {
  return transaction(['meta'], 'readonly', async tx => {
   const range = IDBKeyRange.bound(layoutPrefix, layoutPrefix + '\uffff');
   const records: SavedLayout[] = await request(tx.objectStore('meta').getAll(range));
   return records.sort((a, b) => b.updated - a.updated);
+ });
+}
+export function saveLiveAutoSave(file: LiveLayoutFile): Promise<SavedLayout> {
+ return transaction(['meta'], 'readwrite', async tx => {
+  const store = tx.objectStore('meta');
+  const previous: SavedLayout | undefined = await request(store.get(layoutPrefix + autoSaveId));
+  const row: SavedLayout = {id: autoSaveId, revision: (previous?.revision ?? 0) + 1, updated: Date.now(), file, isAutoSave: true};
+  await request(store.put({...row, key: layoutPrefix + row.id}));
+  return row;
+ }).then(row => {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('xau-live-layouts-changed'));
+  return row;
  });
 }
 async function checkLayoutRevision(store: IDBObjectStore, previous: LayoutRevision) {
@@ -129,6 +142,7 @@ export function saveLiveLayout(file: LiveLayoutFile, previous?: LayoutRevision):
 }
 export function deleteLiveLayout(previous: LayoutRevision) {
  return transaction(['meta'], 'readwrite', async tx => {
+  if (previous.id === autoSaveId) throw new StorageError('บันทึกอัตโนมัติลบจากรายการนี้ไม่ได้');
   const store = tx.objectStore('meta');
   await checkLayoutRevision(store, previous);
   await request(store.delete(layoutPrefix + previous.id));

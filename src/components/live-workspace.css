@@ -315,6 +315,9 @@
 
 .live-chart-settings { display: flex; align-items: center; gap: 3px; margin-inline-start: auto; }
 .live-chart-settings button { min-width: 38px; padding: 5px 8px; border-color: transparent; background: transparent; color: var(--live-muted); }
+.live-chart-settings .header-save { display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--live-gold); }
+.live-save-status { max-width: 130px; overflow: hidden; color: var(--live-muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+.live-save-status[data-state=error] { color: #ff9ca7; }
 .live-chart-settings .header-layout { gap: 7px; }
 .header-layout span { max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
 .live-header .live-replay { margin-inline-start: 0; border-inline-start: 1px solid var(--live-border); border-radius: 0; }
@@ -377,6 +380,7 @@
   .live-header { min-height: 46px; padding-inline: 6px; gap: 8px; }
   .live-chart-settings { gap: 0; }
   .live-chart-settings button { min-width: 36px; min-height: 42px; padding-inline: 5px; }
+  .live-chart-settings .header-save > span, .live-save-status { display: none; }
   .live-chart-settings .header-layout span, .live-header .live-replay span { display: none; }
   .live-header .live-replay { min-width: 34px; }
   .live-workspace .live-panel-wide { width: 100%; }

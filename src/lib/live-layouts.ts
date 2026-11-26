@@ -77,11 +77,11 @@ export const defaultChartView: ChartView = {follow: true, viewport: null, rightO
 export const layoutName = z.string().trim().min(1).max(100);
 const fileSchema = z.object({
   format: z.literal('xau-live-layout'), version: z.literal(1), name: layoutName,
-  workspace: workspaceSchema, view: viewSchema,
+  workspace: workspaceSchema, view: viewSchema, library: z.array(indicatorSchema).max(500).optional(),
 });
 export type LiveLayoutFile = z.infer<typeof fileSchema>;
-export function makeLayoutFile(name: string, workspace: LiveWorkspaceState, view: ChartView): LiveLayoutFile {
-  return fileSchema.parse({format: 'xau-live-layout', version: 1, name, workspace, view});
+export function makeLayoutFile(name: string, workspace: LiveWorkspaceState, view: ChartView, library?: LiveWorkspaceState['scripts']): LiveLayoutFile {
+  return fileSchema.parse({format: 'xau-live-layout', version: 1, name, workspace, view, library});
 }
 export function readLayoutFile(value: unknown): LiveLayoutFile {
   const result = fileSchema.safeParse(value);
