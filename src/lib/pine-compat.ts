@@ -12,6 +12,39 @@ export function optimizePrepared(fn:Function):Function {
  while(code!==previous){previous=code;code=code.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\$\.get\(undefined,\s*0\)/g,m=>m.startsWith('$.get(')?'undefined':m);}
  return code===fn.toString()?fn:new Function('return ('+code+')')();
 }
+
+const allIndyRequestGuards: Record<string, string> = {
+ f_scanSource: 'scanAll',
+ f_parentData: 'parentOK',
+ f_previousVolumeProfile: 'useVolumeProfile',
+};
+
+export function bindAllIndyBasicRequests(source: string, slices?: Record<string, Function>) {
+ if (!slices || !/\bindicator\s*\(\s*["']All Indy \d+\.\d+\.\d+\s*·\s*Basic\b/.test(source)) return;
+
+ for (const [parameter, slice] of Object.entries(slices)) {
+  const code = slice.toString();
+  const lines = code.split('\n');
+  const expression = lines.find(line => line.trimStart().startsWith('const ' + parameter + ' = request.param($.call(f_'));
+  const name = expression?.match(/\$\.call\((f_\w+),/)?.[1];
+  const guard = name ? allIndyRequestGuards[name] : undefined;
+  if (!expression || !guard) continue;
+
+  // PineTS 0.11 copies the chart-side guard into the secondary program.
+  // On that timeframe the guard can skip the very expression being requested.
+  // Run the original expression per secondary candle so its history and lag
+  // are evaluated there. Leave the chart's condition and lookahead untouched.
+  const boundary = code.search(new RegExp('^  if \\(\\$\\.get\\(\\$\\.let\\.glb\\d+_' + guard + ', 0\\)', 'm'));
+  if (boundary < 0 || code.indexOf(expression) < boundary) continue;
+  const lagParameter = expression.match(/\$\.call\(f_scanSource, "[^"]+", (p\d+)\)/)?.[1];
+  const lag = lagParameter && lines.find(line => line.trimStart().startsWith('const ' + lagParameter + ' = $.param('));
+  if (name === 'f_scanSource' && !lag) continue;
+
+  const secondary = [code.slice(0, boundary), lag, expression, '}'].filter(Boolean).join('\n');
+  slices[parameter] = new Function('return (' + secondary + ')')();
+ }
+}
+
 export function wrapPineContext(fn:Function,owner?:any):Function {
  return async (ctx:any)=>{
   if(owner)ctx.pineTSCode=owner;

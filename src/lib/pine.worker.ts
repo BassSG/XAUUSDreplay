@@ -1,6 +1,6 @@
 import {PineTS,Indicator} from 'pinets';
 import type {Bar,CandleCalendar} from './engine.ts';
-import {adaptPineSource,wrapPineContext,optimizePrepared,setPineMainTimeframe} from './pine-compat.ts';
+import {adaptPineSource,bindAllIndyBasicRequests,wrapPineContext,optimizePrepared,setPineMainTimeframe} from './pine-compat.ts';
 import {periodEnd,replayProvider} from './pine-data.ts';
 import {installReplaySnapshots} from './pine-stream.ts';
 import {checkPineIndicator,type LivePineFrame} from './live-pine.ts';
@@ -49,6 +49,7 @@ context.onmessage=async(event:MessageEvent)=>{
    let item=compiled.get(job.id);
    if(!item||item.source!==src){
     const indicator=new Indicator(adaptPineSource(src)),prepared=indicator.prepare();
+    bindAllIndyBasicRequests(src, prepared.ltfSlices as unknown as Record<string, Function> | undefined);
     item={source:src,indicator,meta:indicator.getInputsMeta(),bridge:new Map()};const entry=item,fn=optimizePrepared(prepared.fn);
     prepared.fn=wrapPineContext(async(ctx:any)=>{
      const t=Math.floor(ctx.marketData[ctx.idx]?.openTime/1000);

@@ -10,6 +10,27 @@ await import('../src/lib/pine.worker.ts');
 const base=Array.from({length:2400},(_,i)=>({time:1700000100+i*60,open:2000+Math.sin(i/8)*3+i/100,high:2004+Math.sin(i/8)*3+i/100,low:1996+Math.sin(i/8)*3+i/100,close:2000.4+Math.sin(i/8)*3+i/100,volume:10+(i%7)}));
 async function run(source,{bars=base,baseBars=bars,seconds=60,scripts,plotLimit}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds:60,calendar:'utc',scripts,plotLimit}})});}
 const assertGood=r=>assert.deepEqual(r.errors,[],r.errors.join(' | '));
+test('All Indy Basic guarded scans evaluate on the requested timeframe and keep the last confirmed value', async () => {
+ const source=`//@version=6
+indicator("All Indy 1.4.33 · Basic", dynamic_requests=true)
+bool scanAll = input.bool(true)
+int seconds = timeframe.in_seconds()
+f_scanSource(simple int lag) =>
+    close[lag]
+var array<string> scanTFs = array.from("15")
+float result = na
+if scanAll and barstate.islast
+    for tf in scanTFs
+        if timeframe.in_seconds(tf) > seconds
+            result := request.security(syminfo.tickerid, tf, f_scanSource(1), lookahead=barmerge.lookahead_on)
+plot(result, "Confirmed scan")`;
+ const start=Date.UTC(2025,0,6,6)/1000;
+ const minutes=Array.from({length:37},(_,i)=>({time:start+i*60,open:2000+i,high:2002+i,low:1999+i,close:2001+i,volume:10}));
+ const bars=aggregate(minutes,300,'eightcap'),asOf=start+37*60;
+ const result=await new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,seconds:300,calendar:'eightcap',live:{asOf,minutes}}})});
+ assertGood(result);
+ assert.equal(result.plots[0].data.at(-1).value,2030);
+});
 test('external v5 indicators on a live hourly chart see only available Eightcap candles across timeframes', async () => {
  const start = Date.UTC(2025,0,6,6)/1000;
  const minutes = Array.from({length:145},(_,i)=>({time:start+i*60,open:2000+i,high:2002+i,low:1999+i,close:2001+i,volume:10}));
