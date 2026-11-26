@@ -1,5 +1,5 @@
 import type {Connect, Plugin} from 'vite';
-import {barsQuery} from '../src/lib/live-market';
+import {barsQuery, minutePollSize, olderPageSize, recentBarsSize} from '../src/lib/live-market';
 
 const prefix = '/api/xau-live/';
 const recentBars = /^bars\/(1m|5m|15m|1h|4h|1d)$/;
@@ -23,16 +23,21 @@ export function liveBridge(): Plugin {
     const params = new URLSearchParams(query);
     const value = params.get('end');
     const rawEnd = value === null ? undefined : Number(value);
+    const limit = params.get('limit');
+    const order = params.get('order');
+    const supportedLimit = limit === null || (bars?.[1] === '1m' && value === null && limit === String(minutePollSize));
+    const defaultLimit = String(value === null ? recentBarsSize : olderPageSize);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     if (req.method !== 'GET' || (!bars && route !== 'quote') ||
-        [...params].length > (bars && value !== null ? 1 : 0) ||
+        [...params].length > (bars ? Number(value !== null) + Number(limit !== null) + Number(order !== null) : 0) ||
+        (order !== null && order !== 'desc') || (!supportedLimit && limit !== defaultLimit) ||
         (value !== null && (!/^\d{1,12}$/.test(value) || rawEnd! <= 0))) {
       res.statusCode = 404;
       res.end(JSON.stringify({error: 'Unknown market data route'}));
       return;
     }
-    const endpoint = bars ? '/api/bars/' + bars[1] + '?' + barsQuery(rawEnd).toString() : '/api/quote';
+    const endpoint = bars ? '/api/bars/' + bars[1] + '?' + barsQuery(rawEnd, limit === null ? undefined : Number(limit)).toString() : '/api/quote';
     try {
       const result = await fetch(new URL(endpoint, bridge), {
         headers, redirect: 'error', signal: AbortSignal.timeout(5500),

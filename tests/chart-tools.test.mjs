@@ -1,10 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {logicalAtTime,timeAtLogical,moveDrawing,rayEnd,replayBatch,replayRange} from '../src/lib/chart-tools.ts';
+import {captureLiveViewport,logicalAtTime,restoreLiveViewport,timeAtLogical,moveDrawing,rayEnd,replayBatch,replayRange} from '../src/lib/chart-tools.ts';
 import {drawingGeometry, positionMetrics, placementError} from '../src/lib/drawing-geometry.ts';
 import {drawingGroups,drawingKinds} from '../src/lib/drawing-definitions.ts';
 
 const timeline=[{time:1700000000},{time:1700000300},{time:1700000600},{time:1700259900},{time:1700260200}];
+
+test('switching a panned chart between timeframes preserves the visible time under its center', () => {
+ const start=1700000000;
+ const minutes=Array.from({length:500},(_,i)=>({time:start+i*60}));
+ const fiveMinutes=Array.from({length:100},(_,i)=>({time:start+i*300}));
+ const view=captureLiveViewport({from:206,to:254},minutes,60);
+ assert.equal(view.time,start+230*60);
+ const range=restoreLiveViewport(view,fiveMinutes,300);
+ assert.deepEqual(range,{from:22,to:70});
+});
 
 test('Long and Short measure the confirmed prices and reject a stop or target on the wrong side', () => {
  const points=[{time:10,price:2000},{time:30,price:2030},{time:30,price:1990}];

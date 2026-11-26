@@ -164,6 +164,19 @@
 .live-ohlc span { white-space: nowrap; }
 .live-ohlc [data-price=close] { color: #ef8c99; }
 .live-ohlc[data-up=true] [data-price=close] { color: var(--live-green); }
+.live-chart-extras { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.live-candle-clock {
+  display: inline-flex;
+  gap: 7px;
+  padding: 4px 6px;
+  border: 1px solid #2b3a4c;
+  border-radius: 4px;
+  background: #121b27f5;
+  color: var(--live-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.live-candle-clock strong { color: var(--live-green); }
 .live-study-legend { pointer-events: auto; max-width: 100%; }
 .live-study-legend button {
   min-height: 27px;

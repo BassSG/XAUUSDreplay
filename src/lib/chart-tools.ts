@@ -2,6 +2,7 @@ import type {Bar,Drawing,DrawingPoint} from './engine.ts';
 import {drawingKinds,drawingTools,type DrawingKind} from './drawing-definitions.ts';
 
 export type XY={x:number;y:number};
+export type LiveViewport={time:number;span:number};
 export const drawingNames=Object.fromEntries(drawingKinds.map(kind=>[kind,drawingTools[kind].name])) as Record<DrawingKind,string>;
 
 // Fractional logical coordinates preserve anchors between candles and in empty
@@ -22,6 +23,18 @@ export function timeAtLogical(logical:number,bars:Pick<Bar,'time'>[],seconds:num
  if(logical>=last)return Math.round(bars[last].time+(logical-last)*seconds);
  const lo=Math.floor(logical);
  return Math.round(bars[lo].time+(logical-lo)*(bars[lo+1].time-bars[lo].time));
+}
+
+export function captureLiveViewport(range:{from:number;to:number},bars:Pick<Bar,'time'>[],seconds:number):LiveViewport {
+ const center=Math.max(0,Math.min(bars.length-1,(range.from+range.to)/2));
+ return {time:timeAtLogical(center,bars,seconds),span:range.to-range.from};
+}
+
+export function restoreLiveViewport(view:LiveViewport,bars:Pick<Bar,'time'>[],seconds:number) {
+ const span=Math.max(6,Math.min(bars.length+12,view.span));
+ const center=Math.max(0,Math.min(bars.length-1,logicalAtTime(view.time,bars,seconds)));
+ const from=Math.max(0,center-span/2);
+ return {from,to:from+span};
 }
 export function rayEnd(a:XY,b:XY,width:number,height:number):XY{
  const dx=b.x-a.x,dy=b.y-a.y;

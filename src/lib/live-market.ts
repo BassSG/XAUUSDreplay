@@ -1,9 +1,11 @@
-import {brokerTimeToUtc, utcToBrokerTime, type Bar} from './engine.ts';
+import {aggregate, brokerTimeToUtc, utcToBrokerTime, type Bar} from './engine.ts';
 
 export const periods = {'1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400};
 export type Period = keyof typeof periods;
-export type Quote = {bid: number; ask: number; time: number; status: 'live' | 'closed' | 'stale'};
+export type Quote = {bid: number; ask: number; time: number; serverTime: number; status: 'live' | 'closed' | 'stale'};
 export const olderPageSize = 1000;
+export const recentBarsSize = 1500;
+export const minutePollSize = 12;
 type Row = Record<string, unknown>;
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
 const epoch = (value: unknown): value is number => positive(value) && Number.isSafeInteger(value);
@@ -25,8 +27,8 @@ export function mergeClosedBars(previous: Bar[], snapshot: Bar[], capacity = 250
   return length <= capacity ? bars : bars.slice(-capacity);
 }
 
-export function barsQuery(rawEnd?: number) {
-  const query = new URLSearchParams({limit: rawEnd === undefined ? '1500' : String(olderPageSize), order: 'desc'});
+export function barsQuery(rawEnd?: number, limit = rawEnd === undefined ? recentBarsSize : olderPageSize) {
+  const query = new URLSearchParams({limit: String(limit), order: 'desc'});
   if (rawEnd !== undefined) query.set('end', String(rawEnd));
   return query;
 }
@@ -34,6 +36,22 @@ export function barsQuery(rawEnd?: number) {
 // GET /api/bars filters on the broker's clock, while chart bars are UTC.
 export function olderBarsEnd(before: number) {
   return utcToBrokerTime(before) - 1;
+}
+
+export function candleWindow(time: number, seconds: number) {
+  const open = Math.floor(utcToBrokerTime(time) / seconds) * seconds;
+  return {open: brokerTimeToUtc(open), close: brokerTimeToUtc(open + seconds)};
+}
+
+// The bridge publishes settled candles. Derive the remaining higher-timeframe
+// candles from the same settled M1 stream, starting only where it covers the open.
+export function candlesFromMinutes(closed: Bar[], minutes: Bar[], seconds: number): Bar[] {
+  const last = closed.at(-1);
+  if (seconds === periods['1m'] || !last || !minutes.length) return closed;
+  const nextOpen = candleWindow(last.time, seconds).close;
+  if (minutes[0].time > nextOpen || minutes.at(-1)!.time < nextOpen) return closed;
+  const tail = aggregate(minutes.slice(minutes.findIndex(bar => bar.time >= nextOpen)), seconds, 'eightcap');
+  return [...closed, ...tail];
 }
 
 export function readOlderBars(payload: unknown, before: number, seconds: number, now: number) {
@@ -71,7 +89,7 @@ export function readBars(payload: unknown, seconds: number, now: number): Bar[] 
         !positive(low) || !positive(close) || high < Math.max(open, close) || low > Math.min(open, close)) {
       throw Error('รูปแบบแท่งราคาจาก Bridge ไม่ถูกต้อง');
     }
-    if (time + seconds > now) continue;
+    if (candleWindow(time, seconds).close > now) continue;
     if (rows.has(time)) throw Error('Bridge ส่งแท่งราคาซ้ำ');
     const volume = typeof tick_volume === 'number' && Number.isSafeInteger(tick_volume) && tick_volume >= 0 ? tick_volume : 0;
     rows.set(time, {time, open, high, low, close, volume,
@@ -88,22 +106,10 @@ export function readQuote(payload: unknown, now: number): Quote {
       !positive(bid) || !positive(ask) || ask < bid || !epoch(timestamp)) {
     throw Error('รูปแบบ Quote จาก Bridge ไม่ถูกต้อง');
   }
+  const age = typeof row.tick_age_seconds === 'number' && Number.isFinite(row.tick_age_seconds) && row.tick_age_seconds >= 0
+    ? row.tick_age_seconds : now - timestamp;
   const live = row.quote_usable === true && row.connection_status === 'connected' &&
-    row.market_status === 'open' && row.feed_status === 'fresh' && now - timestamp >= -2 && now - timestamp <= 120;
-  return {bid, ask, time: timestamp, status: live ? 'live' : row.market_status === 'closed' ? 'closed' : 'stale'};
-}
-
-// Place the observed Bid in its own broker interval even when the closed-bar
-// response is behind the quote. Intervals with no observations stay empty.
-export function sampleOpenBar(closed: Bar | undefined, previous: Bar | null, quote: Quote, seconds: number): Bar | null {
-  if (!closed || quote.status !== 'live') return null;
-  const brokerTime = utcToBrokerTime(quote.time);
-  const time = brokerTimeToUtc(Math.floor(brokerTime / seconds) * seconds);
-  if (time <= closed.time || time > quote.time) return null;
-  const price = quote.bid;
-  if (previous?.time === time) {
-    if (previous.close === price) return previous;
-    return {...previous, high: Math.max(previous.high, price), low: Math.min(previous.low, price), close: price};
-  }
-  return {time, open: price, high: price, low: price, close: price, volume: 0};
+    row.market_status === 'open' && row.feed_status === 'fresh' && age >= -2 && age <= 120;
+  return {bid, ask, time: timestamp, serverTime: timestamp + age,
+    status: live ? 'live' : row.market_status === 'closed' ? 'closed' : 'stale'};
 }

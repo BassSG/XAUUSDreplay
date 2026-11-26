@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  barsQuery, liveTailUpdate, mergeClosedBars, olderBarsEnd, prependOlderBars, readBars, readOlderBars, readQuote, sampleOpenBar,
+  barsQuery, candleWindow, candlesFromMinutes, liveTailUpdate, mergeClosedBars, olderBarsEnd, prependOlderBars, readBars, readOlderBars, readQuote,
 } from '../src/lib/live-market.ts';
 import {livePlots, studyLabel} from '../src/lib/live-indicators.ts';
 
@@ -24,31 +24,39 @@ test('broker candles are chronological and only settled candles are accepted', (
   assert.throws(() => readBars([{...candle, high: 3990}], 60, now));
 });
 
-test('the open candle uses observed Bid and never fills a gap with fabricated bars', () => {
-  const [closed] = readBars([candle], 60, now);
-  const first = sampleOpenBar(closed, null, readQuote(quote, now - 60), 60);
-  assert.equal(first, null);
-  const partial = sampleOpenBar(closed, null, readQuote(quote, now), 60);
-  assert.deepEqual(partial, {time: now, open: 4015, high: 4015, low: 4015, close: 4015, volume: 0});
-  const lower = readQuote({...quote, timestamp: now + 1, bid: 4014}, now + 1);
-  assert.equal(sampleOpenBar(closed, partial, lower, 60).low, 4014);
-  const afterGap = readQuote({...quote, timestamp: now + 120}, now + 120);
-  assert.deepEqual(sampleOpenBar(closed, partial, afterGap, 60), {
-    time: now + 120, open: 4015, high: 4015, low: 4015, close: 4015, volume: 0,
-  });
+test('entering 1h partway through the hour includes the real open, highs, and lows from earlier minutes', () => {
+  const time = Date.parse('2026-11-26T01:00:00Z') / 1000;
+  const closed = [{time: time - 3600, open: 3565, high: 3572, low: 3560, close: 3562, volume: 1000}];
+  const minutes = [
+    {time: time - 60, open: 3561, high: 3564, low: 3558, close: 3562, volume: 135},
+    {time, open: 3563, high: 3568, low: 3560, close: 3565, volume: 105},
+    {time: time + 60, open: 3565, high: 3580, low: 3563, close: 3575, volume: 179},
+    {time: time + 120, open: 3575, high: 3576, low: 3550, close: 3561, volume: 206},
+  ];
+  assert.deepEqual(candlesFromMinutes(closed, minutes, 3600), [
+    ...closed, {time, open: 3563, high: 3580, low: 3550, close: 3561, volume: 490},
+  ]);
+  assert.equal(candlesFromMinutes(closed, minutes.slice(-2), 3600), closed, 'missing the opening minute cannot establish the open');
+  assert.equal(candlesFromMinutes(minutes, minutes, 60), minutes, 'waiting for a minute close leaves the latest real 1m bar intact');
 });
 
-test('a live H4 candle starts at the broker boundary when last closed prices arrive late', () => {
-  const time = Date.parse('2026-11-26T04:15:02Z') / 1000;
-  const expected = Date.parse('2026-11-26T02:00:00Z') / 1000;
-  const stale = {...candle, time: Date.parse('2026-11-25T18:00:00Z') / 1000, volume: 20};
-  const live = readQuote({...quote, timestamp: time}, time);
-  assert.equal(sampleOpenBar(stale, null, live, 14400).time, expected);
+test('higher timeframes share Eightcap’s boundaries and promote a bar when native OHLC arrives', () => {
+  const at = value => Date.parse(value) / 1000;
+  const winter = at('2026-11-26T04:15:02Z');
+  const summer = at('2026-08-24T04:15:02Z');
+  assert.deepEqual(candleWindow(winter, 14400), {open: at('2026-11-26T02:00:00Z'), close: at('2026-11-26T06:00:00Z')});
+  assert.deepEqual(candleWindow(summer, 14400), {open: at('2026-08-24T01:00:00Z'), close: at('2026-08-24T05:00:00Z')});
+  assert.equal(candleWindow(winter, 86400).open, at('2026-11-25T22:00:00Z'));
+  const native = [{...candle, time: at('2026-11-26T02:00:00Z'), volume: 940}];
+  const oneMinute = [{...native[0], time: at('2026-11-26T05:59:00Z'), volume: 20},
+    {...native[0], time: at('2026-11-26T06:00:00Z'), volume: 30}];
+  assert.deepEqual(candlesFromMinutes(native, oneMinute, 14400), [...native, oneMinute[1]]);
 });
 
 test('closed or stale quotes remain visible as status and cannot update the chart', () => {
   assert.equal(readQuote({...quote, market_status: 'closed', quote_usable: false}, now).status, 'closed');
   assert.equal(readQuote(quote, now + 121).status, 'stale');
+  assert.equal(readQuote({...quote, tick_age_seconds: 3}, now + 1200).serverTime, now + 3);
   assert.throws(() => readQuote({...quote, ask: 3999}, now));
 });
 
@@ -87,7 +95,7 @@ test('history prepends ordered, strictly older bars and preserves verified bars 
   assert.deepEqual(readOlderBars([], minute, 60, now), []);
 });
 
-test('live quote updates may edit the latest candle, while broker revisions refresh history', () => {
+test('the latest candle may update in place, while earlier broker revisions refresh the chart', () => {
   const [last] = readBars([candle], 60, now);
   const first = {...last, time: minute - 60};
   const previous = [first, last];

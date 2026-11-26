@@ -7,11 +7,12 @@ import ChartBoundary from './chart-boundary';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
 import LiveDrawingToolbar from './live-drawing-toolbar';
 import LiveStudyPanel from './live-study-panel';
+import type {LiveViewport} from '../lib/chart-tools';
 import {drawingKinds, drawingTools, isStroke, strokeMax, variableDrawingsMax} from '../lib/drawing-definitions';
 import {positionMetrics} from '../lib/drawing-geometry';
 import type {Bar, Drawing, DrawingKind, Trade} from '../lib/engine';
 import {historyCatalog, loadBefore} from '../lib/history';
-import {olderPageSize, periods, type Period} from '../lib/live-market';
+import {candleWindow, olderPageSize, periods, type Period} from '../lib/live-market';
 import {livePlots, studyDefinitions, studyLabel, studyLength, type LiveStudy, type LiveStudyLengths} from '../lib/live-indicators';
 import {useLiveMarket} from '../lib/use-live-market';
 import {useDialog} from '../lib/use-dialog';
@@ -31,6 +32,33 @@ const historyDate = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
 });
 const counts = new Intl.NumberFormat('en-US');
+const shortClock = new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'});
+
+function LiveCandleClock({seconds, serverNow, through}: {seconds: number; serverNow: () => number; through?: number}) {
+  const [stamp, setStamp] = useState(serverNow);
+  useEffect(() => {
+    const update = () => setStamp(previous => Math.max(previous, serverNow()));
+    update();
+    const interval = setInterval(update, 250);
+    return () => clearInterval(interval);
+  }, [serverNow]);
+  let window;
+  try {
+    window = candleWindow(stamp, seconds);
+  } catch {
+    return null;
+  }
+  const left = Math.max(0, window.close - stamp);
+  const minutes = Math.floor(left / 60);
+  const two = (value: number) => String(value).padStart(2, '0');
+  const duration = (minutes >= 60 ? Math.floor(minutes / 60) + ':' : '') + two(minutes % 60) + ':' + two(left % 60);
+  const asOf = through === undefined ? '' : 'OHLC ถึง ' + shortClock.format(through * 1000);
+  return <div className="live-candle-clock" data-open={window.open} data-close={window.close} data-through={through}
+    title={'เวลาเปิด–ปิดแท่งตาม MT5 · ปิด ' + shortClock.format(window.close * 1000) + ' กรุงเทพฯ'}>
+    <span>ปิดใน <strong>{duration}</strong></span>
+    {asOf && <span>{asOf}</span>}
+  </div>;
+}
 
 function LivePanel({title, onClose, children}: {title: string; onClose: () => void; children: ReactNode}) {
   const id = useId();
@@ -89,6 +117,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [mode, setMode] = useState<DrawingKind | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
+  const [viewport, setViewport] = useState<LiveViewport | null>(null);
   const [retry, setRetry] = useState(0);
   const [backup, setBackup] = useState<{period: Period; bars: Bar[]; failed?: boolean}>();
   const [storageFailed, setStorageFailed] = useState(false);
@@ -97,8 +126,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const chart = useRef<LiveChartActions>(null);
   const undo = useRef<Drawing[][]>([]);
   const redo = useRef<Drawing[][]>([]);
-  const market = useLiveMarket(period, retry);
-  const needsBackup = market.barError && market.closed.length === 0;
+  const market = useLiveMarket(period, retry, viewport?.time ?? null);
+  const needsBackup = !viewport && market.barError && market.closed.length === 0;
 
   useEffect(() => {
     if (!focusMode || mode || selected || panel) return;
@@ -137,9 +166,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }, [period, needsBackup, retry]);
 
   const historical = needsBackup && backup?.period === period ? backup.bars : emptyBars;
-  const bars = useMemo(() => market.closed.length
-    ? market.open ? [...market.closed, market.open] : market.closed
-    : historical, [market.closed, market.open, historical]);
+  const bars = market.bars.length ? market.bars : historical;
   const plots = useMemo(() => livePlots(bars, studies, lengths), [bars, studies, lengths]);
   const activeDrawing = drawings.find(d => d.id === selected);
   const activeMetrics = activeDrawing?.kind === 'long' || activeDrawing?.kind === 'short'
@@ -152,6 +179,11 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const historyLabel = market.historyStatus === 'loading' ? 'กำลังโหลดแท่งเก่า'
     : market.historyStatus === 'error' ? 'โหลดแท่งเก่าไม่สำเร็จ'
     : market.historyStatus === 'end' ? 'ถึงข้อมูลเก่าสุดที่ Eightcap ส่งมาแล้ว' : '';
+  const liveNow = follow && !market.archive && !historical.length && quote?.status === 'live' && !market.quoteError;
+  const minuteBased = market.bars.length > market.closed.length;
+  const last = minuteBased ? market.minuteTime : market.closed.at(-1)?.time;
+  const through = last === undefined ? undefined : candleWindow(last, minuteBased ? 60 : periods[period]).close;
+  const viewportKey = period + (market.archive ? '-archive' : '-current');
 
   function cancelDrawing() {
     setMode(null);
@@ -177,9 +209,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setWorkspace(value => ({...value, drawings: next}));
   }
   function selectPeriod(value: Period) {
+    if (value === period) return;
+    setViewport(follow ? null : chart.current?.viewport() ?? viewport);
     setWorkspace(current => ({...current, period: value}));
     cancelDrawing();
-    setFollow(true);
   }
   function toggleStudy(study: LiveStudy) {
     setWorkspace(value => ({...value, studies: value.studies.includes(study)
@@ -194,7 +227,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   function closePanel() { setPanel(null); }
   function reconnect() { setRetry(value => value + 1); }
   function goLatest() {
-    chart.current?.latest();
+    if (!market.archive && !market.findingWindow) chart.current?.latest();
+    setViewport(null);
     setFollow(true);
   }
   function toggleFollow() {
@@ -255,7 +289,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         <button className="live-wide-action" type="button" aria-haspopup="dialog" title="แท่งย้อนหลัง"
           aria-label="แท่งย้อนหลัง" onClick={() => setPanel('history')}><History size={17}/><span>ย้อนหลัง</span></button>
         <button className="live-wide-action" type="button" aria-label="ไปแท่งล่าสุด" title="ไปแท่งล่าสุด"
-          disabled={!bars.length} onClick={goLatest}><SkipForward size={17}/></button>
+          disabled={!bars.length && !viewport} onClick={goLatest}><SkipForward size={17}/></button>
         <button type="button" aria-label={focusMode ? 'ออกจากโหมดโฟกัส' : 'มุมมองกราฟ'}
           title={focusMode ? 'ออกจากโหมดโฟกัส' : 'มุมมองกราฟ'} aria-haspopup={focusMode ? undefined : 'dialog'}
           onClick={() => focusMode ? setFocusMode(false) : setPanel('view')}>
@@ -280,27 +314,32 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           <button className="live-dock-action" type="button" aria-label="แท่งย้อนหลัง" aria-haspopup="dialog"
             onClick={() => setPanel('history')}><History size={19}/><span>ย้อนหลัง</span></button>
           <button className="live-dock-action" type="button" aria-label="ไปแท่งล่าสุด" title="ไปแท่งล่าสุด"
-            data-following={follow} disabled={!bars.length} onClick={goLatest}><SkipForward size={19}/><span>ล่าสุด</span></button>
+            data-following={follow} disabled={!bars.length && !viewport} onClick={goLatest}><SkipForward size={19}/><span>ล่าสุด</span></button>
         </>}/>
       <div className="live-chart">
-        {bars.length ? <ChartBoundary resetKey={period}><ReplayChart live key={period} liveActions={chart}
+        {bars.length ? <ChartBoundary resetKey={viewportKey}><ReplayChart live key={viewportKey} liveActions={chart}
+          liveViewport={viewport} liveBid={liveNow ? quote.bid : undefined}
           bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
           drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
           selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingCancel={cancelDrawing}
-          liveSelection={drawingStrip} liveLegend={studies.length > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
-            <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
+          liveSelection={drawingStrip} liveLegend={<div className="live-chart-extras">
+            {studies.length > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
+              <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
               <i style={{backgroundColor: studyDefinitions[studies[0]].color}} aria-hidden="true"/>
               {studyLabel(studies[0], lengths)}
               {studies.length > 1 && <span>+{studies.length - 1}</span>}
-            </button>
+              </button>
+            </div>}
+            {liveNow && <LiveCandleClock seconds={periods[period]} serverNow={market.serverNow} through={through}/>}
           </div>}
           onDrawing={drawing => { saveDrawings([...drawings, drawing]); setSelected(drawing.id); setMode(null); }}
           onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
           onDrawingUndo={() => restoreDrawing(undo.current, redo.current)} onDrawingRedo={() => restoreDrawing(redo.current, undo.current)}
           onHistoryEdge={loadAtChartEdge} onLeaveLatest={() => setFollow(false)}/></ChartBoundary>
-          : <div className="live-chart-empty" role="status"><span>{needsBackup && backup?.failed
-            ? 'โหลดแท่งราคาไม่ได้' : needsBackup ? 'กำลังโหลดข้อมูลย้อนหลัง' : 'กำลังโหลดแท่งราคาจาก Eightcap'}</span>
-            {needsBackup && backup?.failed && <button type="button" onClick={reconnect}><RefreshCw size={16}/>เชื่อมต่อใหม่</button>}
+          : <div className="live-chart-empty" role="status"><span>{market.findingWindow ? 'กำลังโหลดช่วงเวลาเดิม'
+            : market.barError && (viewport || backup?.failed) ? 'โหลดแท่งราคาไม่ได้'
+              : needsBackup ? 'กำลังโหลดข้อมูลย้อนหลัง' : 'กำลังโหลดแท่งราคาจาก Eightcap'}</span>
+            {market.barError && (viewport || backup?.failed) && <button type="button" onClick={reconnect}><RefreshCw size={16}/>เชื่อมต่อใหม่</button>}
           </div>}
       </div>
     </section>
@@ -308,7 +347,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     <footer className="live-foot">
       <span>Eightcap MT5 <span aria-hidden="true">·</span> Bid</span>
       <span className="live-foot-status" role="status">{storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
-        (historical.length ? 'ข้อมูลสำรอง' : market.barError ? 'แสดงแท่งที่โหลดไว้' : '')}</span>
+        (market.windowUnavailable ? 'ไม่พบช่วงเวลาเดิมในไทม์เฟรมนี้' : market.archive ? 'มุมมองย้อนหลัง'
+          : historical.length ? 'ข้อมูลสำรอง' : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
+            : minuteBased ? 'OHLC จาก 1m ที่ปิดแล้ว' : '')}</span>
       <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a>
     </footer>
 

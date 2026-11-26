@@ -2,7 +2,7 @@
 import {useEffect,useImperativeHandle,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
 import {createChart,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers,type IChartApi} from 'lightweight-charts';
 import ChartDrawings from './chart-drawings';
-import {replayRange} from '../lib/chart-tools';
+import {captureLiveViewport,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
 import {liveTailUpdate, sameMarketBar} from '../lib/live-market';
 import type {Bar,Trade,Drawing,DrawingKind} from '../lib/engine';
 export type ChartLevel={id:string;price:number;kind:'entry'|'sl'|'tp';label:string;color:string;draft?:boolean;tradeId?:string;orderId?:string;editable:boolean;pending?:boolean};
@@ -28,10 +28,11 @@ export type LiveChartActions = {
  fit: () => void;
  first: () => void;
  latest: () => void;
+ viewport: () => LiveViewport | null;
  exportPng: () => Promise<void>;
 };
 
-export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=[],onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,hiddenDrawings=false,live=false,liveActions,liveLegend,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;hiddenDrawings?:boolean;live?:boolean;liveActions?:Ref<LiveChartActions>;liveLegend?:ReactNode;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
+export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=[],onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,hiddenDrawings=false,live=false,liveActions,liveViewport,liveBid,liveLegend,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;hiddenDrawings?:boolean;live?:boolean;liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;liveBid?:number;liveLegend?:ReactNode;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
  const [expanded,setExpanded]=useState(false),[paneCount,setPaneCount]=useState(0),[focus,setFocus]=useState('draft');
  const [cursorTime,setCursorTime]=useState<number|null>(null);
  const paneStudies=useMemo(()=>{
@@ -95,7 +96,9 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
    const offset=inserted>0?-inserted:Math.max(0,removed);
    range=previous&&old.length&&(removed>=0||inserted>=0)
     ? replayRange(previous,old.length,bars.length,offset,follow&&inserted<=0)
-    : latestLiveRange(bars.length,host.current?.clientWidth??700);
+    : !follow&&liveViewport&&bars.length
+      ? restoreLiveViewport(liveViewport,bars,seconds)
+      : latestLiveRange(bars.length,host.current?.clientWidth??700);
    if(tail&&liveTailUpdate(old,bars)){
     if(old.length!==bars.length||!sameMarketBar(old[old.length-1],tail))r.series.update(tail);
     if(follow&&old.length!==bars.length)scale.setVisibleLogicalRange(range);
@@ -109,7 +112,22 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
    if(tail)scale.setVisibleLogicalRange(range);
   }
   r.data=bars;r.count=bars.length;r.offset=barIndexOffset;setViewTick(v=>v+1);
- },[bars,follow,barIndexOffset,live]);
+ },[bars,follow,barIndexOffset,live,liveViewport,seconds]);
+ useEffect(()=>{
+  const r=ref.current;
+  if(!live||!r)return;
+  if(liveBid===undefined){
+   if(!r.bidLine)return;
+   r.series.removePriceLine(r.bidLine);
+   r.bidLine=null;
+   r.series.applyOptions({priceLineVisible:true,lastValueVisible:true});
+  }else if(r.bidLine){
+   r.bidLine.applyOptions({price:liveBid});
+  }else{
+   r.bidLine=r.series.createPriceLine({price:liveBid,color:'#69d4b6',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'Bid'});
+   r.series.applyOptions({priceLineVisible:false,lastValueVisible:false});
+  }
+ },[live,liveBid]);
  useEffect(()=>{const r=ref.current;if(!r)return;r.series.applyOptions({autoscaleInfoProvider:(base:Function)=>{const info=base();if(!info)return info;if(r.dragRange)return {...info,priceRange:r.dragRange};const selected=levels.some(l=>(l.tradeId||l.orderId||'draft')===focus)?focus:'draft';const prices=levels.filter(l=>(l.tradeId||l.orderId||'draft')===selected).map(l=>l.price).filter(p=>Number.isFinite(p)&&p>0);const range={minValue:Math.min(info.priceRange.minValue,...prices),maxValue:Math.max(info.priceRange.maxValue,...prices)};r.lastRange=range;return {...info,priceRange:range};}});setViewTick(v=>v+1)},[levels,focus]);
  useEffect(()=>{const r=ref.current;if(!r)return;for(const line of r.lines)r.series.removePriceLine(line);r.lines=[];
   const selected=levels.some(l=>(l.tradeId||l.orderId||'draft')===focus)?focus:'draft';
@@ -160,6 +178,10 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   fit:()=>ref.current?.chart.timeScale().fitContent(),
   first:goFirst,
   latest:goLatest,
+  viewport:()=>{
+   const range=ref.current?.chart.timeScale().getVisibleLogicalRange();
+   return range&&bars.length?captureLiveViewport(range,bars,seconds):null;
+  },
   exportPng:exportChart,
  }));
 
