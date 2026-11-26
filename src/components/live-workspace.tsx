@@ -80,7 +80,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [initial] = useState(readWorkingChart);
   const [workspace, setWorkspace] = useState(initial.workspace);
   const [library, setLibrary] = useState(initial.library);
-  const {period, studies, lengths, drawings, magnet, hiddenDrawings, appearance, scripts} = workspace;
+  const {period, studies, lengths, drawings, magnet, hiddenDrawings, stayInDrawingMode, appearance, scripts} = workspace;
   const [activeLayout, setActiveLayout] = useState(initial.active);
   const [saveState, setSaveState] = useState<'ready' | 'saving' | 'saved' | 'error'>('ready');
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -418,10 +418,12 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
 
     <section className="live-chart-layout" aria-label="กราฟ XAUUSD">
       <LiveDrawingToolbar mode={mode} enabled={!hiddenDrawings && bars.length > 0 && drawings.length < 500}
-        magnet={magnet} hidden={hiddenDrawings} canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}
+        magnet={magnet} hidden={hiddenDrawings} stayInDrawingMode={stayInDrawingMode}
+        canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}
         canDelete={Boolean(activeDrawing && !activeDrawing.locked)}
         onPick={kind => { setMode(kind); setSelected(null); setFollow(false); }} onSelect={cancelDrawing}
         onMagnet={() => setWorkspace(value => ({...value, magnet: !value.magnet}))}
+        onStayInDrawingMode={() => setWorkspace(value => ({...value, stayInDrawingMode: !value.stayInDrawingMode}))}
         onHide={() => {
           cancelDrawing();
           setWorkspace(value => ({...value, hiddenDrawings: !value.hiddenDrawings}));
@@ -450,7 +452,11 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
             </button>
             {(pine.error || pine.warnings.length > 0) && <button type="button" onClick={() => setPanel('pine')} title={pine.error || pine.warnings.join(' · ')}>ดูข้อความ Pine</button>}
           </div>}
-          onDrawing={drawing => { saveDrawings([...drawings, drawing]); setSelected(drawing.id); setMode(null); }}
+          onDrawing={drawing => {
+            saveDrawings([...drawings, drawing]);
+            if (stayInDrawingMode) setSelected(null);
+            else { setSelected(drawing.id); setMode(null); }
+          }}
           onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
           onDrawingUndo={() => restoreDrawing(undo.current, redo.current)} onDrawingRedo={() => restoreDrawing(redo.current, undo.current)}
           onHistoryEdge={loadAtChartEdge} onLeaveLatest={() => setFollow(false)}/></ChartBoundary>

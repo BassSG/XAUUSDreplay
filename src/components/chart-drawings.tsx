@@ -65,6 +65,7 @@ function completeDrawing(kind: DrawingKind, points: DrawingPoint[], confirmPlace
 export default function ChartDrawings(props: Props) {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [moving, setMoving] = useState<Drawing | null>(null);
+  const [coarsePointer, setCoarsePointer] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true);
   const state = useRef(props);
   const draftRef = useRef(draft);
   const movingRef = useRef(moving);
@@ -72,7 +73,16 @@ export default function ChartDrawings(props: Props) {
   const candidateDrag = useRef<number | null>(null);
   const stroke = useRef<Stroke | null>(null);
   const clipId = useId();
+  const confirmPlacement = Boolean(props.confirmPlacement && coarsePointer);
   state.current = props;
+
+  useEffect(() => {
+    const media = window.matchMedia('(pointer: coarse)');
+    const update = () => setCoarsePointer(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
 
   function updateDraft(next: Draft) {
     draftRef.current = next;
@@ -194,7 +204,7 @@ export default function ChartDrawings(props: Props) {
         return;
       }
       if (isStroke(p.mode)) return;
-      if (p.confirmPlacement) return;
+      if (confirmPlacement) return;
       const point = pointAt(event.point.x, event.point.y);
       if (point) accept(point);
     };
@@ -212,11 +222,11 @@ export default function ChartDrawings(props: Props) {
       api.chart.unsubscribeClick(click);
       api.chart.unsubscribeCrosshairMove(move);
     };
-  }, [props.api]);
+  }, [props.api, confirmPlacement]);
 
   useEffect(() => {
     const host = props.host;
-    if (!host || !props.confirmPlacement) return;
+    if (!host || !confirmPlacement) return;
     let start: {id: number; x: number; y: number} | null = null;
     const startTap = (event: PointerEvent) => {
       const {mode, hidden} = state.current;
@@ -247,14 +257,14 @@ export default function ChartDrawings(props: Props) {
       host.removeEventListener('pointerup', endTap, true);
       host.removeEventListener('pointercancel', cancelTap, true);
     };
-  }, [props.host, props.confirmPlacement, props.mode]);
+  }, [props.host, confirmPlacement, props.mode]);
 
   useEffect(() => {
-    const pan = !props.mode || (props.confirmPlacement && !isStroke(props.mode));
+    const pan = !props.mode || (confirmPlacement && !isStroke(props.mode));
     props.api?.chart.applyOptions({handleScroll: {
-      pressedMouseMove: pan, horzTouchDrag: pan, vertTouchDrag: !props.confirmPlacement && !props.mode, mouseWheel: true,
+      pressedMouseMove: pan, horzTouchDrag: pan, vertTouchDrag: !confirmPlacement && !props.mode, mouseWheel: true,
     }});
-  }, [props.api, props.mode, props.confirmPlacement]);
+  }, [props.api, props.mode, confirmPlacement]);
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -268,10 +278,10 @@ export default function ChartDrawings(props: Props) {
           resetDraft();
           p.onCancel();
         }
-      } else if (event.key === 'Enter' && p.mode && p.confirmPlacement && !target?.closest('button, a')) {
+      } else if (event.key === 'Enter' && p.mode && confirmPlacement && !target?.closest('button, a')) {
         event.preventDefault();
         confirm();
-      } else if (event.key.startsWith('Arrow') && p.mode && p.confirmPlacement && draftRef.current.candidate) {
+      } else if (event.key.startsWith('Arrow') && p.mode && confirmPlacement && draftRef.current.candidate) {
         const candidate = draftRef.current.candidate;
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
           const index = Math.round(indexAt(candidate.time)) + (event.key === 'ArrowLeft' ? -1 : 1);
@@ -298,7 +308,7 @@ export default function ChartDrawings(props: Props) {
       window.removeEventListener('keydown', key);
       cancelDrag();
     };
-  }, []);
+  }, [confirmPlacement]);
 
   function beginMove(event: ReactPointerEvent<SVGGElement>, drawing: Drawing, handle: number | null) {
     const p = state.current;
@@ -322,7 +332,7 @@ export default function ChartDrawings(props: Props) {
     if (!end) return;
     const p = state.current;
     const next = moveDrawing(drag.original, drag.start, end, drag.handle, p.timeline, p.seconds);
-    if (p.confirmPlacement && placementError(next.kind, next.points, p.timeline, indexAt)) return;
+    if (confirmPlacement && placementError(next.kind, next.points, p.timeline, indexAt)) return;
     setMovingDrawing(next);
   }
 
@@ -371,6 +381,9 @@ export default function ChartDrawings(props: Props) {
     if (stroke.current?.pointerId !== event.pointerId) return;
     stroke.current = null;
     updateDraft({...draftRef.current});
+    if (!confirmPlacement && state.current.mode && draftRef.current.anchors.length >= 2) {
+      save(state.current.mode, draftRef.current.anchors);
+    }
   }
 
   const api = props.api;
@@ -393,13 +406,15 @@ export default function ChartDrawings(props: Props) {
   const cursor = draft.candidate ?? draft.hover;
   const aim = cursor ? xy(cursor) : null;
   const previewPoints = cursor ? [...draft.anchors, cursor] : draft.anchors;
-  const canDragAim = Boolean(draft.candidate && props.confirmPlacement);
+  const canDragAim = Boolean(draft.candidate && confirmPlacement);
   const candidateError = draft.candidate && mode
     ? roundPrice(Number(draft.price)) <= 0 || !Number.isFinite(Number(draft.price)) ? 'ใส่ราคาตั้งแต่ 0.01' : placementError(mode, previewPoints, props.timeline, indexAt)
     : null;
+  const directError = !confirmPlacement && draft.hover && mode
+    ? placementError(mode, previewPoints, props.timeline, indexAt) : null;
   const ready = freehand ? draft.anchors.length >= 2 && !stroke.current : Boolean(draft.candidate && !candidateError);
   const metrics = (mode === 'long' || mode === 'short') ? positionMetrics(mode, previewPoints) : null;
-  const controls = mode && tool && props.confirmPlacement && <section className="live-placement" aria-label="วางจุดบนกราฟ">
+  const controls = mode && tool && confirmPlacement && <section className="live-placement" aria-label="วางจุดบนกราฟ">
     <div className="live-placement-info">
       <strong>{tool.name}</strong>
       <span role="status">{candidateError ?? (freehand
@@ -506,9 +521,9 @@ export default function ChartDrawings(props: Props) {
       onPointerDown={startStroke} onPointerMove={moveStroke} onPointerUp={stopStroke}
       onPointerCancel={stopStroke} onLostPointerCapture={stopStroke}/>}
     {controls && (props.controlsHost ? createPortal(controls, props.controlsHost) : controls)}
-    {mode && tool && !props.confirmPlacement && <div className="drawing-instruction" role="status">
-      {tool.name} · {tool.points.length === 1 ? 'คลิก / แตะเพื่อวาง' : draft.anchors.length ? 'เลือกจุดที่สอง' : 'เลือกจุดแรก'}
-      <button type="button" onClick={props.onCancel}>ยกเลิก · Esc</button>
+    {mode && tool && !confirmPlacement && <div className="drawing-instruction" role="status">
+      <span>{directError ?? (tool.name + ' · ' + (freehand ? 'ลากเมาส์เพื่อวาด' : (tool.variable ? 'จุด ' + (draft.anchors.length + 1) : tool.points[draft.anchors.length] ?? 'วางจุด') + ' · คลิกกราฟเพื่อวาง') + ' · Esc ยกเลิก')}</span>
+      <button type="button" onClick={props.onCancel}>ยกเลิก</button>
     </div>}
   </>;
 }

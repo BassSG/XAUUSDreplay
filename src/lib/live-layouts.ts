@@ -42,7 +42,7 @@ const workspaceSchema = z.object({
   lengths: z.record(z.enum(studyIds), z.number().int().min(1).max(500)),
   drawings: z.array(drawing).max(500),
   scripts: z.array(indicatorSchema).refine(rows => new Set(rows.map(row => row.id)).size === rows.length),
-  magnet: z.boolean(), hiddenDrawings: z.boolean(), appearance: appearanceSchema,
+  magnet: z.boolean(), hiddenDrawings: z.boolean(), stayInDrawingMode: z.boolean().default(false), appearance: appearanceSchema,
 });
 export type LiveWorkspaceState = z.infer<typeof workspaceSchema>;
 
@@ -60,6 +60,7 @@ export function loadLiveWorkspace(value: unknown): LiveWorkspaceState {
     drawings: items(row.drawings, drawing).slice(0, 500),
     scripts: fields.scripts.catch([]).parse(row.scripts),
     magnet: row.magnet === true, hiddenDrawings: row.hiddenDrawings === true,
+    stayInDrawingMode: fields.stayInDrawingMode.parse(row.stayInDrawingMode),
     appearance: appearanceSchema.catch(defaultAppearance).parse(row.appearance),
   };
 }

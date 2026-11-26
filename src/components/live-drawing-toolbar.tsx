@@ -6,7 +6,7 @@ import {
   ListTree, Magnet, MessageSquare, Minus, MousePointer2, MoveHorizontal, MoveUpRight,
   MoveVertical, PanelsLeftBottom, PencilRuler, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
   StickyNote, Tag, Trash2, TrendingDown, TrendingUp, Triangle, TriangleRight, Type,
-  Undo2, Waypoints, Workflow, X, type LucideIcon,
+  Repeat, Undo2, Waypoints, Workflow, X, type LucideIcon,
 } from 'lucide-react';
 import {drawingGroups, drawingKinds, drawingTools, type DrawingKind} from '../lib/drawing-definitions';
 import {useDialog} from '../lib/use-dialog';
@@ -94,10 +94,11 @@ function DrawingPicker({group, enabled, actions, onClose, onPick}: {
 }
 
 type Props = {
-  mode: DrawingKind | null; enabled: boolean; magnet: boolean; hidden: boolean;
+  mode: DrawingKind | null; enabled: boolean; magnet: boolean; hidden: boolean; stayInDrawingMode: boolean;
   canUndo: boolean; canRedo: boolean; canDelete: boolean;
   navigation: ReactNode;
   onPick: (kind: DrawingKind) => void; onSelect: () => void; onMagnet: () => void;
+  onStayInDrawingMode: () => void;
   onHide: () => void; onUndo: () => void; onRedo: () => void; onDelete: () => void;
 };
 
@@ -106,6 +107,9 @@ function DrawingActions({props, inPicker = false}: {props: Props; inPicker?: boo
     role="group" aria-label="จัดการเส้นวาด">
     <button type="button" aria-label="ดูดจุดเข้าหาราคาแท่ง" title="แม่เหล็ก · ดูดจุดเข้า Open, High, Low หรือ Close"
       aria-pressed={props.magnet} onClick={props.onMagnet}><Magnet size={17}/></button>
+    <button type="button" aria-label={props.stayInDrawingMode ? 'ปิดวาดต่อเนื่อง' : 'วาดต่อเนื่อง'}
+      title={props.stayInDrawingMode ? 'ปิดวาดต่อเนื่อง · หลังวาดเสร็จกลับไปเลือกวัตถุ' : 'วาดต่อเนื่อง · วาดวัตถุชิ้นถัดไปด้วยเครื่องมือเดิม'}
+      aria-pressed={props.stayInDrawingMode} onClick={props.onStayInDrawingMode}><Repeat size={17}/></button>
     <button type="button" aria-label={props.hidden ? 'แสดงเส้นวาด' : 'ซ่อนเส้นวาด'}
       title={props.hidden ? 'แสดงเส้นวาด' : 'ซ่อนเส้นวาด'} aria-pressed={props.hidden}
       onClick={props.onHide}>{props.hidden ? <EyeOff size={17}/> : <Eye size={17}/>}</button>
