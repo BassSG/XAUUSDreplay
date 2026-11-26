@@ -53,7 +53,7 @@
 }
 
 .live-symbol { padding-inline: 4px; gap: 7px; font-size: 16px; letter-spacing: .025em; font-weight: 720; }
-.live-symbol img { border-radius: 7px; }
+.live-symbol img { flex: none; height: auto; }
 .live-symbol > svg { color: var(--live-muted); }
 .live-market-readout { display: flex; align-items: center; min-width: 0; gap: 8px; }
 .live-market-readout > strong { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 16px; letter-spacing: .012em; }
@@ -432,11 +432,16 @@
   .live-picker-search input { font-size: 16px; }
 }
 
-@media (max-width: 360px) {
-  .live-replay { min-width: 44px; }
-  .live-replay > span { display: none; }
+@media (max-width: 420px) {
   .live-header { gap: 5px; }
-  .live-symbol { font-size: 15px; }
-  .live-market-readout { gap: 5px; }
+  .live-symbol { font-size: 14px; gap: 5px; }
+  .live-symbol img { width: 36px; }
+  .live-symbol > svg { display: none; }
+  .live-market-readout { gap: 4px; }
   .live-market-readout > strong { font-size: 14px; }
+}
+
+@media (max-width: 360px) {
+  .live-chart-settings .header-appearance { display: none; }
+  .live-market-readout .live-feed > span { position: absolute; clip-path: inset(50%); }
 }

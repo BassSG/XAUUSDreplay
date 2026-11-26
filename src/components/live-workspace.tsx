@@ -362,9 +362,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   return <main className="live-workspace" data-focus={focusMode}>
     <header className="live-header">
       <h1>
-        <button className="live-symbol" type="button" aria-label="ข้อมูลราคา XAUUSD" aria-haspopup="dialog"
+        <button className="live-symbol" type="button" aria-label="EBW · ข้อมูลราคา XAUUSD" aria-haspopup="dialog"
           title="ข้อมูลราคา XAUUSD" onClick={() => setPanel('quotes')}>
-          <img src={import.meta.env.BASE_URL + 'icons/icon-192.png'} alt="" width={26} height={26}/>
+          <img src={import.meta.env.BASE_URL + 'icons/ebw-mark.png'} alt="" width={42} height={12}/>
           <span>XAUUSD</span><ChevronDown size={13}/>
         </button>
       </h1>
@@ -383,7 +383,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         </span>
         <button className="header-layout" type="button" aria-label="เลย์เอาต์" title="บันทึกและเปิดเลย์เอาต์"
           aria-haspopup="dialog" onClick={() => setPanel('layouts')}><PanelsTopLeft size={18}/><span>{activeLayout?.name ?? 'เลย์เอาต์'}</span></button>
-        <button type="button" aria-label="ตั้งค่ารูปลักษณ์กราฟ" title="ตั้งค่ารูปลักษณ์กราฟ"
+        <button className="header-appearance" type="button" aria-label="ตั้งค่ารูปลักษณ์กราฟ" title="ตั้งค่ารูปลักษณ์กราฟ"
           aria-haspopup="dialog" onClick={() => setPanel('appearance')}><Settings2 size={18}/></button>
       </div>
       <button className="live-replay" type="button" aria-label="เปิด Replay" title="เปิด Replay" onClick={() => { saveCamera.current(); onReplay(); }}>

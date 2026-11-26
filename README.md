@@ -1,6 +1,6 @@
-# XAU Replay
+# EBW
 
-![XAU Replay](public/brand/logo.png)
+![EBW](public/icons/ebw-mark.png)
 
 แอปฝึก Backtest และ Replay ทอง XAUUSD ใช้ได้โดยไม่ต้องสมัครสมาชิก เปิดกราฟย้อนหลัง วางออเดอร์จำลอง แล้วเก็บ P&L, R และบันทึกการเทรดของแต่ละรอบ
 
@@ -36,7 +36,7 @@ Play รักษาระยะซูมและตำแหน่งแท่
 
 ## ติดตั้งเหมือนแอป
 
-- **Windows / macOS:** เปิดด้วย Chrome หรือ Edge แล้วใช้เมนูติดตั้งแอปของเบราว์เซอร์ หรือปุ่มติดตั้งใน XAU Replay เมื่อเบราว์เซอร์รองรับ
+- **Windows / macOS:** เปิดด้วย Chrome หรือ Edge แล้วใช้เมนูติดตั้งแอปของเบราว์เซอร์ หรือปุ่มติดตั้งใน EBW เมื่อเบราว์เซอร์รองรับ
 - **iPhone / iPad:** เปิดด้วย Safari → แชร์ → เพิ่มไปยังหน้าจอโฮม → เปิดเป็นเว็บแอป → เพิ่ม ชื่อเมนูอาจต่างกันตามเวอร์ชัน iOS / iPadOS
 - **Android / tablet:** เปิดด้วย Chrome แล้วเลือกติดตั้งแอปหรือเพิ่มไปยังหน้าจอหลัก
 
@@ -148,7 +148,7 @@ npm run data:prepare -- "/path/to/history"
 
 ## โลโก้และสิทธิ์ใช้งาน
 
-ต้นฉบับโลโก้และไอคอนอยู่ใน [public/brand](public/brand) ไอคอนติดตั้งหลายขนาดอยู่ใน [public/icons](public/icons) สร้างด้วย built-in image generation แล้วแปลงขนาดด้วย Sharp โดยคงต้นฉบับไว้ ดูโหมดและ prompt ทั้งหมดใน [branding-generation.json](docs/branding-generation.json)
+โลโก้ EBW ใช้ต้นฉบับโปร่งใสจาก [ImageGen](public/brand/ebw-original.png) และย่อด้วย Sharp สำหรับกราฟ แท็บเบราว์เซอร์ และการติดตั้งแอป ไฟล์อยู่ใน [public/icons](public/icons) ประวัติการออกแบบโลโก้ XAU Replay อยู่ใน [branding-generation.json](docs/branding-generation.json)
 
 โค้ดโครงการใช้ [AGPL-3.0-only](LICENSE) รวม PineTS ภายใต้ AGPL-3.0-only แหล่งโค้ดของแอปที่เผยแพร่อยู่ใน repository นี้ ชุดข้อมูลราคามาจากไฟล์ที่เจ้าของโครงการให้มา ใบอนุญาตซอฟต์แวร์ไม่ได้กำหนดสิทธิ์ข้อมูลราคาของผู้ให้บริการต้นทาง
 

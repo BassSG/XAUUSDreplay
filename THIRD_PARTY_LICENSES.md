@@ -8,7 +8,7 @@ TradingView Lightweight Charts™
 
 Copyright (с) 2025 TradingView, Inc. https://www.tradingview.com/
 
-Source: [Lightweight Charts 5.2.1 NOTICE](https://github.com/tradingview/lightweight-charts/blob/v5.2.1/NOTICE). The chart and application footer retain the TradingView link.
+Source: [Lightweight Charts 5.2.1 NOTICE](https://github.com/tradingview/lightweight-charts/blob/v5.2.1/NOTICE). The Live and Replay footers link to TradingView.
 
 ## react 19.2.6
 
