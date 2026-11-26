@@ -1,5 +1,9 @@
 import type {Bar} from './engine';
-export type LivePineFrame = {asOf: number; minutes: Bar[]};
+import type {Period} from './live-market.ts';
+export type LivePineFrame = {asOf: number; minutes: Bar[]; nativeHistory?: boolean};
+export const maxPineSourceBars = 6000;
+export type PineHistoryQuery = {period: Period; before: number; limit: number};
+export type PineHistoryLoader = (query: PineHistoryQuery) => Promise<Bar[]>;
 
 export function checkPineIndicator(source: string) {
   if (source.length > 250000) throw Error('สคริปต์ยาวเกิน 250,000 ตัวอักษร');

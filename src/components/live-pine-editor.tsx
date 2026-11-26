@@ -24,7 +24,7 @@ export default function LivePineEditor({scripts, studies, draft, setDraft, pendi
       const title = checkPineIndicator(source);
       const existing = scripts.find(s => s.id === draft.id);
       setIssue('');
-      onApply({...existing, id: existing?.id ?? crypto.randomUUID(), name: draft.name.trim() || title, source, enabled: true});
+      onApply({...existing, id: draft.id ?? crypto.randomUUID(), name: draft.name.trim() || title, source, enabled: true});
     } catch (e) { setIssue(e instanceof Error ? e.message : String(e)); }
   }
   async function openFile(file: File) {

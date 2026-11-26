@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import {createHash} from 'node:crypto';
 import {aggregate} from '../src/lib/engine.ts';
+import {replayProvider} from '../src/lib/pine-data.ts';
 import {optimizePrepared} from '../src/lib/pine-compat.ts';
 let callback,sequence=0;
 globalThis.self={postMessage:v=>{if(!v.progress)callback(v)}};
@@ -10,6 +11,29 @@ await import('../src/lib/pine.worker.ts');
 const base=Array.from({length:2400},(_,i)=>({time:1700000100+i*60,open:2000+Math.sin(i/8)*3+i/100,high:2004+Math.sin(i/8)*3+i/100,low:1996+Math.sin(i/8)*3+i/100,close:2000.4+Math.sin(i/8)*3+i/100,volume:10+(i%7)}));
 async function run(source,{bars=base,baseBars=bars,seconds=60,scripts,plotLimit}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds:60,calendar:'utc',scripts,plotLimit}})});}
 const assertGood=r=>assert.deepEqual(r.errors,[],r.errors.join(' | '));
+test('live Pine can read native lower-timeframe history earlier than the in-memory minute window', async () => {
+ const start=Date.UTC(2025,0,6,6)/1000;
+ const asOf=start+90*60;
+ const nativeBars=Array.from({length:19},(_,index)=>({
+  time:start+index*300,open:2000,high:2010,low:1990,close:2000+index/10,volume:10,
+ }));
+ const hourly=aggregate(nativeBars.slice(0,-1),3600,'eightcap');
+ const queries=[];
+ const warnings=[];
+ const provider=replayProvider(hourly,3600,'eightcap',asOf,false,warnings,undefined,{tf:'60',bars:hourly},[],
+  async query=>{queries.push(query);return nativeBars;});
+ const native=await provider.getMarketData('XAUUSD','5',50);
+ assert.equal(queries[0].period,'5m');
+ assert.equal(queries[0].before,asOf);
+ assert.equal(native.length,18);
+ assert.equal(native[0].openTime,start*1000);
+ assert.equal(native.at(-1).close,2001.7);
+ assert.deepEqual(warnings,[]);
+ const ten=await provider.getMarketData('XAUUSD','10',50);
+ assert.equal(queries[1].period,'5m');
+ assert.equal(ten.length,9);
+ assert.equal(ten.at(-1).volume,20);
+});
 test('All Indy Basic guarded scans evaluate on the requested timeframe and keep the last confirmed value', async () => {
  const source=`//@version=6
 indicator("All Indy 1.4.33 · Basic", dynamic_requests=true)

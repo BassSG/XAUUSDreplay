@@ -1,8 +1,10 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {Bar} from './engine';
+import {historyPage, requestMarket as request} from './live-feed';
+import {historyCatalog, loadBefore, loadWindow} from './history';
 import {
-  barsQuery, candleWindow, candlesFromMinutes, mergeClosedBars, minutePollSize, olderBarsEnd, periods,
-  prependOlderBars, readBars, readOlderBars, readQuote, recentBarsSize, type Period, type Quote,
+  candleWindow, candlesFromMinutes, mergeClosedBars, minutePollSize, periods,
+  prependOlderBars, readBars, readHistoryPages, readQuote, recentBarsSize, olderPageSize, type Period, type Quote,
 } from './live-market';
 
 type HistoryStatus = 'ready' | 'loading' | 'end' | 'error';
@@ -17,8 +19,7 @@ type MarketHistory = {
   barError: boolean;
   historyStatus: HistoryStatus;
 };
-type FeedRun = {key: string; signal: AbortSignal; loadingOlder: boolean};
-type RequestBars = {end?: number; limit?: number};
+type FeedRun = {key: string; signal: AbortSignal; backfill: AbortController | null};
 const emptyBars: Bar[] = [];
 
 function restoreHistory(
@@ -33,31 +34,6 @@ function restoreHistory(
 }
 
 const now = () => Math.floor(Date.now() / 1000);
-const pagesOrigin = 'https://basssg.github.io';
-const pagesBridge = 'https://anything-mrna-work-voted.trycloudflare.com';
-const alternateBridge = 'https://theft-volatile-relock.ngrok-free.dev';
-
-async function request(route: string, signal: AbortSignal, options: RequestBars = {}) {
-  const publicBridge = import.meta.env.VITE_XAU_LIVE_PUBLIC_ORIGIN ||
-    (location.origin === pagesOrigin ? pagesBridge : undefined);
-  const suffix = route.startsWith('bars/') ? '?' + barsQuery(options.end, options.limit).toString() : '';
-  async function fetchJSON(url: string, useNgrok: boolean) {
-    const headers = new Headers({Accept: 'application/json'});
-    if (useNgrok) headers.set('ngrok-skip-browser-warning', '1');
-    const response = await fetch(url, {cache: 'no-store', credentials: 'omit', redirect: 'error', headers,
-      signal: AbortSignal.any([signal, AbortSignal.timeout(6500)])});
-    if (!response.ok) throw Error('Bridge ไม่ตอบกลับ');
-    return response.json() as Promise<unknown>;
-  }
-  if (!publicBridge) return fetchJSON('/api/xau-live/' + route + suffix, false);
-  const url = new URL('/api/' + route + suffix, publicBridge);
-  try {
-    return await fetchJSON(url.href, url.hostname.endsWith('.ngrok-free.dev'));
-  } catch (error) {
-    if (signal.aborted || url.origin !== pagesBridge) throw error;
-    return fetchJSON(new URL(url.pathname + url.search, alternateBridge).href, true);
-  }
-}
 
 function useLiveFeed(retry: number) {
   const [quoteState, setQuote] = useState<{quote: Quote | null; quoteError: boolean}>({quote: null, quoteError: false});
@@ -133,6 +109,7 @@ export function useLiveMarket(period: Period, retry: number, anchorTime: number 
   const seconds = periods[period];
   const {quote, quoteError, rows: minutes, minuteError, minuteCache, serverNow} = useLiveFeed(retry);
   const [data, setData] = useState(() => restoreHistory(key, period, anchorTime, undefined));
+  const [progress, setProgress] = useState<{key: string; loaded: number} | null>(null);
   const currentData = useRef(data);
   currentData.current = data;
   const active = useRef<FeedRun | null>(null);
@@ -148,7 +125,7 @@ export function useLiveMarket(period: Period, retry: number, anchorTime: number 
   useEffect(() => {
     const controller = new AbortController();
     const {signal} = controller;
-    const run = {key, signal, loadingOlder: false};
+    const run: FeedRun = {key, signal, backfill: null};
     active.current = run;
     let timer: ReturnType<typeof setTimeout>;
     const initial = restoreHistory(key, period, anchorTime, cache.current.get(period));
@@ -167,9 +144,9 @@ export function useLiveMarket(period: Period, retry: number, anchorTime: number 
           : readBars(await request('bars/' + period, signal), seconds, serverNow());
         if (checkWindow && anchorTime !== null && rows[0].time > anchorTime) {
           try {
-            const end = olderBarsEnd(Math.min(serverNow(), anchorTime + seconds * 128));
-            const past = readBars(await request('bars/' + period, signal, {end}), seconds, serverNow());
-            if (past[0].time > anchorTime || candleWindow(past.at(-1)!.time, seconds).close < anchorTime) {
+            const before = Math.min(serverNow(), anchorTime + seconds * 128);
+            const past = await historyPage(period, before, serverNow(), signal);
+            if (!past.length || past[0].time > anchorTime) {
               throw Error('ช่วงนี้ไม่มีแท่งราคาที่ขอ');
             }
             archive = true;
@@ -179,6 +156,17 @@ export function useLiveMarket(period: Period, retry: number, anchorTime: number 
             return;
           } catch {
             if (signal.aborted) return;
+            try {
+              const source = (await historyCatalog()).find(d => d.calendar === 'eightcap'
+                && d.timeframe === seconds && d.start <= anchorTime && d.end >= anchorTime);
+              if (source) {
+                const {bars} = await loadWindow(source.id, anchorTime, olderPageSize, 128);
+                archive = true;
+                checkWindow = false;
+                apply(state => ({...state, closed: bars, archive: true, findingWindow: false, barError: false}));
+                return;
+              }
+            } catch { /* Continue to latest when the archive is unavailable. */ }
             apply(state => ({...state, windowUnavailable: true}));
           }
         }
@@ -215,29 +203,63 @@ export function useLiveMarket(period: Period, retry: number, anchorTime: number 
   const bars = useMemo(() => view.archive ? view.closed : candlesFromMinutes(view.closed, minutes, seconds),
     [view.archive, view.closed, minutes, seconds]);
 
-  const loadOlder = useCallback(async (byUser: boolean) => {
+  const loadOlder = useCallback(async (byUser: boolean, limit = olderPageSize) => {
     const run = active.current;
     const first = view.closed[0];
-    if (!run || run.key !== key || !first || run.loadingOlder ||
-        view.historyStatus === 'loading' || view.historyStatus === 'end' ||
-        (view.historyStatus === 'error' && !byUser)) return;
-    run.loadingOlder = true;
+    if (!run || run.key !== key || !first || run.backfill ||
+        view.historyStatus === 'end' || (view.historyStatus === 'error' && !byUser)) return false;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, run.signal]);
+    const all = limit === Infinity;
+    run.backfill = controller;
+    if (all) setProgress({key, loaded: 0});
     const apply = (update: (current: MarketHistory) => MarketHistory) => {
       if (!run.signal.aborted) setData(current => current.key === key && !run.signal.aborted ? update(current) : current);
     };
     apply(current => ({...current, historyStatus: 'loading'}));
     try {
-      const rows = readOlderBars(await request('bars/' + period, run.signal, {end: olderBarsEnd(first.time)}),
-        first.time, seconds, serverNow());
+      const dataset = all ? await historyCatalog().then(datasets => datasets.find(d => d.calendar === 'eightcap'
+        && d.timeframe === seconds)).catch(() => undefined) : undefined;
+      const read = async (before: number) => {
+        if (dataset && dataset.start < before && dataset.end >= before) {
+          try {
+            // Join the bundled export only at a matching Eightcap candle.
+            const [overlap, broker] = await Promise.all([
+              loadBefore(dataset.id, before + 1, 1),
+              before === first.time ? [first] : historyPage(period, before + 1, serverNow(), signal),
+            ]);
+            const local = overlap.at(-1), remote = broker.at(-1);
+            if (local && remote && local.time === before && remote.time === before &&
+                local.open === remote.open && local.high === remote.high &&
+                local.low === remote.low && local.close === remote.close) {
+              return await loadBefore(dataset.id, before, dataset.count);
+            }
+          } catch { /* Continue with broker pages if the export is unavailable. */ }
+        }
+        return historyPage(period, before, serverNow(), signal);
+      };
+      const result = await readHistoryPages(first.time, limit, signal, read,
+        all ? loaded => { if (!signal.aborted) setProgress({key, loaded}); } : undefined);
       apply(current => ({
-        ...current, closed: prependOlderBars(current.closed, rows), historyStatus: rows.length ? 'ready' : 'end',
+        ...current, closed: prependOlderBars(current.closed, result.bars),
+        historyStatus: result.failed ? 'error' : result.ended ? 'end' : 'ready',
       }));
-    } catch {
-      apply(current => ({...current, historyStatus: 'error'}));
+      return !signal.aborted && !result.failed;
     } finally {
-      run.loadingOlder = false;
+      run.backfill = null;
+      if (all && !run.signal.aborted) setProgress(null);
     }
   }, [key, period, seconds, view.closed, view.historyStatus, serverNow]);
 
-  return {...view, bars, minutes, quote, quoteError, minuteError, minuteTime: minutes.at(-1)?.time, serverNow, loadOlder};
+  const warmed = useRef(new Set<Period>());
+  useEffect(() => {
+    if (anchorTime !== null || view.archive || view.closed.length < recentBarsSize ||
+        view.historyStatus !== 'ready' || warmed.current.has(period)) return;
+    warmed.current.add(period);
+    if (view.closed.length < recentBarsSize + 2 * olderPageSize) void loadOlder(false, 2 * olderPageSize);
+  }, [anchorTime, period, view.archive, view.closed.length, view.historyStatus, loadOlder]);
+
+  return {...view, bars, minutes, quote, quoteError, minuteError, minuteTime: minutes.at(-1)?.time,
+    serverNow, loadOlder, progress: progress?.key === key ? progress : null,
+    stopHistory: () => active.current?.backfill?.abort()};
 }

@@ -3,7 +3,7 @@ import type {Bar,CandleCalendar} from './engine.ts';
 import {adaptPineSource,bindAllIndyBasicRequests,wrapPineContext,optimizePrepared,setPineMainTimeframe} from './pine-compat.ts';
 import {periodEnd,replayProvider} from './pine-data.ts';
 import {installReplaySnapshots} from './pine-stream.ts';
-import {checkPineIndicator,type LivePineFrame} from './live-pine.ts';
+import {checkPineIndicator,type LivePineFrame,type PineHistoryLoader} from './live-pine.ts';
 import {sameMarketBar} from './live-market.ts';
 installReplaySnapshots();
 const secondaryRun=PineTS.prototype.runPretranspiled;
@@ -20,12 +20,20 @@ function unchangedMinutes(previous?:Bar[],next?:Bar[]){
  return start>=0&&next.length>=previous.length-start&&previous.slice(start).every((b,i)=>sameMarketBar(b,next[i]));
 }
 const compiled=new Map<string,Compiled>();
+let historySequence=0;
+const historyRequests=new Map<number,(bars:Bar[])=>void>();
 const results=new Map<string,any>();
 function latestObjects(raw:any,key:string){const data=raw.plots?.[key]?.data;return Array.isArray(data)&&data.length?(data.at(-1)?.value??[]):[];}
 function color(v:any,fallback='#d7b46a'){return typeof v==='string'&&v&&v!=='na'?v:fallback;}
 function plain(value:any){return JSON.parse(JSON.stringify(value,(k,v)=>['context','_udt','_definition'].includes(k)||typeof v==='function'?undefined:v));}
 export const visibleDisplay=(v:unknown)=>v===undefined||v==='all'||typeof v==='string'&&v.includes('pane');
 context.onmessage=async(event:MessageEvent)=>{
+ if(event.data.historyResponse){
+  const {number,bars}=event.data.historyResponse;
+  historyRequests.get(number)?.(bars);
+  historyRequests.delete(number);
+  return;
+ }
  const {id,key,source,bars,baseBars=bars,seconds,baseSeconds=seconds,calendar='utc',scripts,bundled=false,history,plotLimit,live}=event.data as Payload;
  // Keep the full runtime history for TA and MTF requests; transfer only the
  // chart's drawable window. This reduces worker serialization at high speeds.
@@ -36,6 +44,11 @@ context.onmessage=async(event:MessageEvent)=>{
  const plots:any[]=[],shapes:any[]=[],drawings:any[]=[],tables:any[]=[],warnings:string[]=[],errors:string[]=[],studies:any[]=[];
  let bridge=new Map<string,Map<number,number>>();
  const asOf=live?.asOf??(baseBars.length?periodEnd(baseBars.at(-1)!.time,String(baseSeconds/60),calendar):0);
+ const liveHistory:PineHistoryLoader|undefined=live?.nativeHistory?query=>new Promise(resolve=>{
+  const number=++historySequence;
+  historyRequests.set(number,resolve);
+  context.postMessage({id,historyRequest:{number,query}});
+ }):undefined;
  const timeframe=live && seconds===86400?'D':String(seconds/60);
  const realNow=Date.now;Date.now=()=>asOf*1000;
  try{for(const job of jobs){
@@ -63,7 +76,7 @@ context.onmessage=async(event:MessageEvent)=>{
    item.indicator.inputs={...job.inputs};item.bridge=bridge;study.inputs=item.meta;
    study.bridge=src.includes('indicator("EBW-Fibo 1.9')&&bridge.size===17;
    context.postMessage({id,progress:job.name,metadata:study});
-   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars},live?.minutes);
+   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars},live?.minutes,liveHistory);
    const settings=JSON.stringify([seconds,baseSeconds,calendar,bundled,job.inputs]);const prior=item.runtime;
    const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>sameMarketBar(b,next[i]));
    let raw:any;

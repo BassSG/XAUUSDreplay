@@ -2,7 +2,7 @@ import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type Re
 import {
   ArrowLeft, ChartSpline, ChevronDown, Download, Ellipsis, History, LockKeyhole, LockKeyholeOpen,
   Maximize2, Minimize2, Pencil, Radio, RefreshCw, ScanLine, SkipBack, SkipForward, Trash2, X,
-  Code2, PanelsTopLeft, Settings2,
+  CalendarDays, Code2, PanelsTopLeft, Settings2,
 } from 'lucide-react';
 import ChartBoundary from './chart-boundary';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
@@ -37,7 +37,12 @@ const historyDate = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
 });
 const counts = new Intl.NumberFormat('en-US');
+const bangkokDate = new Intl.DateTimeFormat('sv-SE', {timeZone: 'Asia/Bangkok'});
 const shortClock = new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'});
+
+function mergeScripts(older: IndicatorSpec[], newer: IndicatorSpec[]) {
+  return [...new Map([...older, ...newer].map(script => [script.id, script])).values()];
+}
 
 function LivePanel({title, onClose, children, wide, previewChart}: {title: string; onClose: () => void; children: ReactNode; wide?: boolean; previewChart?: boolean}) {
   const id = useId();
@@ -60,16 +65,18 @@ function readWorkingChart() {
     camera = JSON.parse(localStorage.getItem(cameraKey) ?? 'null');
   } catch { /* A fresh or private browser can still open the chart. */ }
   const workspace = loadLiveWorkspace(raw);
+  const library = mergeScripts(workspace.scripts, loadLiveWorkspace({scripts: raw?.library}).scripts);
   const link = raw?.activeLayout;
   const active: ActiveLayout | null = link && typeof link.id === 'string' && typeof link.name === 'string'
     && Number.isInteger(link.revision) ? {id: link.id, name: link.name, revision: link.revision} : null;
   const view = camera?.period === workspace.period && camera.active === (active?.id ?? null) ? readChartView(camera.view) : null;
-  return {workspace, active, view};
+  return {workspace, active, view, library};
 }
 
 export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [initial] = useState(readWorkingChart);
   const [workspace, setWorkspace] = useState(initial.workspace);
+  const [library, setLibrary] = useState(initial.library);
   const {period, studies, lengths, drawings, magnet, hiddenDrawings, appearance, scripts} = workspace;
   const [activeLayout, setActiveLayout] = useState(initial.active);
   const [initialView, setInitialView] = useState(initial.view);
@@ -87,6 +94,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [storageFailed, setStorageFailed] = useState(false);
   const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'studies' | 'appearance' | 'layouts' | 'pine' | null>(null);
   const [focusMode, setFocusMode] = useState(false);
+  const [historyDay, setHistoryDay] = useState('');
+  const [fitHistory, setFitHistory] = useState(false);
   const chart = useRef<LiveChartActions>(null);
   const undo = useRef<Drawing[][]>([]);
   const redo = useRef<Drawing[][]>([]);
@@ -104,12 +113,14 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(workspaceKey, JSON.stringify({...workspace, activeLayout}));
+      const extraScripts = library.filter(script => !workspace.scripts.some(active =>
+        active.id === script.id && active.name === script.name && active.source === script.source));
+      localStorage.setItem(workspaceKey, JSON.stringify({...workspace, activeLayout, library: extraScripts}));
       setStorageFailed(false);
     } catch {
       setStorageFailed(true);
     }
-  }, [workspace, activeLayout]);
+  }, [workspace, activeLayout, library]);
 
   function currentView() {
     return chart.current?.captureView(follow) ?? {...(initialView ?? defaultChartView), follow, viewport: viewport ?? initialView?.viewport ?? null};
@@ -159,7 +170,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     : quote?.status === 'closed' ? 'ตลาดปิด' : quote ? 'ราคาล่าช้า' : 'กำลังเชื่อมต่อ';
   const shortStatus = market.quoteError ? 'ขัดข้อง' : quote?.status === 'live' ? 'สด'
     : quote?.status === 'closed' ? 'ปิด' : quote ? 'ล่าช้า' : 'เชื่อมต่อ';
-  const historyLabel = market.historyStatus === 'loading' ? 'กำลังโหลดแท่งเก่า'
+  const historyLabel = market.progress ? 'โหลดเพิ่มแล้ว ' + counts.format(market.progress.loaded) + ' แท่ง'
+    : market.historyStatus === 'loading' ? 'กำลังโหลดแท่งเก่า'
     : market.historyStatus === 'error' ? 'โหลดแท่งเก่าไม่สำเร็จ'
     : market.historyStatus === 'end' ? 'ถึงข้อมูลเก่าสุดที่ Eightcap ส่งมาแล้ว' : '';
   const liveNow = follow && !market.archive && !historical.length && quote?.status === 'live' && !market.quoteError;
@@ -167,7 +179,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const last = minuteBased ? market.minuteTime : market.closed.at(-1)?.time;
   const through = last === undefined ? undefined : candleWindow(last, minuteBased ? 60 : periods[period]).close;
   const pineFrame = {asOf: through ?? (bars.length ? candleWindow(bars.at(-1)!.time, periods[period]).close : 0),
-    minutes: market.archive || historical.length ? emptyBars : market.minutes};
+    minutes: market.archive || historical.length ? emptyBars : market.minutes, nativeHistory: true};
   const pine = usePine(undefined, jobs.length > 0, bars, periods[period], 'live-' + period, jobs,
     bars, periods[period], 'eightcap', false, pineFrame);
   const plots = useMemo(() => [...builtInPlots, ...pine.plots], [builtInPlots, pine.plots]);
@@ -175,17 +187,19 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const totalStudies = studies.length + enabledScripts.length;
   useEffect(() => {
     if (!trial) return;
-    const finished = pine.key ? pine.studies.find(s => s.id === trial.id) : undefined;
+    const finished = pine.completed.studies.find(s => s.id === trial.id);
     if (!finished && (!pine.error || pine.calculating)) return;
     if (!finished || finished.error) {
       setEditorError(finished?.error || pine.error);
+      setPanel(current => current === 'studies' ? 'pine' : current);
     } else {
       setWorkspace(previous => ({...previous, scripts: proposedScripts}));
+      setLibrary(saved => mergeScripts(saved, [trial]));
       setDraft({id: trial.id, name: trial.name, source: trial.source});
-      setEditorMessage((scripts.some(s => s.id === trial.id) ? 'อัปเดต ' : 'เพิ่ม ') + trial.name + ' ลงกราฟแล้ว');
+      setEditorMessage((scripts.some(s => s.id === trial.id) ? 'อัปเดต ' : 'เพิ่ม ') + trial.name + ' ในอินดิเคเตอร์ของฉันแล้ว');
     }
     setTrial(null);
-  }, [trial, pine.key, pine.studies, pine.error, pine.calculating, proposedScripts, scripts]);
+  }, [trial, pine.completed, pine.error, pine.calculating, proposedScripts, scripts]);
   const chartStatus = storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
     (market.windowUnavailable ? 'ไม่พบช่วงเวลาเดิมในไทม์เฟรมนี้' : market.archive ? 'มุมมองย้อนหลัง'
       : historical.length ? 'ข้อมูลสำรอง' : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
@@ -193,11 +207,18 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           : minuteBased ? 'OHLC จาก 1m ที่ปิดแล้ว' : '');
   const viewportKey = period + (market.archive ? '-archive' : '-current') + '-' + layoutVersion;
 
+  useEffect(() => {
+    if (!fitHistory || !bars.length) return;
+    chart.current?.fit();
+    setFitHistory(false);
+  }, [fitHistory, bars]);
+
   function rememberLayout(row: SavedLayout | null) {
     setActiveLayout(row ? {id: row.id, name: row.file.name, revision: row.revision} : null);
   }
   function openLayout(row: SavedLayout) {
     setWorkspace(row.file.workspace);
+    setLibrary(saved => mergeScripts(row.file.workspace.scripts, saved));
     setFollow(row.file.view.follow);
     setViewport(row.file.view.follow ? null : row.file.view.viewport);
     setInitialView(row.file.view);
@@ -246,8 +267,24 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     if (!market.closed.length) return;
     void market.loadOlder(false);
   }
+  function jumpToDate(day: string) {
+    const time = Date.parse(day + 'T00:00:00+07:00') / 1000;
+    if (!Number.isFinite(time) || time <= 0 || time > market.serverNow()) return;
+    const view = chart.current?.viewport();
+    setInitialView(null);
+    setFollow(false);
+    setViewport({time, span: Math.min(160, view?.span ?? 100)});
+    setLayoutVersion(number => number + 1);
+    closePanel();
+  }
+  async function showAllHistory() {
+    if (market.historyStatus !== 'end' && !await market.loadOlder(true, Infinity)) return;
+    setFollow(false);
+    setFitHistory(true);
+    setPanel(current => current === 'history' ? null : current);
+  }
 
-  function closePanel() { setPanel(null); setTrial(null); }
+  function closePanel() { setPanel(null); setEditorMessage(''); }
   function reconnect() { setRetry(value => value + 1); }
   function goLatest() {
     if (!market.archive && !market.findingWindow) chart.current?.latest();
@@ -354,7 +391,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
           selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingCancel={cancelDrawing}
           liveSelection={drawingStrip} liveLegend={totalStudies > 0 && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
-            <button type="button" onClick={() => setPanel(enabledScripts.length ? 'pine' : 'studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
+            <button type="button" onClick={() => setPanel('studies')} aria-label="จัดการอินดิเคเตอร์ที่ใช้งาน">
               <i style={{backgroundColor: studies.length ? studyDefinitions[studies[0]].color : pine.plots[0]?.color ?? '#e2bc73'}} aria-hidden="true"/>
               {studies.length ? studyLabel(studies[0], lengths) : enabledScripts[0]?.name}
               {totalStudies > 1 && <span>+{totalStudies - 1}</span>}
@@ -422,7 +459,18 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           <span>{counts.format(market.closed.length || historical.length)} แท่งปิด · {period === '1d' ? '1D' : period}</span>
           <span role="status">{historyLabel}</span>
         </div>
+        <form className="live-history-date" onSubmit={event => { event.preventDefault(); jumpToDate(historyDay); }}>
+          <label>ไปวันที่ (กรุงเทพฯ)
+            <input type="date" min="1970-01-02" max={bangkokDate.format(market.serverNow() * 1000)}
+              value={historyDay} required onChange={event => setHistoryDay(event.target.value)}/>
+          </label>
+          <button type="submit" disabled={!historyDay || Boolean(market.progress)}><CalendarDays size={17}/>ไปที่กราฟ</button>
+        </form>
         <div className="live-panel-options">
+          {market.progress
+            ? <button type="button" onClick={market.stopHistory}><X size={17}/><span>หยุดโหลด</span></button>
+            : <button type="button" disabled={!market.closed.length || market.historyStatus === 'loading'}
+              onClick={() => void showAllHistory()}><ScanLine size={18}/><span>ดูประวัติทั้งหมด</span></button>}
           <button type="button" disabled={!market.closed.length || market.historyStatus === 'loading' || market.historyStatus === 'end'}
             title={'โหลดครั้งละสูงสุด ' + counts.format(olderPageSize) + ' แท่ง'}
             onClick={() => void market.loadOlder(true)}>
@@ -464,12 +512,23 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       <LivePineEditor scripts={scripts} studies={pine.studies} draft={draft} setDraft={v => {
         setDraft(v); setEditorError(''); setEditorMessage('');
       }} pending={Boolean(trial)} hasBars={bars.length > 0} status={trial ? 'กำลังทดสอบกับแท่ง ' + period :
-        pine.warnings.length ? pine.warnings.join(' · ') : editorMessage || pine.status}
-        error={editorError || pine.error} onApply={candidate => { setEditorError(''); setEditorMessage(''); setTrial(candidate); }}
+        pine.warnings.length ? pine.warnings.join(' · ') : pine.status}
+        error={editorError || pine.error} onApply={candidate => {
+          setEditorError(''); setEditorMessage(''); setTrial(candidate); setPanel('studies');
+        }}
         onChange={next => { setEditorError(''); setEditorMessage(''); setWorkspace(v => ({...v, scripts: next})); }}
         onRetry={pine.retry} onShowChart={closePanel}/>
     </LivePanel>}
-    {panel === 'studies' && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy} onPine={() => setPanel('pine')}
+    {panel === 'studies' && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy}
+      message={editorMessage || (editorError ? 'Pine · ' + editorError : '')}
+      scripts={mergeScripts(library.map(script => ({...script, enabled: false})), proposedScripts)} evaluations={pine.studies}
+      pendingId={trial?.id} onCancelApply={() => { setTrial(null); setPanel('pine'); }}
+      onPine={() => { setDraft(newScriptDraft); setEditorError(''); setPanel('pine'); }}
+      onEdit={script => { setDraft({id: script.id, name: script.name, source: script.source}); setEditorError(''); setPanel('pine'); }}
+      onScriptChange={next => {
+        setEditorMessage('');
+        setWorkspace(v => ({...v, scripts: mergeScripts(v.scripts, [next])}));
+      }}
       onLength={(study, length) => setWorkspace(value => ({...value, lengths: {...value.lengths, [study]: length}}))}
       onClose={closePanel}/>}
   </main>;

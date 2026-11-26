@@ -1,5 +1,7 @@
 import {brokerTimeToUtc,utcToBrokerTime,type Bar,type CandleCalendar} from './engine.ts';
 import {historyCatalog,loadBefore} from './history.ts';
+import {periods, type Period} from './live-market.ts';
+import {maxPineSourceBars, type PineHistoryLoader} from './live-pine.ts';
 export function timeframeSeconds(tf:string){
  const v=String(tf||'').trim().toUpperCase();if(/^\d+$/.test(v))return Number(v)*60;
  const m=v.match(/^(\d*)(S|D|W|M)$/);return m?Number(m[1]||1)*({S:1,D:86400,W:604800,M:2592000}[m[2] as 'S'|'D'|'W'|'M']):0;
@@ -26,12 +28,39 @@ export function aggregatePineBars(bars:Bar[],tf:string,calendar:CandleCalendar){
 export function toKlines(bars:Bar[],tf:string,calendar:CandleCalendar){
  return bars.map(b=>({openTime:b.time*1000,closeTime:periodEnd(b.time,tf,calendar)*1000-1,open:b.open,high:b.high,low:b.low,close:b.close,volume:b.volume,quoteAssetVolume:0,numberOfTrades:0,takerBuyBaseAssetVolume:0,takerBuyQuoteAssetVolume:0,ignore:0}));
 }
-export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:CandleCalendar,asOf:number,bundled:boolean,warnings:string[],injected?:Record<string,Bar[]>,primary?:{tf:string;bars:Bar[]},liveMinutes?:Bar[]){
+export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:CandleCalendar,asOf:number,bundled:boolean,warnings:string[],injected?:Record<string,Bar[]>,primary?:{tf:string;bars:Bar[]},liveMinutes?:Bar[],liveHistory?:PineHistoryLoader){
  const cache=new Map<string,Promise<Bar[]>>();const baseTF=String(baseSeconds/60);const known=baseBars.filter(b=>periodEnd(b.time,baseTF,calendar)<=asOf);
  const getRows=(tf:string,limit=2000)=>{
   const key=tf+':'+limit;if(!cache.has(key))cache.set(key,(async()=>{
    const seconds=timeframeSeconds(tf);let rows:Bar[]=[];let sourceSeconds=baseSeconds;
    if(liveMinutes && primary){
+    if(liveHistory && seconds>=60){
+     const nativePeriod=(Object.keys(periods) as Period[]).reverse().find(period =>
+      /M$/i.test(tf)?period==='1d':seconds%periods[period]===0);
+     if(nativePeriod){
+      const sourceSeconds=periods[nativePeriod];
+      const sourceTF=String(sourceSeconds/60);
+      const before=bucketStart(asOf,sourceTF,calendar);
+      const factor=seconds/sourceSeconds;
+      const needed=Math.min(maxPineSourceBars,Math.ceil(Math.min(limit,3000)*factor)+(factor>1?2:0));
+      const local=(sourceSeconds===baseSeconds?primary.bars:sourceSeconds===60?liveMinutes:[])
+       .filter(bar=>bar.time<before).slice(-needed);
+      // Read the native candles when the chart and minute stream cannot cover
+      // the requested warmup. Merge by UTC and discard any unclosed source bar.
+      const touchesEnd=local.length>0&&local.at(-1)!.time>=before-sourceSeconds;
+      const missing=touchesEnd?needed-local.length:needed;
+      const remote=missing===0?[]:await liveHistory({
+       period:nativePeriod,before:touchesEnd?local[0].time:before,limit:missing,
+      });
+      if(remote.length||missing===0){
+       const byTime=new Map([...remote,...local].filter(bar=>bar.time<before).map(bar=>[bar.time,bar]));
+       const history=[...byTime.values()].sort((a,b)=>a.time-b.time);
+       const output=seconds===sourceSeconds?history:aggregatePineBars(history,tf,calendar)
+        .filter(bar=>bar.time>=history[0].time&&(seconds>=baseSeconds||periodEnd(bar.time,tf,calendar)<=asOf));
+       return output.slice(-limit);
+      }
+     }
+    }
     const usePrimary=seconds>=baseSeconds && seconds%baseSeconds===0;
     const source=usePrimary?primary.bars:liveMinutes;
     if(seconds<60 || !source.length){warnings.push('ไม่มีแท่งย้อนหลังสำหรับ '+tf+' ในช่วงที่เปิด');return [];}

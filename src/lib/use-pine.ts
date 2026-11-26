@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {createLivePineWorker} from './live-pine-worker';
-import type {LivePineFrame} from './live-pine';
+import {createPineHistoryLoader} from './live-feed';
+import type {LivePineFrame,PineHistoryQuery} from './live-pine';
 import type {Bar,CandleCalendar} from './engine';
 import type {ScriptJob} from './pine.worker';
 import type {PinePlot,PineShape,PineDrawing,PineTable} from '../components/replay-chart';
@@ -16,6 +17,8 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  const frames=useRef(new Map<string,Snapshot>()),counter=useRef(0);
  const liveData=useRef<{bars:Bar[];minutes:Bar[];revision:number}|null>(null);
  const lastLive=useRef<{scope:string;through:number;frame:Snapshot}|null>(null);
+ const completedLive=useRef<{scope:string;frame:Snapshot}|null>(null);
+ const loadHistory=useMemo(createPineHistoryLoader,[]);
  // The broker can revise earlier OHLC without changing the length or last candle.
  if(live && (liveData.current?.bars!==bars || liveData.current.minutes!==live.minutes)){
   liveData.current={bars,minutes:live.minutes,revision:(liveData.current?.revision??0)+1};
@@ -28,11 +31,12 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  const needed=!!enabled&&!!(source||scripts?.length);
  const params=useRef({scope,source:source||'',seconds,baseSeconds,calendar,scripts,bundled,needed,live,revision});params.current={scope,source:source||'',seconds,baseSeconds,calendar,scripts,bundled,needed,live,revision};
  useEffect(()=>{
-  frames.current.clear();lastLive.current=null;refresh(v=>v+1);setError('');setProgress({key:'',text:''});setMetadata([]);if(!needed)return;
+  frames.current.clear();lastLive.current=null;completedLive.current=null;refresh(v=>v+1);setError('');setProgress({key:'',text:''});setMetadata([]);if(!needed)return;
   const worker=params.current.live?createLivePineWorker():new Worker(new URL('./pine.worker.ts',import.meta.url),{type:'module'});
+  const historyAbort=new AbortController();
   type Task={job:Job;resolve:((ready:boolean)=>void)[]};
   const queue:Task[]=[];let active:Task|null=null,dead=false,deadline:ReturnType<typeof setTimeout>|undefined;
-  function fail(message:string){dead=true;clearTimeout(deadline);worker.terminate();setError(message);active?.resolve.forEach(resolve=>resolve(false));for(const task of queue)task.resolve.forEach(resolve=>resolve(false));active=null;queue.length=0;}
+  function fail(message:string){dead=true;clearTimeout(deadline);historyAbort.abort();worker.terminate();setError(message);active?.resolve.forEach(resolve=>resolve(false));for(const task of queue)task.resolve.forEach(resolve=>resolve(false));active=null;queue.length=0;}
   const arm=()=>{clearTimeout(deadline);deadline=setTimeout(()=>fail('คำนวณอินดิเคเตอร์นานเกิน 180 วินาที กด Retry หรือปรับการตั้งค่าอินดิเคเตอร์'),180000)};
   function send(){if(dead||active||!queue.length)return;active=queue.shift()!;arm();worker.postMessage(active.job);}
   request.current=job=>{
@@ -43,19 +47,30 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
   };
   worker.onmessage=e=>{
    if(dead||!active||active.job.id!==e.data.id)return;const result=e.data;
-   if(result.progress){arm();if(active.job.key===expected.current){if(result.metadata)setMetadata(old=>[...old.filter(m=>m.id!==result.metadata.id),result.metadata]);setProgress({key:active.job.key,text:'กำลังคำนวณ '+result.progress});}return;}
+   if(result.historyRequest&&active.job.live?.nativeHistory){
+    const {number,query}=result.historyRequest as {number:number;query:PineHistoryQuery};
+    if(!Number.isSafeInteger(number)||!query||typeof query!=='object')return;
+    const job=active.job;
+    arm();
+    void loadHistory(query,active.job.live.asOf,historyAbort.signal).catch(()=>[]).then(bars=>{
+     if(!dead&&active?.job===job)worker.postMessage({historyResponse:{number,bars}});
+    });
+    return;
+   }
+   if(result.progress){arm();if(result.metadata)setMetadata(old=>[...old.filter(m=>m.id!==result.metadata.id),result.metadata]);
+    if(active.job.key===expected.current)setProgress({key:active.job.key,text:'กำลังคำนวณ '+result.progress});return;}
    clearTimeout(deadline);const finished=active;active=null;
    // Prepared frames stay private until the replay cursor selects their exact key.
    const frame:Snapshot={key:finished.job.key,plots:result.plots||[],shapes:result.shapes||[],drawings:result.drawings||[],tables:result.tables||[],studies:result.studies||[],errors:result.errors||[],warnings:result.warnings||[]};
    frames.current.set(frame.key,frame);
-   if(finished.job.live&&!frame.errors.length)lastLive.current={scope,through:finished.job.live.asOf,frame};
+   if(finished.job.live){completedLive.current={scope,frame};if(!frame.errors.length)lastLive.current={scope,through:finished.job.live.asOf,frame};}
    const points=()=>[...frames.current.values()].reduce((n,f)=>n+f.plots.reduce((sum,p)=>sum+p.data.length,0),0);
    while(frames.current.size>6||frames.current.size>2&&points()>400000){const oldest=[...frames.current.keys()].find(k=>k!==expected.current&&k!==frame.key);if(!oldest)break;frames.current.delete(oldest);}
-   if(frame.key===expected.current)refresh(v=>v+1);finished.resolve.forEach(resolve=>resolve(!frame.errors.length));send();
+   if(finished.job.live||frame.key===expected.current)refresh(v=>v+1);finished.resolve.forEach(resolve=>resolve(!frame.errors.length));send();
   };
   worker.onerror=(e:{message:string})=>fail(e.message||'Pine runtime ไม่พร้อม');
-  return()=>{dead=true;request.current=null;clearTimeout(deadline);worker.terminate();active?.resolve.forEach(resolve=>resolve(false));for(const task of queue)task.resolve.forEach(resolve=>resolve(false));};
- },[needed,scope]);
+  return()=>{dead=true;request.current=null;clearTimeout(deadline);historyAbort.abort();worker.terminate();active?.resolve.forEach(resolve=>resolve(false));for(const task of queue)task.resolve.forEach(resolve=>resolve(false));};
+ },[needed,scope,loadHistory]);
  const prepare=useCallback((nextBars:Bar[],nextBaseBars:Bar[])=>{
   const p=params.current;if(!p.needed)return Promise.resolve(true);
   if(!request.current||!nextBars.length)return Promise.resolve(false);
@@ -68,5 +83,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  const status=!needed?'':valid?(current.warnings.join(' · ')||(frameError?'บางอินดิเคเตอร์มีข้อผิดพลาด':'Pine พร้อมใช้งาน')):progress.key===key?progress.text:'กำลังเตรียมอินดิเคเตอร์';
  const previous=lastLive.current;
  const display=needed&&!valid&&!frameError&&live&&previous?.scope===scope&&previous.through<=live.asOf?previous.frame:current;
- return {...display,key:current.key,studies:valid?current.studies:metadata,status,error:frameError,calculating:needed&&!valid&&!error,prepare,retry:()=>setRun(v=>v+1)};
+ const completed=completedLive.current?.scope===scope?completedLive.current.frame:current;
+ const studies=valid?current.studies:completed.key?completed.studies:metadata;
+ return {...display,key:current.key,completed,studies,status,error:frameError,calculating:needed&&!valid&&!error,prepare,retry:()=>setRun(v=>v+1)};
 }

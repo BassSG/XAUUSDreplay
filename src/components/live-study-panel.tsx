@@ -1,10 +1,13 @@
 import {useState} from 'react';
 import {
   Activity, BarChart3, ChartArea, ChartLine, ChartSpline, ChevronUp, CircleHelp, Gauge,
-  Code2, MoveVertical, Search, TrendingUp, Waves, X, type LucideIcon,
+  Code2, MoveVertical, Pencil, Search, SlidersHorizontal, TrendingUp, Waves, X, type LucideIcon,
 } from 'lucide-react';
 import {studyDefinitions, studyLabel, studyLength, type LiveStudy, type LiveStudyLengths} from '../lib/live-indicators';
 import {useDialog} from '../lib/use-dialog';
+import type {IndicatorSpec} from '../lib/engine';
+import type {StudyStatus} from '../lib/use-pine';
+import PineInputs from './pine-inputs';
 
 type Props = {
   selected: LiveStudy[];
@@ -13,6 +16,13 @@ type Props = {
   onLength: (study: LiveStudy, length: number) => void;
   onClose: () => void;
   onPine: () => void;
+  message: string;
+  scripts: IndicatorSpec[];
+  evaluations: StudyStatus[];
+  pendingId?: string;
+  onCancelApply: () => void;
+  onEdit: (script: IndicatorSpec) => void;
+  onScriptChange: (script: IndicatorSpec) => void;
 };
 
 const studies = Object.keys(studyDefinitions) as LiveStudy[];
@@ -23,13 +33,18 @@ const icons: Record<LiveStudy, LucideIcon> = {
   volume: BarChart3, obv: ChartArea,
 };
 
-export default function LiveStudyPanel({selected, lengths, onToggle, onLength, onClose, onPine}: Props) {
+export default function LiveStudyPanel({
+  selected, lengths, onToggle, onLength, onClose, onPine, message, scripts, evaluations,
+  pendingId, onCancelApply, onEdit, onScriptChange,
+}: Props) {
   const [query, setQuery] = useState('');
   const [help, setHelp] = useState<LiveStudy | null>(null);
+  const [inputsFor, setInputsFor] = useState<string | null>(null);
   useDialog(true, onClose);
   const search = query.trim().toLocaleLowerCase();
   const matches = studies.filter(study => [studyLabel(study, lengths), studyDefinitions[study].help]
     .some(value => value.toLocaleLowerCase().includes(search)));
+  const custom = scripts.filter(script => (script.name + ' Pine').toLocaleLowerCase().includes(search));
   return <div className="modal-shade" onMouseDown={event => {
     if (event.target === event.currentTarget) onClose();
   }}>
@@ -38,13 +53,43 @@ export default function LiveStudyPanel({selected, lengths, onToggle, onLength, o
         <h2 id="live-indicator-title">อินดิเคเตอร์</h2>
         <button type="button" className="live-icon" aria-label="ปิดอินดิเคเตอร์" onClick={onClose}><X size={18}/></button>
       </header>
-      <button className="study-pine-entry" type="button" onClick={onPine}><Code2 size={19}/><span><strong>Pine Editor</strong><small>วางสคริปต์หรือนำเข้าไฟล์ .pine</small></span></button>
+      <button className="study-pine-entry" type="button" disabled={Boolean(pendingId)} onClick={onPine}><Code2 size={19}/><span><strong>Pine Editor</strong><small>วางสคริปต์หรือนำเข้าไฟล์ .pine</small></span></button>
+      {message && <p className="chart-feedback" role="status">{message}</p>}
       <div className="live-picker-search">
         <label><Search size={16}/><input type="search" aria-label="ค้นหาอินดิเคเตอร์" placeholder="ค้นหาชื่ออินดิเคเตอร์"
           value={query} onChange={event => setQuery(event.currentTarget.value)}/></label>
       </div>
       <div className="live-picker-list live-study-list">
-        {!matches.length && <p role="status">ไม่พบอินดิเคเตอร์ที่ตรงกับคำค้น</p>}
+        {!matches.length && !custom.length && <p role="status">ไม่พบอินดิเคเตอร์ที่ตรงกับคำค้น</p>}
+        {custom.length > 0 && <h3>อินดิเคเตอร์ของฉัน</h3>}
+        {custom.map(script => {
+          const evaluation = evaluations.find(item => item.id === script.id);
+          const pending = pendingId === script.id;
+          return <div className="live-study-item live-custom-study" key={script.id}>
+            <div className="live-study-row">
+              <label className="live-study-toggle">
+                <input type="checkbox" checked={script.enabled} disabled={Boolean(pendingId)}
+                  onChange={() => onScriptChange({...script, enabled: !script.enabled})}/>
+                <Code2 size={17} aria-hidden="true"/><span>{script.name}</span>
+              </label>
+              <button className="live-icon" type="button" aria-label={'ตั้งค่า ' + script.name}
+                aria-expanded={inputsFor === script.id} title="ตั้งค่าพารามิเตอร์"
+                disabled={pending || (!evaluation?.inputs.length && !script.enabled)}
+                onClick={() => setInputsFor(inputsFor === script.id ? null : script.id)}><SlidersHorizontal size={16}/></button>
+              <button className="live-icon" type="button" aria-label={'แก้ไขโค้ด ' + script.name}
+                disabled={Boolean(pendingId)} title="แก้ไขโค้ด" onClick={() => onEdit(script)}><Pencil size={16}/></button>
+            </div>
+            {pending && <div className="live-custom-progress">
+              <span role="status">กำลังคำนวณสคริปต์</span><button type="button" onClick={onCancelApply}>ยกเลิก</button>
+            </div>}
+            {script.enabled && evaluation?.error && <p role="alert">{evaluation.error}</p>}
+            {inputsFor === script.id && (evaluation?.inputs.length
+              ? <PineInputs study={evaluation} values={script.inputs ?? {}}
+                onChange={inputs => { if (!pendingId) onScriptChange({...script, inputs}); }}/>
+              : <p>{evaluation ? 'สคริปต์นี้ไม่มีพารามิเตอร์ให้ปรับ' : 'กำลังอ่านพารามิเตอร์จากสคริปต์'}</p>)}
+          </div>;
+        })}
+        {custom.length > 0 && matches.length > 0 && <h3>อินดิเคเตอร์ในตัว</h3>}
         {matches.map(study => {
           const length = studyLength(study, lengths[study]);
           const label = studyLabel(study, lengths);

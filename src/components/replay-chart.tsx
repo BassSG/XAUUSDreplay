@@ -58,7 +58,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
  const host=useRef<HTMLDivElement>(null);const placementHost=useRef<HTMLDivElement>(null);const ref=useRef<any>(null);const onPriceRef=useRef(onPrice);onPriceRef.current=onPrice;const drawingsRef=useRef({user:drawings,pine:pineDrawings});drawingsRef.current={user:drawings,pine:pineDrawings};const modeRef=useRef(drawingMode);modeRef.current=drawingMode;const redrawFrame=useRef<number|undefined>(undefined);const [,setViewTick]=useState(0);
  useEffect(()=>{
   if(!host.current)return;
-  const chart=createChart(host.current,{autoSize:true,layout:{background:{type:ColorType.Solid,color:live?'#0d141e':'#10151d'},textColor:live?'#93a4ba':'#8f9caf',fontSize:12,fontFamily:"'Segoe UI',sans-serif",panes:{separatorColor:'#2b3442',separatorHoverColor:'#46546a',enableResize:true}},grid:{vertLines:{color:live?'#1a2635':'#19212c'},horzLines:{color:live?'#1a2635':'#19212c'}},crosshair:{mode:0,vertLine:{color:'#778495',labelBackgroundColor:'#344155'},horzLine:{color:'#778495',labelBackgroundColor:'#344155'}},timeScale:{timeVisible:true,secondsVisible:false,tickMarkFormatter:(t:any,type:number)=>{const d=typeof t==='number'?new Date(t*1000):new Date(Date.UTC(t.year,t.month-1,t.day));return type>=3?tickTime.format(d):tickDate.format(d)},borderColor:'#293241',rightOffset:35,barSpacing:7,shiftVisibleRangeOnNewBar:false,allowShiftVisibleRangeOnWhitespaceReplacement:false},rightPriceScale:{minimumWidth:live?66:0,borderColor:'#293241',scaleMargins:{top:.12,bottom:.1}},localization:{priceFormatter:(v:number)=>v.toFixed(2),timeFormatter:(t:any)=>dateFmt.format(new Date(Number(t)*1000))}});
+  const chart=createChart(host.current,{autoSize:true,layout:{background:{type:ColorType.Solid,color:live?'#0d141e':'#10151d'},textColor:live?'#93a4ba':'#8f9caf',fontSize:12,fontFamily:"'Segoe UI',sans-serif",panes:{separatorColor:'#2b3442',separatorHoverColor:'#46546a',enableResize:true}},grid:{vertLines:{color:live?'#1a2635':'#19212c'},horzLines:{color:live?'#1a2635':'#19212c'}},crosshair:{mode:0,vertLine:{color:'#778495',labelBackgroundColor:'#344155'},horzLine:{color:'#778495',labelBackgroundColor:'#344155'}},timeScale:{timeVisible:true,secondsVisible:false,tickMarkFormatter:(t:any,type:number)=>{const d=typeof t==='number'?new Date(t*1000):new Date(Date.UTC(t.year,t.month-1,t.day));return type>=3?tickTime.format(d):tickDate.format(d)},borderColor:'#293241',rightOffset:35,barSpacing:7,minBarSpacing:live?.001:.5,shiftVisibleRangeOnNewBar:false,allowShiftVisibleRangeOnWhitespaceReplacement:false},rightPriceScale:{minimumWidth:live?66:0,borderColor:'#293241',scaleMargins:{top:.12,bottom:.1}},localization:{priceFormatter:(v:number)=>v.toFixed(2),timeFormatter:(t:any)=>dateFmt.format(new Date(Number(t)*1000))}});
   const series=chart.addSeries(CandlestickSeries,{upColor:'#35c4a0',downColor:'#ef6b79',wickUpColor:'#35c4a0',wickDownColor:'#ef6b79',borderVisible:false,priceFormat:{type:'price',precision:2,minMove:.01}});
   const markers=createSeriesMarkers(series,[]);ref.current={chart,series,markers,lines:[],studies:new Map(),count:0};
   const priceMarker=live?new LivePriceMarker():null;
@@ -82,7 +82,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
    edgeFrame=requestAnimationFrame(()=>{
     edgeFrame=undefined;
     const range=chart.timeScale().getVisibleLogicalRange();
-    const atEdge=Boolean(range&&range.from<80&&range.to>0&&range.to-range.from<500);
+    const atEdge=Boolean(range&&range.from<80&&range.to>0);
     const count=ref.current?.count;
     if(range&&count&&range.to<count-1.5)navigation.current.onLeaveLatest?.();
     if(atEdge&&!wasAtEdge&&count)navigation.current.onHistoryEdge?.();
@@ -199,7 +199,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   ref.current?.chart.timeScale().setVisibleLogicalRange(range);
  }
  useImperativeHandle(liveActions,()=>({
-  fit:()=>ref.current?.chart.timeScale().fitContent(),
+  fit:()=>ref.current?.chart.timeScale().setVisibleLogicalRange({from:-1,to:bars.length+4}),
   first:goFirst,
   latest:goLatest,
   viewport:()=>{

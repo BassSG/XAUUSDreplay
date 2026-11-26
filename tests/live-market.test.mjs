@@ -1,13 +1,35 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  barsQuery, candleWindow, candlesFromMinutes, liveTailUpdate, mergeClosedBars, olderBarsEnd, prependOlderBars, readBars, readOlderBars, readQuote,
+  barsQuery, candleWindow, candlesFromMinutes, liveTailUpdate, mergeClosedBars, olderBarsEnd, prependOlderBars, readBars, readHistoryPages, readOlderBars, readQuote,
 } from '../src/lib/live-market.ts';
 import {livePlots, studyLabel} from '../src/lib/live-indicators.ts';
 
 const now = 1795620180;
 const minute = now - 60;
 const candle = {time: minute, open: 4000, high: 4010, low: 3990, close: 4005, tick_volume: 20, spread: 14};
+test('history can cross short source pages and stops at the first empty page', async () => {
+  const seen = [];
+  const result = await readHistoryPages(now, Infinity, new AbortController().signal, async before => {
+    seen.push(before);
+    return before === now ? [{...candle, time: minute}] : before === minute
+      ? [{...candle, time: minute - 60}] : [];
+  });
+  assert.deepEqual(seen, [now, minute, minute - 60]);
+  assert.deepEqual(result.bars.map(bar => bar.time), [minute - 60, minute]);
+  assert.equal(result.ended, true);
+  assert.equal(result.failed, false);
+});
+
+test('stopping a history load keeps finished pages without marking the source exhausted', async () => {
+  const controller = new AbortController();
+  const result = await readHistoryPages(now, Infinity, controller.signal, async before => [
+    {...candle, time: before - 60},
+  ], () => controller.abort());
+  assert.deepEqual(result.bars.map(bar => bar.time), [minute]);
+  assert.equal(result.ended, false);
+  assert.equal(result.failed, false);
+});
 const quote = {
   symbol: 'XAUUSD', source_id: 'Eightcap-MT5-Live', price_basis: 'Bid',
   timestamp: now, bid: 4015, ask: 4015.14, quote_usable: true,

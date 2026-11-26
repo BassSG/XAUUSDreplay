@@ -80,6 +80,32 @@ export function liveTailUpdate(previous: Bar[], next: Bar[]) {
   return true;
 }
 
+// An empty page, rather than a short page, marks the end of the source.
+export async function readHistoryPages(
+  before: number, limit: number, signal: AbortSignal,
+  page: (before: number) => Promise<Bar[]>, progress?: (loaded: number) => void,
+) {
+  const pages: Bar[][] = [];
+  let loaded = 0;
+  let ended = false;
+  let failed = false;
+  try {
+    while (loaded < limit && !signal.aborted) {
+      const rows = await page(before);
+      if (signal.aborted) break;
+      if (!rows.length) { ended = true; break; }
+      if (rows.at(-1)!.time >= before) throw Error('หน้าแท่งย้อนหลังไม่ขยับ');
+      pages.push(rows);
+      loaded += rows.length;
+      before = rows[0].time;
+      progress?.(loaded);
+    }
+  } catch {
+    failed = !signal.aborted;
+  }
+  return {bars: pages.reverse().flat(), ended, failed};
+}
+
 export function readBars(payload: unknown, seconds: number, now: number): Bar[] {
   if (!Array.isArray(payload) || !payload.length) throw Error('Bridge ไม่มีข้อมูลแท่งราคา');
   const rows = new Map<number, Bar>();
