@@ -1,18 +1,19 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {ArrowLeft, Crosshair, Magnet, Radio, Redo2, RefreshCw, Trash2, Undo2} from 'lucide-react';
+import {ArrowLeft, Crosshair, Eye, EyeOff, Magnet, Radio, Redo2, RefreshCw, SlidersHorizontal, Trash2, Undo2} from 'lucide-react';
 import ChartBoundary from './chart-boundary';
 import ReplayChart from './replay-chart';
+import LiveStudyPanel from './live-study-panel';
 import {drawingNames} from '../lib/chart-tools';
 import type {Bar, Drawing, DrawingKind, Trade} from '../lib/engine';
 import {historyCatalog, loadBefore} from '../lib/history';
 import {periods, type Period} from '../lib/live-market';
-import {livePlots, studyNames, type LiveStudy} from '../lib/live-indicators';
+import {livePlots, studyDefinitions, studyLabel, studyLength, type LiveStudy, type LiveStudyLengths} from '../lib/live-indicators';
 import {useLiveMarket} from '../lib/use-live-market';
 import './live-workspace.css';
 
 const storageKey = 'xau-live-workspace-v1';
 const periodList = Object.keys(periods) as Period[];
-const studyList = Object.keys(studyNames) as LiveStudy[];
+const studyList = Object.keys(studyDefinitions) as LiveStudy[];
 const drawingList = Object.keys(drawingNames) as DrawingKind[];
 const emptyBars: Bar[] = [];
 const noTrades: Trade[] = [];
@@ -22,17 +23,27 @@ const clock = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 });
 
-type Workspace = {period: Period; drawings: Drawing[]; studies: LiveStudy[]; magnet: boolean};
+type Workspace = {
+  period: Period; drawings: Drawing[]; studies: LiveStudy[];
+  lengths: LiveStudyLengths; magnet: boolean; hiddenDrawings: boolean;
+};
 
 function loadWorkspace(): Workspace {
-  const defaults: Workspace = {period: '1m', drawings: [], studies: ['ema20'], magnet: false};
+  const defaults: Workspace = {period: '1m', drawings: [], studies: ['ema20'], lengths: {}, magnet: false, hiddenDrawings: false};
   try {
     const stored = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
     if (!stored) return defaults;
+    const lengths: LiveStudyLengths = {};
+    for (const study of studyList) {
+      const value = studyLength(study, stored.lengths?.[study]);
+      if (value !== null) lengths[study] = value;
+    }
     return {
       period: periodList.includes(stored.period) ? stored.period : defaults.period,
       studies: Array.isArray(stored.studies) ? studyList.filter(s => stored.studies.includes(s)) : defaults.studies,
+      lengths,
       magnet: stored.magnet === true,
+      hiddenDrawings: stored.hiddenDrawings === true,
       drawings: Array.isArray(stored.drawings) ? stored.drawings.filter((d: Drawing | null) =>
         d && drawingList.includes(d.kind) && typeof d.id === 'string' &&
         Array.isArray(d.points) && d.points.length > 0 &&
@@ -46,13 +57,14 @@ function loadWorkspace(): Workspace {
 
 export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [workspace, setWorkspace] = useState(loadWorkspace);
-  const {period, studies, drawings, magnet} = workspace;
+  const {period, studies, lengths, drawings, magnet, hiddenDrawings} = workspace;
   const [mode, setMode] = useState<DrawingKind | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
   const [retry, setRetry] = useState(0);
   const [backup, setBackup] = useState<{period: Period; bars: Bar[]; failed?: boolean}>();
   const [storageFailed, setStorageFailed] = useState(false);
+  const [showStudies, setShowStudies] = useState(false);
   const undo = useRef<Drawing[][]>([]);
   const redo = useRef<Drawing[][]>([]);
   const market = useLiveMarket(period, retry);
@@ -89,7 +101,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const bars = useMemo(() => market.closed.length
     ? market.open ? [...market.closed, market.open] : market.closed
     : historical, [market.closed, market.open, historical]);
-  const plots = useMemo(() => livePlots(bars, studies), [bars, studies]);
+  const plots = useMemo(() => livePlots(bars, studies, lengths), [bars, studies, lengths]);
   const activeDrawing = drawings.find(d => d.id === selected);
   const quote = market.quote;
   const status = market.quoteError ? 'การเชื่อมต่อขัดข้อง' : quote?.status === 'live' ? 'ราคาสด'
@@ -123,6 +135,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     cancelDrawing();
     setFollow(true);
   }
+  function toggleStudy(study: LiveStudy) {
+    setWorkspace(value => ({...value, studies: value.studies.includes(study)
+      ? value.studies.filter(s => s !== study) : [...value.studies, study]}));
+  }
 
   return <main className="live-workspace">
     <header className="live-header">
@@ -150,21 +166,26 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         <div className="live-periods" role="group" aria-label="ช่วงเวลาแท่งราคา">
           {periodList.map(tf => <button key={tf} type="button" aria-pressed={period === tf} onClick={() => selectPeriod(tf)}>{tf}</button>)}
         </div>
-        <div className="live-studies" role="group" aria-label="อินดิเคเตอร์">
-          {studyList.map(study => <button key={study} type="button" aria-pressed={studies.includes(study)}
-            onClick={() => setWorkspace(current => ({...current, studies: current.studies.includes(study)
-              ? current.studies.filter(s => s !== study) : [...current.studies, study]}))}>{studyNames[study]}</button>)}
-        </div>
+        <button className="live-studies-button" type="button" aria-haspopup="dialog" onClick={() => setShowStudies(true)}>
+          <SlidersHorizontal size={15}/>อินดิเคเตอร์{studies.length ? ' (' + studies.length + ')' : ''}
+        </button>
         <button type="button" aria-pressed={follow} onClick={() => setFollow(value => !value)}><Radio size={15}/>ติดตามกราฟ</button>
       </div>
+      {!!studies.length && <div className="live-study-legend" aria-label="อินดิเคเตอร์ที่ใช้งาน">
+        {studies.map(study => <button key={study} type="button" onClick={() => setShowStudies(true)}>{studyLabel(study, lengths)}</button>)}
+      </div>}
       <div className="live-chart-layout">
         <aside className="live-tools" aria-label="เครื่องมือวาด">
           <button type="button" aria-pressed={!mode} onClick={cancelDrawing}><Crosshair size={15}/>เลือก</button>
-          {drawingList.map(kind => <button key={kind} type="button" disabled={!bars.length || drawings.length >= 500}
+          {drawingList.map(kind => <button key={kind} type="button" disabled={hiddenDrawings || !bars.length || drawings.length >= 500}
             aria-pressed={mode === kind} onClick={() => { setMode(kind); setSelected(null); }}>{drawingNames[kind]}</button>)}
           <div className="live-drawing-actions">
             <button className="live-icon" type="button" aria-label="ดูดจุดเข้าหาราคาแท่ง" title="ดูดจุดเข้าหาราคาแท่ง" aria-pressed={magnet}
               onClick={() => setWorkspace(value => ({...value, magnet: !value.magnet}))}><Magnet size={16}/></button>
+            <button className="live-icon" type="button" aria-label="ซ่อนเส้นวาด" title="ซ่อนเส้นวาด" aria-pressed={hiddenDrawings} onClick={() => {
+              cancelDrawing();
+              setWorkspace(value => ({...value, hiddenDrawings: !value.hiddenDrawings}));
+            }}>{hiddenDrawings ? <EyeOff size={16}/> : <Eye size={16}/>}</button>
             <button className="live-icon" type="button" aria-label="ย้อนการวาด" title="ย้อนการวาด" disabled={!undo.current.length}
               onClick={() => restoreDrawing(undo.current, redo.current)}><Undo2 size={16}/></button>
             <button className="live-icon" type="button" aria-label="ทำการวาดซ้ำ" title="ทำการวาดซ้ำ" disabled={!redo.current.length}
@@ -175,7 +196,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         </aside>
         <div className="live-chart">
           {bars.length ? <ChartBoundary resetKey={period}><ReplayChart live key={period} bars={bars} trades={noTrades} plots={plots}
-            follow={follow} seconds={periods[period]} drawings={drawings} drawingMode={mode} magnet={magnet}
+            follow={follow} seconds={periods[period]} drawings={drawings} drawingMode={mode} magnet={magnet} hiddenDrawings={hiddenDrawings}
             selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingCancel={cancelDrawing}
             onDrawing={drawing => { saveDrawings([...drawings, drawing]); setSelected(drawing.id); setMode(null); }}
             onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
@@ -200,5 +221,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         onClick={() => changeDrawing({...activeDrawing, locked: !activeDrawing.locked})}>{activeDrawing.locked ? 'ปลดล็อก' : 'ล็อกวัตถุ'}</button>
     </section>}
     {storageFailed && <p role="alert">เบราว์เซอร์บันทึกการตั้งค่ากราฟลงเครื่องไม่ได้</p>}
+    {showStudies && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy}
+      onLength={(study, length) => setWorkspace(value => ({...value, lengths: {...value.lengths, [study]: length}}))}
+      onClose={() => setShowStudies(false)}/>}
   </main>;
 }

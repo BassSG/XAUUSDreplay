@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readBars, readQuote, sampleOpenBar} from '../src/lib/live-market.ts';
+import {liveTailUpdate, mergeClosedBars, readBars, readQuote, sampleOpenBar} from '../src/lib/live-market.ts';
+import {livePlots, studyLabel} from '../src/lib/live-indicators.ts';
 
 const now = 1795620180;
 const minute = now - 60;
@@ -37,4 +38,37 @@ test('closed or stale quotes remain visible as status and cannot update the char
   assert.equal(readQuote({...quote, market_status: 'closed', quote_usable: false}, now).status, 'closed');
   assert.equal(readQuote(quote, now + 121).status, 'stale');
   assert.throws(() => readQuote({...quote, ask: 3999}, now));
+});
+
+test('rolling broker requests preserve earlier candles until the workspace hits capacity', () => {
+  const [last] = readBars([candle], 60, now);
+  const first = {...last, time: minute - 120};
+  const second = {...last, time: minute - 60};
+  const newest = {...last, time: now};
+  const before = [first, second, last];
+  assert.equal(mergeClosedBars(before, [{...last}]), before);
+  assert.deepEqual(mergeClosedBars(before, [last, newest]), [first, second, last, newest]);
+  assert.deepEqual(mergeClosedBars(before, [last, newest], 3), [second, last, newest]);
+});
+
+test('live quote updates may edit the latest candle, while broker revisions refresh history', () => {
+  const [last] = readBars([candle], 60, now);
+  const first = {...last, time: minute - 60};
+  const previous = [first, last];
+  assert.ok(liveTailUpdate(previous, [first, {...last, close: 4006}]));
+  assert.ok(liveTailUpdate(previous, [first, last, {...last, time: now}]));
+  assert.ok(!liveTailUpdate(previous, [{...first, high: 4015}, last]));
+  assert.ok(!liveTailUpdate(previous, [last, {...last, time: now}]));
+  assert.ok(!liveTailUpdate(previous, [first]));
+});
+
+test('adjusted moving averages, Bollinger Bands and Wilder RSI use the configured period', () => {
+  const bars = [1, 2, 3, 4].map((close, i) => ({time: now + i * 60, open: close, high: close, low: close, close, volume: 1}));
+  const studies = livePlots(bars, ['sma', 'bollinger', 'rsi14'], {sma: 2, bollinger: 2, rsi14: 2});
+  const values = name => studies.find(series => series.name === name).data.map(point => point.value);
+  assert.deepEqual(values('SMA 2'), [null, 1.5, 2.5, 3.5]);
+  assert.deepEqual(values('BB Upper'), [null, 2.5, 3.5, 4.5]);
+  assert.deepEqual(values('BB Lower'), [null, 0.5, 1.5, 2.5]);
+  assert.deepEqual(values('RSI 2'), [null, null, 100, 100]);
+  assert.equal(studyLabel('ema20', {ema20: -1}), 'EMA 20');
 });

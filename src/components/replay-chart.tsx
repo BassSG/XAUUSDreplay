@@ -3,6 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import {createChart,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers} from 'lightweight-charts';
 import ChartDrawings from './chart-drawings';
 import {replayRange} from '../lib/chart-tools';
+import {liveTailUpdate, sameMarketBar} from '../lib/live-market';
 import type {Bar,Trade,Drawing,DrawingKind} from '../lib/engine';
 export type ChartLevel={id:string;price:number;kind:'entry'|'sl'|'tp';label:string;color:string;draft?:boolean;tradeId?:string;orderId?:string;editable:boolean;pending?:boolean};
 export type PinePlot={name:string;style:string;overlay:boolean;color:string;width:number;indicatorId?:string;indicatorName?:string;data:{time:number;value:number|null;color?:string}[]};
@@ -12,12 +13,20 @@ export type PineTable={indicatorId:string;indicatorName:string;position:string;c
 const dateFmt=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
 const tickTime=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false});
 const tickDate=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short'});
+const ohlcNumber=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const prices=[['open','O','เปิด'],['high','H','สูงสุด'],['low','L','ต่ำสุด'],['close','C','ปิด']] as const;
+function latestLiveRange(count:number,width:number){
+ const visible=Math.max(24,Math.min(110,Math.floor(width/8)));
+ const room=Math.max(5,Math.round(visible/12));
+ return {from:Math.max(0,count-visible+room),to:count+room};
+}
 const markerShape=(s:string)=>{const v=(s||'').toLowerCase();return v.includes('up')?'arrowUp':v.includes('down')?'arrowDown':v.includes('square')?'square':'circle'};
 const markerPosition=(s:string)=>{const v=(s||'').toLowerCase();return v.includes('below')?'belowBar':v.includes('above')?'aboveBar':'inBar'};
 const cssColor=(v:any,fallback='transparent')=>typeof v==='string'&&v&&v!=='na'?v:fallback;
 function chartPreference(key:string){try{return localStorage.getItem(key)==='true';}catch{return false;}}
-export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=[],onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,hiddenDrawings=false,live=false}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;hiddenDrawings?:boolean;live?:boolean}){
+export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=[],onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,hiddenDrawings=false,live=false,hasPine=false}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;hiddenDrawings?:boolean;live?:boolean;hasPine?:boolean}){
  const [expanded,setExpanded]=useState(false),[paneCount,setPaneCount]=useState(0),[focus,setFocus]=useState('draft');
+ const [cursorTime,setCursorTime]=useState<number|null>(null);
  const [showPineText,setShowPineText]=useState(()=>chartPreference('xau-pine-text')),[showPineTables,setShowPineTables]=useState(()=>chartPreference('xau-pine-tables'));
  function toggleText(){setShowPineText(v=>{try{localStorage.setItem('xau-pine-text',String(!v));}catch{}return !v;});}
  function toggleTables(){setShowPineTables(v=>{try{localStorage.setItem('xau-pine-tables',String(!v));}catch{}return !v;});}
@@ -29,11 +38,42 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   const series=chart.addSeries(CandlestickSeries,{upColor:'#35c4a0',downColor:'#ef6b79',wickUpColor:'#35c4a0',wickDownColor:'#ef6b79',borderVisible:false,priceFormat:{type:'price',precision:2,minMove:.01}});
   const markers=createSeriesMarkers(series,[]);ref.current={chart,series,markers,lines:[],studies:new Map(),count:0};
   chart.subscribeClick((p:any)=>{if(modeRef.current||!p.point||(p.paneIndex??0)!==0)return;const price=series.coordinateToPrice(p.point.y);if(price!==null)onPriceRef.current?.(price);});
+  if(live)chart.subscribeCrosshairMove((p)=>{
+   const bar=p.seriesData.get(series);
+   setCursorTime(typeof p.time==='number'&&bar&&'open' in bar?p.time:null);
+  });
   const redraw=()=>{if((!drawingsRef.current.user.length&&!drawingsRef.current.pine.length&&!levelRef.current.levels.length)||redrawFrame.current!==undefined)return;redrawFrame.current=requestAnimationFrame(()=>{redrawFrame.current=undefined;setViewTick(v=>v+1)})};
   chart.timeScale().subscribeVisibleLogicalRangeChange(redraw);const el=host.current;el.addEventListener('wheel',redraw);el.addEventListener('pointermove',redraw);const observer=new ResizeObserver(redraw);observer.observe(el);
   return()=>{observer.disconnect();el.removeEventListener('wheel',redraw);el.removeEventListener('pointermove',redraw);chart.timeScale().unsubscribeVisibleLogicalRangeChange(redraw);if(redrawFrame.current!==undefined)cancelAnimationFrame(redrawFrame.current);ref.current=null;chart.remove()};
  },[]);
- useEffect(()=>{const r=ref.current;if(!r)return;const previous=r.chart.timeScale().getVisibleLogicalRange();const range=replayRange(previous,r.count,bars.length,barIndexOffset-(r.offset||0),follow);r.data=bars;r.series.setData(bars as any);if(bars.length)r.chart.timeScale().setVisibleLogicalRange(range);r.count=bars.length;r.offset=barIndexOffset;setViewTick(v=>v+1)},[bars,follow,barIndexOffset]);
+ useEffect(()=>{
+  const r=ref.current;if(!r)return;
+  const scale=r.chart.timeScale(),previous=scale.getVisibleLogicalRange();
+  const old:Bar[]=r.data??[];
+  const tail=bars.at(-1);
+  let range;
+  if(live){
+   if(old===bars)return;
+   const removed=old.findIndex(bar=>bar.time===bars[0]?.time);
+   const inserted=removed<0?bars.findIndex(bar=>bar.time===old[0]?.time):0;
+   const offset=inserted>0?-inserted:Math.max(0,removed);
+   range=previous&&old.length&&(removed>=0||inserted>=0)
+    ? replayRange(previous,old.length,bars.length,offset,follow)
+    : latestLiveRange(bars.length,host.current?.clientWidth??700);
+   if(tail&&liveTailUpdate(old,bars)){
+    if(old.length!==bars.length||!sameMarketBar(old[old.length-1],tail))r.series.update(tail);
+    if(follow&&old.length!==bars.length)scale.setVisibleLogicalRange(range);
+   }else{
+    r.series.setData(bars);
+    if(tail)scale.setVisibleLogicalRange(range);
+   }
+  }else{
+   range=replayRange(previous,r.count,bars.length,barIndexOffset-(r.offset||0),follow);
+   r.series.setData(bars);
+   if(tail)scale.setVisibleLogicalRange(range);
+  }
+  r.data=bars;r.count=bars.length;r.offset=barIndexOffset;setViewTick(v=>v+1);
+ },[bars,follow,barIndexOffset,live]);
  useEffect(()=>{const r=ref.current;if(!r)return;r.series.applyOptions({autoscaleInfoProvider:(base:Function)=>{const info=base();if(!info)return info;if(r.dragRange)return {...info,priceRange:r.dragRange};const selected=levels.some(l=>(l.tradeId||l.orderId||'draft')===focus)?focus:'draft';const prices=levels.filter(l=>(l.tradeId||l.orderId||'draft')===selected).map(l=>l.price).filter(p=>Number.isFinite(p)&&p>0);const range={minValue:Math.min(info.priceRange.minValue,...prices),maxValue:Math.max(info.priceRange.maxValue,...prices)};r.lastRange=range;return {...info,priceRange:range};}});setViewTick(v=>v+1)},[levels,focus]);
  useEffect(()=>{const r=ref.current;if(!r)return;for(const line of r.lines)r.series.removePriceLine(line);r.lines=[];
   const selected=levels.some(l=>(l.tradeId||l.orderId||'draft')===focus)?focus:'draft';
@@ -64,5 +104,10 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
  useEffect(()=>{const next=levels.filter(l=>l.tradeId).at(-1)?.tradeId;if(next)setFocus(next);},[trades.filter(t=>t.remaining>0).length]);
  const tableGroups=new Map<string,PineTable[]>();for(const t of (showPineTables?pineTables:[]).filter(t=>t.cells?.some(row=>row.some(cell=>cell?.text?.trim())))){const pos=String(t.position||'top_right').replaceAll('_','-');tableGroups.set(pos,[...(tableGroups.get(pos)||[]),t]);}
  const tables=[...tableGroups].map(([position,group])=><div key={position} className={'pine-table-group pine-table-'+position}>{group.map(t=><details open key={t.indicatorId+'-'+t.id} className="pine-table" style={{background:cssColor(t.bgcolor,'#10151de6'),borderColor:cssColor(t.frame_color||t.border_color,'#334155')}}><summary className="pine-table-name">{t.indicatorName}</summary><table><tbody>{(t.cells||[]).map((row:any[],ri:number)=><tr key={ri}>{row.map((cell:any,ci:number)=><td key={ci} style={{background:cssColor(cell?.bgcolor,'transparent'),color:cssColor(cell?.text_color,'#dbe4ef'),textAlign:(cell?.text_halign||'left').replace('text.align_','') as any}} title={cell?.tooltip||''}>{cell?.text||''}</td>)}</tr>)}</tbody></table></details>)}</div>);
- return <div className={'chart-stage'+(drawingMode?' drawing-active':'')+(expanded?' chart-expanded':'')}><div className="chart-view-tools">{groups.length>0&&<select aria-label="เลือกออเดอร์ที่จะลากบนกราฟ" value={groups.includes(focus)?focus:'draft'} onChange={e=>setFocus(e.target.value)}>{groups.map(g=><option key={g} value={g}>{g==='draft'?'Draft SL / TP':(levels.find(l=>l.tradeId===g||l.orderId===g)?.label.split(' ').slice(0,2).join(' ')||g)}</option>)}</select>}<button onClick={()=>ref.current?.chart.timeScale().fitContent()} title="ดูช่วงที่เปิดแล้วทั้งหมด">Fit</button><button onClick={()=>ref.current?.chart.timeScale().setVisibleLogicalRange(replayRange(null,0,bars.length,0,true))}>แท่งล่าสุด</button><button onClick={()=>ref.current?.chart.timeScale().setVisibleLogicalRange(replayRange(null,0,bars.length,0,true))}>Reset</button><button onClick={()=>setExpanded(v=>!v)}>{expanded?'ย่อกราฟ':'ขยายกราฟ'}</button><button onClick={()=>void exportChart()}>PNG</button>{!live&&<><button aria-pressed={showPineText} onClick={toggleText}>ข้อความอินดี้</button><button aria-pressed={showPineTables} onClick={toggleTables}>Dashboard</button></>}</div><div className="chart-scroll-content" style={{height:Math.max(420,320+paneCount*150)}}><div className="chart-canvas" ref={host} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}<ChartDrawings api={ref.current} host={host.current} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings} mode={drawingMode} hidden={hiddenDrawings} magnet={magnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>{!drawingMode&&!selectedDrawing&&handles}{tables}</div></div>;
+ const shownBar=live?(bars.find(bar=>bar.time===cursorTime)??bars.at(-1)):undefined;
+ function goLatest(){
+  const range=live?latestLiveRange(bars.length,host.current?.clientWidth??700):replayRange(null,0,bars.length,0,true);
+  ref.current?.chart.timeScale().setVisibleLogicalRange(range);
+ }
+ return <div className={'chart-stage'+(drawingMode?' drawing-active':'')+(expanded?' chart-expanded':'')}><div className="chart-view-tools">{groups.length>0&&<select aria-label="เลือกออเดอร์ที่จะลากบนกราฟ" value={groups.includes(focus)?focus:'draft'} onChange={e=>setFocus(e.target.value)}>{groups.map(g=><option key={g} value={g}>{g==='draft'?'Draft SL / TP':(levels.find(l=>l.tradeId===g||l.orderId===g)?.label.split(' ').slice(0,2).join(' ')||g)}</option>)}</select>}<button onClick={()=>ref.current?.chart.timeScale().fitContent()} title="ดูช่วงที่เปิดแล้วทั้งหมด">Fit</button><button onClick={goLatest}>แท่งล่าสุด</button>{!live&&<button onClick={goLatest}>Reset</button>}<button onClick={()=>setExpanded(v=>!v)}>{expanded?'ย่อกราฟ':'ขยายกราฟ'}</button><button onClick={()=>void exportChart()}>PNG</button>{(!live||hasPine)&&<><button aria-pressed={showPineText} onClick={toggleText}>ข้อความอินดี้</button><button aria-pressed={showPineTables} onClick={toggleTables}>Dashboard</button></>}</div>{shownBar&&<div className="live-ohlc" aria-label="ราคาแท่งเทียน"><time dateTime={new Date(shownBar.time*1000).toISOString()}>{dateFmt.format(shownBar.time*1000)}</time>{prices.map(([key,label,description])=><span key={key} aria-label={description}><small>{label}</small> {ohlcNumber.format(shownBar[key])}</span>)}</div>}<div className="chart-scroll-content" style={{height:Math.max(420,320+paneCount*150)}}><div className="chart-canvas" ref={host} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}<ChartDrawings api={ref.current} host={host.current} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings} mode={drawingMode} hidden={hiddenDrawings} magnet={magnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>{!drawingMode&&!selectedDrawing&&handles}{tables}</div></div>;
 }

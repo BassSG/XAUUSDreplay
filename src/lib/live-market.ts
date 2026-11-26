@@ -7,6 +7,30 @@ type Row = Record<string, unknown>;
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
 const epoch = (value: unknown): value is number => positive(value) && Number.isSafeInteger(value);
 
+export function sameMarketBar(a: Bar, b: Bar) {
+  return a === b || (a.time === b.time && a.open === b.open && a.high === b.high &&
+    a.low === b.low && a.close === b.close && a.volume === b.volume && a.spread === b.spread);
+}
+
+export function mergeClosedBars(previous: Bar[], snapshot: Bar[], capacity = 2500) {
+  if (!previous.length) return snapshot.slice(-capacity);
+  if (!snapshot.length || snapshot.at(-1)!.time < previous.at(-1)!.time) return previous;
+  const overlap = previous.findIndex(bar => bar.time >= snapshot[0].time);
+  const keep = overlap < 0 ? previous.length : overlap;
+  const bars = [...previous.slice(0, keep), ...snapshot].slice(-capacity);
+  return bars.length === previous.length && bars.every((bar, index) => sameMarketBar(bar, previous[index]))
+    ? previous : bars;
+}
+
+export function liveTailUpdate(previous: Bar[], next: Bar[]) {
+  if (next === previous) return true;
+  if (!previous.length || next.length < previous.length || next.length > previous.length + 1) return false;
+  const append = next.length > previous.length;
+  const prefix = append ? previous.length : previous.length - 1;
+  return (append ? next.at(-1)!.time > previous.at(-1)!.time : next.at(-1)!.time === previous.at(-1)!.time) &&
+    previous.slice(0, prefix).every((bar, index) => sameMarketBar(bar, next[index]));
+}
+
 export function readBars(payload: unknown, seconds: number, now: number): Bar[] {
   if (!Array.isArray(payload) || !payload.length) throw Error('Bridge ไม่มีข้อมูลแท่งราคา');
   const rows = new Map<number, Bar>();
