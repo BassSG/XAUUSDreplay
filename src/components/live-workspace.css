@@ -765,8 +765,21 @@
 }
 .live-history-actions button:disabled { opacity: .35; }
 .live-favorite-bar .live-favorite-toggle { color: var(--live-gold); }
+.live-favorite-bar[data-size="small"] { gap: 1px; padding: 2px; }
+.live-favorite-bar[data-size="small"] .live-favorite-list button { min-width: 34px; min-height: 36px; padding: 3px; }
+.live-favorite-bar[data-size="small"] .live-favorite-list svg { width: 15px; height: 15px; }
+.live-favorite-bar[data-size="large"] .live-favorite-list button { min-width: 52px; min-height: 52px; }
+.live-favorite-bar[data-size="large"] .live-favorite-list svg { width: 21px; height: 21px; }
+.live-favorite-size {
+  flex: none; min-height: 36px; max-width: 60px; padding: 0 3px; border: 1px solid var(--live-border);
+  border-radius: 5px; background: var(--live-panel); color: var(--live-text); font: inherit; font-size: 12px;
+}
+@media (pointer: coarse) { .live-favorite-size { min-height: 44px; font-size: 16px; } }
 .live-favorite-bar[data-collapsed=true] { padding: 1px; }
-.live-favorite-bar[data-collapsed=true] button { border-color: transparent; background: transparent; }
+.live-favorite-bar[data-collapsed=true] button {
+  border-color: transparent; background: transparent; touch-action: none; cursor: grab;
+}
+.live-favorite-bar[data-collapsed=true] button:active { cursor: grabbing; }
 @media (max-width: 720px), (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
   .live-market-readout { margin-inline-start: auto; }
   .live-history-actions button { min-width: 40px; min-height: 44px; }

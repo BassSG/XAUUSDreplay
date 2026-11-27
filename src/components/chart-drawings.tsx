@@ -111,6 +111,7 @@ export default function ChartDrawings(props: Props) {
   const ctrlMagnet = useRef(false);
   const hoverLocation = useRef<XY | null>(null);
   const aimLocation = useRef<XY | null>(null);
+  const aimWasDragged = useRef(false);
   const touchConfirm = useRef<{id:number;x:number;y:number} | null>(null);
   const lastTouchConfirm = useRef(-Infinity);
   const clipId = useId();
@@ -133,6 +134,7 @@ export default function ChartDrawings(props: Props) {
   function resetDraft() {
     stroke.current = null;
     aimLocation.current = null;
+    aimWasDragged.current = false;
     updateDraft(emptyDraft);
   }
 
@@ -229,6 +231,7 @@ export default function ChartDrawings(props: Props) {
     const {anchors} = draftRef.current;
     const points = [...anchors, point];
     if (placementError(mode, points, timeline, indexAt)) return;
+    aimWasDragged.current = false;
     const tool = drawingTools[mode];
     if (points.length === (tool.variable ? variableDrawingsMax : tool.points.length)) save(mode, points);
     else {
@@ -349,12 +352,15 @@ export default function ChartDrawings(props: Props) {
       const x = Math.max(0, Math.min(api.chart.timeScale().width(), press.origin.x + dx));
       const y = Math.max(0, Math.min(height, press.origin.y + dy));
       const point = pointAt(x, y, event.ctrlKey);
-      if (point) chooseCandidate(point, {x, y});
+      if (point) {
+        aimWasDragged.current = true;
+        chooseCandidate(point, {x, y});
+      }
     };
     const endAim = (event: PointerEvent) => {
       if (!press || press.id !== event.pointerId) return;
-      const moved = press.moved;
-      if (moved) moveAim(event);
+      moveAim(event);
+      const {moved, draggable} = press;
       press = null;
       if (moved) return;
       const position = coordinates(event);
@@ -362,8 +368,14 @@ export default function ChartDrawings(props: Props) {
       const {mode, hidden} = state.current;
       if (!point || !mode || hidden || isStroke(mode)) return;
       // Handle taps here because the chart can combine fast taps as a double click.
-      if (confirmPlacement) chooseCandidate(point, position);
-      else accept(point);
+      if (!confirmPlacement) {
+        accept(point);
+        return;
+      }
+      // A tap after dragging commits the aim, wherever the confirming finger lands.
+      // Without a dragged aim, the tap itself supplies the next anchor.
+      if (!draggable || !aimWasDragged.current) chooseCandidate(point, position);
+      if (draggable) confirm();
     };
     const cancelAim = () => { press = null; };
     host.addEventListener('pointerdown', startAim, true);
@@ -582,10 +594,10 @@ export default function ChartDrawings(props: Props) {
   const controls = mode && tool && confirmPlacement && <section className="live-placement" aria-label="วางจุดบนกราฟ">
     <div className="live-placement-info">
       <strong>{tool.name}</strong>
-      <span role="status">{(aimOnAnchor ? 'ลากที่กราฟเพื่อเล็งจุดถัดไป' : candidateError) ?? (freehand
+      <span role="status">{(aimOnAnchor ? 'ลากหรือแตะเพื่อวางจุดถัดไป' : candidateError) ?? (freehand
         ? ready ? 'พร้อมวางเส้น' : 'ลากนิ้วเพื่อวาดเส้น'
         : (tool.variable ? 'จุดที่ ' + (draft.anchors.length + 1) : tool.points[draft.anchors.length] ?? tool.points[0])
-          + ' · ลากหรือแตะกราฟเพื่อเล็ง')}</span>
+          + ' · ลากเพื่อเล็ง แล้วแตะเพื่อวาง')}</span>
     </div>
     <div className="live-placement-actions">
       {!freehand && <label className="live-placement-price">

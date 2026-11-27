@@ -11,6 +11,7 @@ test('a saved layout restores the migrated workspace, styling, camera, drawings 
   assert.equal(workspace.favoriteCollapsed, false);
   workspace.chartLayout = 'six';
   workspace.favoriteCollapsed = true;
+  workspace.favoriteSize = 'large';
   workspace.favoriteTools = ['hline', 'fib'];
   assert.equal(workspace.appearance.background, '#0d141e');
   workspace.appearance.background = '#ffffff';
@@ -25,9 +26,11 @@ test('a saved layout restores the migrated workspace, styling, camera, drawings 
   const restored = readLayoutFile(JSON.parse(JSON.stringify(record.file)));
   assert.equal(restored.workspace.chartLayout, 'six');
   assert.equal(restored.workspace.favoriteCollapsed, true);
+  assert.equal(restored.workspace.favoriteSize, 'large');
   assert.deepEqual(restored.workspace.favoriteTools, ['hline', 'fib']);
-  const {chartLayout, favoriteCollapsed, ...legacyWorkspace} = restored.workspace;
+  const {chartLayout, favoriteCollapsed, favoriteSize, ...legacyWorkspace} = restored.workspace;
   assert.equal(readLayoutFile({...restored, workspace: legacyWorkspace}).workspace.favoriteCollapsed, false);
+  assert.equal(readLayoutFile({...restored, workspace: legacyWorkspace}).workspace.favoriteSize, 'medium');
   assert.equal(readLayoutFile({...restored, workspace: legacyWorkspace}).workspace.chartLayout, 'single');
   assert.deepEqual(restored.workspace.drawings, [drawing]);
   assert.equal(restored.workspace.appearance.background, '#ffffff');

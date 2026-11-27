@@ -677,7 +677,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     <section className="live-chart-layout" aria-label="กราฟ XAUUSD">
       <LiveDrawingToolbar mode={mode} enabled={!replay.picking&&!hiddenDrawings && bars.length > 0 && drawings.length < 500}
         favorites={workspace.favoriteTools} favoritePosition={workspace.favoritePosition}
-        favoriteCollapsed={workspace.favoriteCollapsed}
+        favoriteCollapsed={workspace.favoriteCollapsed} favoriteSize={workspace.favoriteSize}
+        onResizeFavorites={size => setWorkspace(value => ({...value, favoriteSize: size}))}
         onToggleFavorites={() => setWorkspace(value => ({...value, favoriteCollapsed: !value.favoriteCollapsed}))}
         onFavorite={kind => setWorkspace(value => ({...value, favoriteTools: value.favoriteTools.includes(kind)
           ? value.favoriteTools.filter(tool => tool !== kind) : [...value.favoriteTools, kind]}))}

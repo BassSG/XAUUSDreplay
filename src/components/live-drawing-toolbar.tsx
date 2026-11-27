@@ -1,4 +1,4 @@
-import {useRef, useState, type ReactNode} from 'react';
+import {useRef, useState, type HTMLAttributes, type ReactNode} from 'react';
 import {
   ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Brush, CalendarRange, ChartCandlestick,
   ChartColumnIncreasing, ChartLine, ChartNoAxesCombined, ChevronLeft, Circle, CornerUpRight, Crosshair,
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import {drawingGroups, drawingKinds, drawingTools, type DrawingKind} from '../lib/drawing-definitions';
 import {useDialog} from '../lib/use-dialog';
+import type {LiveWorkspaceState} from '../lib/live-layouts';
 
 type ToolGroup = keyof typeof drawingGroups;
 const groups = Object.keys(drawingGroups) as ToolGroup[];
@@ -105,6 +106,7 @@ type Props = {
   desktopAction: ReactNode; mobileStart: ReactNode; mobileEnd: ReactNode;
   favorites: DrawingKind[]; favoritePosition: {x: number; y: number};
   favoriteCollapsed: boolean; onToggleFavorites: () => void;
+  favoriteSize: LiveWorkspaceState['favoriteSize']; onResizeFavorites: (size: Props['favoriteSize']) => void;
   onFavorite: (kind: DrawingKind) => void; onMoveFavorites: (position: Props['favoritePosition']) => void;
   onPick: (kind: DrawingKind) => void; onSelect: () => void; onMagnet: () => void;
   onStayInDrawingMode: () => void;
@@ -118,42 +120,64 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
   const [preview, setPreview] = useState<Props['favoritePosition'] | null>(null);
   const position = preview ?? props.favoritePosition;
   const clamp = (n: number) => Math.min(1, Math.max(0, n));
+  const dragged = useRef(false);
+  const positionHandle: Pick<HTMLAttributes<HTMLButtonElement>,
+    'onPointerDown' | 'onPointerMove' | 'onPointerUp' | 'onPointerCancel' | 'onLostPointerCapture' | 'onKeyDown'> = {
+    onPointerDown: event => {
+      if (!event.isPrimary || event.button !== 0 || drag.current) return;
+      dragged.current = false;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      drag.current = {id: event.pointerId, x: event.clientX, y: event.clientY, start: position, next: position};
+    },
+    onPointerMove: event => {
+      const start = drag.current;
+      if (start?.id !== event.pointerId || !bounds.current || !bar.current) return;
+      const dx = event.clientX - start.x, dy = event.clientY - start.y;
+      if (!dragged.current && Math.hypot(dx, dy) < 6) return;
+      dragged.current = true;
+      const w = bounds.current.clientWidth - bar.current.offsetWidth;
+      const h = bounds.current.clientHeight - bar.current.offsetHeight;
+      start.next = {x: w > 0 ? clamp(start.start.x + dx / w) : start.start.x,
+        y: h > 0 ? clamp(start.start.y + dy / h) : start.start.y};
+      setPreview(start.next);
+    },
+    onPointerUp: event => {
+      if (drag.current?.id !== event.pointerId) return;
+      if (dragged.current) props.onMoveFavorites(drag.current.next);
+      drag.current = null;
+      setPreview(null);
+    },
+    onPointerCancel: () => { drag.current = null; setPreview(null); },
+    onLostPointerCapture: () => { if (drag.current) { drag.current = null; setPreview(null); } },
+    onKeyDown: event => {
+      const shifts: Record<string, [number, number]> = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]};
+      const shift = shifts[event.key];
+      if (!shift) return;
+      event.preventDefault();
+      event.stopPropagation();
+      props.onMoveFavorites({x: clamp(position.x + shift[0] * .05), y: clamp(position.y + shift[1] * .05)});
+    },
+  };
   return <div className="live-favorite-area" ref={bounds}>
-    <div className="live-favorite-bar" ref={bar} role="toolbar" aria-label="เครื่องมือโปรด" data-collapsed={props.favoriteCollapsed}
+    <div className="live-favorite-bar" ref={bar} role="toolbar" aria-label="เครื่องมือโปรด" data-collapsed={props.favoriteCollapsed} data-size={props.favoriteSize}
       style={{left: position.x * 100 + '%', top: position.y * 100 + '%',
         transform: `translate(${-position.x * 100}%, ${-position.y * 100}%)`}}>
       <button type="button" className="live-favorite-toggle" aria-expanded={!props.favoriteCollapsed}
         aria-label={props.favoriteCollapsed ? 'ขยายแถบเครื่องมือโปรด' : 'พับแถบเครื่องมือโปรด'}
         title={props.favoriteCollapsed ? 'ขยายแถบเครื่องมือโปรด' : 'พับแถบเครื่องมือโปรด'}
-        onClick={props.onToggleFavorites}>{props.favoriteCollapsed ? <Star size={17}/> : <ChevronLeft size={17}/>}</button>
-      {!props.favoriteCollapsed && <><button type="button" className="live-favorite-grip" title="ลากเพื่อย้ายแถบเครื่องมือโปรด" aria-label="ย้ายแถบเครื่องมือโปรด"
-        onPointerDown={e => {
-          if (e.button !== 0 || drag.current) return;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          drag.current = {id: e.pointerId, x: e.clientX, y: e.clientY, start: position, next: position};
-        }}
-        onPointerMove={e => {
-          const start = drag.current;
-          if (start?.id !== e.pointerId || !bounds.current || !bar.current) return;
-          const w = bounds.current.clientWidth - bar.current.offsetWidth;
-          const h = bounds.current.clientHeight - bar.current.offsetHeight;
-          start.next = {x: w > 0 ? clamp(start.start.x + (e.clientX - start.x) / w) : start.start.x,
-            y: h > 0 ? clamp(start.start.y + (e.clientY - start.y) / h) : start.start.y};
-          setPreview(start.next);
-        }}
-        onPointerUp={e => {
-          if (drag.current?.id !== e.pointerId) return;
-          props.onMoveFavorites(drag.current.next);
-          drag.current = null; setPreview(null);
-        }}
-        onLostPointerCapture={() => { drag.current = null; setPreview(null); }}
-        onKeyDown={e => {
-          const shifts: Record<string, [number, number]> = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]};
-          const shift = shifts[e.key];
-          if (!shift) return;
-          e.preventDefault(); e.stopPropagation();
-          props.onMoveFavorites({x: clamp(position.x + shift[0] * .05), y: clamp(position.y + shift[1] * .05)});
-        }}><GripVertical size={17}/></button>
+        {...(props.favoriteCollapsed ? positionHandle : {})}
+        onClick={event => {
+          if (props.favoriteCollapsed && event.detail !== 0 && dragged.current) { dragged.current = false; return; }
+          props.onToggleFavorites();
+        }}>{props.favoriteCollapsed ? <Star size={17}/> : <ChevronLeft size={17}/>}</button>
+      {!props.favoriteCollapsed && <><button type="button" className="live-favorite-grip" title="ลากเพื่อย้ายแถบเครื่องมือโปรด"
+        aria-label="ย้ายแถบเครื่องมือโปรด" {...positionHandle}><GripVertical size={17}/></button>
+      <select className="live-favorite-size" aria-label="ขนาดแถบเครื่องมือโปรด" value={props.favoriteSize}
+        onChange={event => props.onResizeFavorites(event.currentTarget.value as Props['favoriteSize'])}>
+        <option value="small">เล็ก</option>
+        <option value="medium">กลาง</option>
+        <option value="large">ใหญ่</option>
+      </select>
       <div className="live-favorite-list">
         {props.favorites.map(kind => {
           const Icon = icons[kind] ?? groupIcons[groups.find(group => drawingGroups[group].tools.includes(kind as never)) ?? "shapes"];

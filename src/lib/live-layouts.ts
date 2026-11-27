@@ -40,6 +40,7 @@ const drawing = drawingSchema.extend({id: z.string().min(1).max(128)}).refine(d 
 }).refine(d => d.points.every(point => point.time < 8640000000000));
 const favoriteTools = z.array(z.enum(drawingKinds)).max(drawingKinds.length).default([]);
 const favoritePosition = z.object({x: z.number().min(0).max(1), y: z.number().min(0).max(1)}).default({x: .5, y: .82});
+const favoriteSize = z.enum(['small', 'medium', 'large']).default('medium');
 const workspaceSchema = z.object({
   period: z.enum(periodList), chartLayout: z.enum(['single', 'six']).default('single'), studies: z.array(z.enum(studyIds)),
   lengths: z.record(z.enum(studyIds), z.number().int().min(1).max(500)),
@@ -47,7 +48,7 @@ const workspaceSchema = z.object({
   removedGlobal: z.array(z.string().max(128)).max(2000).default([]),
   scripts: z.array(indicatorSchema).refine(rows => new Set(rows.map(row => row.id)).size === rows.length),
   magnet: z.boolean(), strongMagnet:z.boolean().default(false), hiddenDrawings: z.boolean(), stayInDrawingMode: z.boolean().default(false), appearance: appearanceSchema,
-  favoriteTools, favoritePosition, favoriteCollapsed: z.boolean().default(false),
+  favoriteTools, favoritePosition, favoriteSize, favoriteCollapsed: z.boolean().default(false),
 });
 export type LiveWorkspaceState = z.infer<typeof workspaceSchema>;
 
@@ -71,6 +72,7 @@ export function loadLiveWorkspace(value: unknown): LiveWorkspaceState {
     favoriteTools: [...new Set(items(row.favoriteTools, z.enum(drawingKinds)))],
     favoritePosition: favoritePosition.catch({x: .5, y: .82}).parse(row.favoritePosition),
     favoriteCollapsed: row.favoriteCollapsed === true,
+    favoriteSize: favoriteSize.catch('medium').parse(row.favoriteSize),
     appearance: appearanceSchema.catch(defaultAppearance).parse(row.appearance),
   };
 }
