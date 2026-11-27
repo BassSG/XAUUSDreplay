@@ -529,6 +529,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
  const candleTime=shownBar&&<time dateTime={new Date(shownBar.time*1000).toISOString()}>{dateFmt.format(shownBar.time*1000)}</time>;
  const plotTop=live&&paneCount?host.current?.getBoundingClientRect().top:undefined;
  const livePanes:ReturnType<IChartApi['panes']>|undefined=plotTop===undefined?undefined:ref.current?.chart.panes();
+ const showStudyTitles=appearance?.studyTitles!==false;
 
  if(live) return <div className={'chart-stage live-chart-stage'+(drawingMode?' drawing-active':'')}>
   <div className="live-plot-scroll">
@@ -542,14 +543,18 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
      </div>}
      {liveLegend}
     </div>
-    {appearance?.studyTitles!==false&&plotTop!==undefined&&livePanes&&paneStudies.map(([id,plot],index)=>{
+    {plotTop!==undefined&&livePanes&&paneStudies.map(([id,plot],index)=>{
      const row=livePanes[index+1]?.getHTMLElement();
      const badge=liveStudyBadges?.find(item=>item.id===id);
-     return row&&<span className="live-pane-title" key={id} data-study-state={badge?.state}
-      aria-label={badge ? badge.label + " · " + studyStateLabel[badge.state] : undefined}
+     return row&&(showStudyTitles||badge)&&<span className="live-pane-title" key={id}
+      data-study-state={badge?.state} data-status-only={!showStudyTitles || undefined}
+      role={showStudyTitles ? undefined : 'img'}
+      aria-label={badge ? (showStudyTitles ? badge.label + ' · ' : '') + studyStateLabel[badge.state] : undefined}
       style={{top:row.getBoundingClientRect().top-plotTop+5}}>
-      <i className="live-study-dot" style={badge ? undefined : {backgroundColor:plot.color}} aria-hidden="true"/>{plot.indicatorName??plot.name}
-      {onToggleStudy && badge && <StudyVisibilityButton label={badge.label} hidden={false} onToggle={() => onToggleStudy(id)}/>}
+      <i className="live-study-dot" style={badge ? undefined : {backgroundColor:plot.color}} aria-hidden="true"/>
+      {showStudyTitles && <>{plot.indicatorName??plot.name}
+        {onToggleStudy && badge && <StudyVisibilityButton label={badge.label} hidden={false} onToggle={() => onToggleStudy(id)}/>}
+      </>}
      </span>;
     })}
    </div>

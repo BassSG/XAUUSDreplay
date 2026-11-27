@@ -562,6 +562,15 @@
 .live-study-chip > span { color: inherit; opacity: .8; }
 .live-study-chip .live-study-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .live-study-chip .live-study-name[data-hidden=true] { color: var(--chart-ink); opacity: .75; }
+.live-chart .live-study-legend .live-study-chip[data-status-only] {
+  width: 28px;
+  justify-content: center;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+.live-chart .live-pane-title[data-status-only] { background: transparent; }
+[data-status-only] .live-study-dot { width: 8px; height: 8px; }
 @media (max-width: 720px), (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
   .live-chart .live-study-legend .live-study-eye,
   .live-chart .live-pane-title .live-study-eye { min-width: 40px; min-height: 36px; }

@@ -13,21 +13,24 @@ export default function LiveStudyLegend({badges, onOpen, details, onDetails, sho
   showTitles: boolean; hiddenStudies: readonly string[]; onToggleStudy: (id: string) => void;
 }) {
   const message = details && onDetails && <button type="button" onClick={onDetails} title={details}>ดูข้อความ Pine</button>;
-  if (!showTitles) return message ? <div className="live-study-legend">{message}</div> : null;
   const first = badges[0];
-  if (!first) return null;
+  if (!first) return message ? <div className="live-study-legend">{message}</div> : null;
   const visible = badges.filter(badge => !hiddenStudies.includes(badge.id));
   const state = visible.some(badge => badge.state === 'loading') ? 'loading'
     : visible.some(badge => badge.state === 'error') ? 'error' : visible.length ? 'ready' : 'hidden';
   const summary = state === 'hidden' ? 'ซ่อนอยู่' : studyStateLabel[state];
-  const title = badges.map(badge => badge.label + ' · ' + (hiddenStudies.includes(badge.id) ? 'ซ่อนอยู่' : studyStateLabel[badge.state])).join('\n');
+  const title = showTitles
+    ? badges.map(badge => badge.label + ' · ' + (hiddenStudies.includes(badge.id) ? 'ซ่อนอยู่' : studyStateLabel[badge.state])).join('\n')
+    : summary;
   const firstHidden = hiddenStudies.includes(first.id);
-  const label = <><i className="live-study-dot" aria-hidden="true"/><span className="live-study-name" data-hidden={firstHidden}>{first.label}</span>
-    {badges.length > 1 && <span>+{badges.length - 1}</span>}</>;
   return <div className="live-study-legend" role="group" aria-label="อินดิเคเตอร์ที่ใช้งาน">
-    <button type="button" className="live-study-chip" data-study-state={state} title={title}
-      aria-haspopup="dialog" aria-label={'จัดการอินดิเคเตอร์ที่ใช้งาน · ' + summary} onClick={onOpen}>{label}</button>
-    <StudyVisibilityButton label={first.label} hidden={firstHidden} onToggle={() => onToggleStudy(first.id)}/>
+    <button type="button" className="live-study-chip" data-study-state={state} data-status-only={!showTitles || undefined} title={title}
+      aria-haspopup="dialog" aria-label={'จัดการอินดิเคเตอร์ที่ใช้งาน · ' + summary} onClick={onOpen}>
+      <i className="live-study-dot" aria-hidden="true"/>
+      {showTitles && <><span className="live-study-name" data-hidden={firstHidden}>{first.label}</span>
+        {badges.length > 1 && <span>+{badges.length - 1}</span>}</>}
+    </button>
+    {showTitles && <StudyVisibilityButton label={first.label} hidden={firstHidden} onToggle={() => onToggleStudy(first.id)}/>}
     {message}
   </div>;
 }
