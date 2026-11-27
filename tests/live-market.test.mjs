@@ -1,3 +1,4 @@
+import {replayFrame} from '../src/lib/inline-replay.ts';
 import {nextBackground} from '../src/lib/live-study-schedule.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -210,4 +211,31 @@ test('Pine preparation prioritizes the selected timeframe and only queues one ba
   work['1m']={ready:true,stale:true,settledKey:'minute'};
   assert.equal(nextBackground('1h',work,false,null),null);
   assert.equal(nextBackground('1h',work,true,null).period,'1m');
+});
+
+test('inline Replay keeps an exact clock across timeframes and excludes the unrevealed wick', () => {
+ const start=1700002800;
+ const time=candleWindow(start,3600).open;
+ const bars=Array.from({length:62},(_,i)=>({time:time+i*60,open:2000+i,high:2002+i,low:1999+i,close:2001+i,volume:1}));
+ bars[27].high=9999;
+ const source={bars,period:'1m'};
+ const minute=replayFrame(source,26,'1m',[]);
+ const hour=replayFrame(source,26,'1h',[]);
+ assert.equal(minute.asOf,hour.asOf);
+ assert.equal(hour.asOf,time+27*60);
+ assert.equal(hour.bars.at(-1).close,2027);
+ assert.equal(hour.bars.at(-1).high,2028);
+ assert.equal(minute.bars.at(-1).time,time+26*60);
+ const later=replayFrame(source,27,'1h',[]);
+ assert.equal(later.bars.at(-1).high,9999);
+ assert.equal(replayFrame({...source,period:'5m'},0,'1m',[]),null);
+});
+
+test('inline Replay does not treat an incomplete leading higher timeframe as a full candle', () => {
+ const open=candleWindow(1700002800,3600).open;
+ const bar=(time,price)=>({time,open:price,high:price+1,low:price-1,close:price,volume:1});
+ const source={period:'1m',bars:[bar(open+3540,2001),bar(open+3600,2010),bar(open+3660,2013)]};
+ const history=[bar(open,1990),bar(open+3600,9000)];
+ const frame=replayFrame(source,2,'1h',history);
+ assert.deepEqual(frame.bars.map(b=>[b.time,b.open,b.close]),[[open,1990,1990],[open+3600,2010,2013]]);
 });

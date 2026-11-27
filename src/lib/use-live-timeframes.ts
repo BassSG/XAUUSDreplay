@@ -9,7 +9,7 @@ import type {ScriptJob} from './pine.worker';
 type Settings = {
   period: Period; anchor: number | null; retry: number; feed: LiveFeed; grid: boolean;
   studies: LiveStudy[]; lengths: Partial<Record<LiveStudy, number>>; jobs: ScriptJob[];
-  testingScript: boolean;
+  testingScript: boolean; replay?:boolean;
 };
 
 function useTimeframe(period: Period, settings: Settings, target?: Period) {
@@ -22,7 +22,7 @@ function useTimeframe(period: Period, settings: Settings, target?: Period) {
   const prices = useLiveBars(period, market, settings.retry, anchor !== null, fetch);
   const waitingForNative = period !== '1m' && !market.closed.length && !market.barError;
   const result = useLiveStudies(period, market, prices.historical, settings.studies, settings.lengths,
-    settings.jobs, !run || waitingForNative || !selected && market.warmingHistory);
+    settings.jobs, settings.replay || !run || waitingForNative || !selected && market.warmingHistory);
   const hasData = !waitingForNative && !market.findingWindow && Boolean(market.studyBars.length || prices.historical.length);
   const failed = prices.backupFailed || (anchor !== null && (market.barError || market.windowUnavailable) && !hasData);
   const ready = failed || hasData && (selected || !market.warmingHistory) && (!settings.jobs.length || result.pine.settled ||
@@ -41,7 +41,7 @@ export type LiveTimeframe = ReturnType<typeof useTimeframe>;
 export function useLiveTimeframes(settings: Settings) {
   type Plan = {period: Period; retry: number; jobs: ScriptJob[]; work: BackgroundWork};
   const [plan, setPlan] = useState<Plan | null>(null);
-  const canPrepare = !settings.testingScript && (settings.grid || settings.jobs.length > 0 || settings.studies.length > 0);
+  const canPrepare = !settings.replay && !settings.testingScript && (settings.grid || settings.jobs.length > 0 || settings.studies.length > 0);
   const current = canPrepare && plan?.period === settings.period && plan.retry === settings.retry &&
     plan.jobs === settings.jobs ? plan.work : null;
   const background = current?.period;

@@ -83,7 +83,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
     if(!Number.isSafeInteger(number)||!query||typeof query!=='object')return;
     const job=active.job;
     arm();
-    void loadHistory(query,active.job.live.asOf,historyAbort.signal).catch(()=>[]).then(bars=>{
+    void loadHistory(query,active.job.live.asOf,historyAbort.signal,active.job.live.replay).catch(()=>[]).then(bars=>{
      if(!dead&&active?.job===job)worker?.postMessage({historyResponse:{number,bars}});
     });
     return;

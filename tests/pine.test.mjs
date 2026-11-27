@@ -256,3 +256,19 @@ test('both bundled scripts match full originals and produce plots, overlays, tab
  const output=result=>result.plots.map(p=>({name:p.name,overlay:p.overlay,data:p.data}));assert.deepEqual(output(step),output(cold),'full-script forward results must match fresh calculation across forming and closed candles');
  assert.deepEqual(step.tables.map(t=>t.cells),cold.tables.map(t=>t.cells),'full-script dashboard values must match a fresh calculation');
 });
+
+test('inline Replay Pine uses revealed minutes when a higher chart requests a forming lower timeframe',async()=>{
+ const start=1700002800;
+ const minutes=Array.from({length:35},(_,i)=>({time:start+i*60,open:2000+i,high:2002+i,low:1999+i,close:2001+i,volume:1}));
+ minutes[27].high=9999;
+ const revealed=minutes.slice(0,27);
+ const asOf=start+27*60;
+ const native=aggregate(minutes,300,'utc');
+ const provider=replayProvider(revealed,60,'utc',asOf,false,[],undefined,
+  {tf:'60',bars:aggregate(revealed,3600,'utc')},revealed,async()=>native,true);
+ const lower=await provider.getMarketData('XAUUSD','5',20);
+ assert.equal(lower.at(-1).openTime,(start+25*60)*1000);
+ assert.equal(lower.at(-1).high,2028);
+ assert.equal(lower.at(-1).close,2027);
+ assert.ok(lower.every(bar=>bar.openTime<asOf*1000));
+});

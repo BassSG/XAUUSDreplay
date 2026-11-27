@@ -665,3 +665,61 @@
 .chart-canvas[data-chart-utility=dot] * { cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Ccircle cx='6' cy='6' r='3' fill='%23d7b46a'/%3E%3C/svg%3E") 6 6, crosshair !important; }
 .chart-canvas[data-chart-utility=arrow] * { cursor:default !important; }
 .chart-canvas[data-chart-utility=erase] * { cursor:cell !important; }
+
+.live-workspace[data-replay-controls=true] {
+  grid-template:"symbol" auto "controls" auto "chart" minmax(0,1fr) "replay" auto "status" auto / minmax(0,1fr);
+}
+.inline-replay-controls {
+  grid-area:replay;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:6px 14px;
+  padding:6px 12px;
+  border-block-start:1px solid var(--live-border);
+  background:var(--live-rail);
+  font-size:12px;
+}
+.inline-replay-clock,.inline-replay-buttons,.inline-replay-date {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+}
+.inline-replay-clock strong,.inline-replay-marker button { color:var(--live-gold); }
+.inline-replay-clock span,.inline-replay-feedback { color:var(--live-muted); }
+.inline-replay-buttons { flex-wrap:wrap; }
+.inline-replay-buttons button,.inline-replay-buttons select,.inline-replay-date button,.inline-replay-journal {
+  min-height:36px;
+}
+.inline-replay-buttons button { display:inline-flex; align-items:center; justify-content:center; gap:5px; min-width:36px; }
+.inline-replay-feedback { flex-basis:100%; }
+.inline-replay-journal { margin-inline-start:auto; }
+.inline-replay-marker {
+  position:absolute;
+  inset-block-start:0;
+  z-index:8;
+  width:0;
+  border-inline-start:1px dashed var(--live-gold);
+  pointer-events:none;
+}
+.inline-replay-marker button {
+  position:absolute;
+  inset-block-start:43%;
+  transform:translateX(-50%);
+  min-height:44px;
+  min-width:44px;
+  font-size:17px;
+  background:var(--live-selection);
+  border-color:var(--live-gold);
+  pointer-events:auto;
+  touch-action:none;
+  cursor:ew-resize;
+}
+@media(max-width:700px) {
+  .inline-replay-controls { padding:5px 7px; gap:5px; }
+  .inline-replay-clock { flex-basis:100%; }
+  .inline-replay-buttons { gap:4px; }
+  .inline-replay-buttons button,.inline-replay-buttons select { min-height:42px; min-width:38px; }
+  .inline-replay-journal { margin-inline-start:0; min-height:30px; }
+}

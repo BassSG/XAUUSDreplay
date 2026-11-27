@@ -103,7 +103,7 @@ context.onmessage=async(event:MessageEvent)=>{
    item.indicator.inputs={...job.inputs};item.bridge=bridge;study.inputs=item.meta;
    study.bridge=src.includes('indicator("EBW-Fibo 1.9')&&bridge.size===17;
    context.postMessage({id,progress:job.name,metadata:study});
-   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars},live?.minutes,liveHistory);
+   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars},live?.minutes,liveHistory,live?.replay);
    const settings=JSON.stringify([seconds,baseSeconds,calendar,bundled,job.inputs]);const prior=item.runtime;
    const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>sameMarketBar(b,next[i]));
    let raw:any;

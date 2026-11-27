@@ -1,4 +1,7 @@
 import DrawingObjects from './drawing-objects';
+import InlineReplayControls from './inline-replay-controls';
+import {useInlineReplay} from '../lib/use-inline-replay';
+import {useReplayChartFrames} from '../lib/use-inline-replay-studies';
 import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {
   ArrowLeft, Bell, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
@@ -20,7 +23,7 @@ import LivePineEditor, {newScriptDraft, type ScriptDraft} from './live-pine-edit
 import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readChartView, workspaceKey} from '../lib/live-layouts';
 import {saveLiveAutoSave, saveLiveLayout, type SavedLayout} from '../lib/storage';
 import {useLiveTimeframes} from '../lib/use-live-timeframes';
-import type {LiveViewport} from '../lib/chart-tools';
+import {replayBatch,type LiveViewport} from '../lib/chart-tools';
 import {drawingTools} from '../lib/drawing-definitions';
 import {positionMetrics} from '../lib/drawing-geometry';
 import {forwardPlan, forwardQuoteMaxAge, isFreshForwardQuote, matchesForwardPlan, startForwardTest, updateForwardTest} from '../lib/forward-test';
@@ -88,7 +91,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [initial] = useState(readWorkingChart);
   const [workspace, setWorkspace] = useState(initial.workspace);
   const [library, setLibrary] = useState(initial.library);
-  const {period, chartLayout, studies, lengths, drawings, magnet, strongMagnet, hiddenDrawings, stayInDrawingMode, appearance, scripts} = workspace;
+  const {period:livePeriod, chartLayout, studies, lengths, drawings, magnet, strongMagnet, hiddenDrawings, stayInDrawingMode, appearance, scripts} = workspace;
   const [activeLayout, setActiveLayout] = useState(initial.active);
   const [saveState, setSaveState] = useState<'ready' | 'saving' | 'saved' | 'error'>('ready');
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -119,6 +122,12 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const redo = useRef<Drawing[][]>([]);
   const sixCharts = chartLayout === 'six';
   const feed = useLiveFeed(retry);
+  const replay=useInlineReplay(livePeriod,feed.serverNow,sixCharts);
+  const [replayFollow,setReplayFollow]=useState(true);
+  const liveCamera=useRef<ReturnType<LiveChartActions['captureView']>>(null);
+  const replaying=replay.active&&!replay.picking;
+  const period=replay.active?replay.period:livePeriod;
+  const replayAsOf=replay.frames[period]?.asOf;
   const liveQuote = feed.quoteError ? null : feed.quote;
   const [alertDrawing,setAlertDrawing] = useState<Drawing>();
   const alerts = usePriceAlerts(liveQuote);
@@ -158,9 +167,21 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const proposedScripts = useMemo(() => !trial ? scripts : scripts.some(s => s.id === trial.id)
     ? scripts.map(s => s.id === trial.id ? trial : s) : [...scripts, trial], [scripts, trial]);
   const jobs = useMemo(() => proposedScripts.filter(s => s.enabled), [proposedScripts]);
-  const timeframes = useLiveTimeframes({period, anchor:viewport?.time ?? null, retry, feed, grid:sixCharts,
-    studies,lengths,jobs,testingScript:Boolean(trial)});
-  const {market,bars,historical,needsBackup,backupFailed,pine,plots,through,minuteBased,badges} = timeframes[period];
+  const timeframes = useLiveTimeframes({period:replaying?livePeriod:period, anchor:viewport?.time ?? null, retry, feed, grid:sixCharts&&!replaying,
+    studies,lengths,jobs,testingScript:Boolean(trial),replay:replaying});
+  const replayFrames=useReplayChartFrames({replay,period,grid:sixCharts,studies,lengths,jobs,testing:Boolean(trial)});
+  const liveFrame = timeframes[period];
+  const {market,historical,needsBackup,backupFailed,through,minuteBased}=liveFrame;
+  const {bars,pine,plots,badges}=replaying?replayFrames[period]:liveFrame;
+  const {advance,setPlaying}=replay;
+  useEffect(()=>{
+    if(!replaying||!replay.playing||replay.loading||pine.calculating)return;
+    if(replay.atEnd||pine.error){setPlaying(false);return;}
+    const count=replayBatch(replay.speed,replay.remaining);
+    const timer=setTimeout(()=>advance(count,replay.cursor),count*1000/replay.speed);
+    return ()=>clearTimeout(timer);
+  },[replaying,replay.playing,replay.loading,replay.atEnd,replay.speed,replay.remaining,replay.cursor,
+    period,pine.calculating,pine.error,advance,setPlaying]);
 
   useEffect(() => {
     if (!focusMode || mode || selected || panel) return;
@@ -183,11 +204,13 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }, [workspace, activeLayout, library]);
 
   function currentView() {
+    if(replay.active&&liveCamera.current)return liveCamera.current;
     return chart.current?.captureView(follow) ?? {...(initialView ?? defaultChartView), follow, viewport: viewport ?? initialView?.viewport ?? null};
   }
   const saveCamera = useRef(() => {});
   saveCamera.current = () => {
-    try { localStorage.setItem(cameraKey, JSON.stringify({version: cameraVersion, period, active: activeLayout?.id ?? null, view: currentView(), savedAt: Date.now()})); }
+    if(replay.active)return;
+    try { localStorage.setItem(cameraKey, JSON.stringify({version: cameraVersion, period:livePeriod, active: activeLayout?.id ?? null, view: currentView(), savedAt: Date.now()})); }
     catch { /* Named layouts are stored independently in IndexedDB. */ }
   };
   useEffect(() => {
@@ -235,7 +258,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     };
   }, []);
 
-  const visibleDrawings = useMemo(() => drawings.filter(d => (d.scope!=='chart'||d.chartPeriod===period) && (!d.visiblePeriods || d.visiblePeriods.includes(period))), [drawings, period]);
+  const visibleDrawings = useMemo(() => drawings.filter(d => (!replaying||d.points.every(p=>p.screen||p.time<(replayAsOf??0))) && (d.scope!=='chart'||d.chartPeriod===period) && (!d.visiblePeriods || d.visiblePeriods.includes(period))).map(d=>replaying&&d.forwardTest?{...d,forwardTest:undefined}:d), [drawings,period,replaying,replayAsOf]);
   const activeDrawing = visibleDrawings.find(d => d.id === selected);
   const drawingToEdit = editingDrawing ? drawings.find(d => d.id === editingDrawing) : undefined;
   const activeMetrics = activeDrawing?.kind === 'long' || activeDrawing?.kind === 'short'
@@ -249,7 +272,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     : market.historyStatus === 'loading' ? 'กำลังโหลดแท่งเก่า'
     : market.historyStatus === 'error' ? 'โหลดแท่งเก่าไม่สำเร็จ'
     : market.historyStatus === 'end' ? 'ถึงข้อมูลเก่าสุดที่ Eightcap ส่งมาแล้ว' : '';
-  const liveNow = follow && !market.archive && !historical.length && quote?.status === 'live' && !market.quoteError;
+  const liveNow = !replaying && follow && !market.archive && !historical.length && quote?.status === 'live' && !market.quoteError;
   const enabledScripts = useMemo(() => scripts.filter(s => s.enabled), [scripts]);
   const totalStudies = studies.length + enabledScripts.length;
   useEffect(() => {
@@ -273,7 +296,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
           : liveNow && through !== undefined ? 'OHLC ถึง ' + shortClock.format(through * 1000)
           : minuteBased ? 'OHLC จาก 1m ที่ปิดแล้ว' : '');
-  const viewportKey = period + (market.archive ? '-archive' : '-current') + '-' + layoutVersion;
+  const viewportKey = period + (replaying ? '-replay-'+replay.id : market.archive ? '-archive' : '-current') + '-' + layoutVersion;
 
   useEffect(() => {
     if (!fitHistory || !bars.length) return;
@@ -285,6 +308,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setActiveLayout(row ? {id: row.id, name: row.file.name, revision: row.revision} : null);
   }
   function openLayout(row: SavedLayout) {
+    if(replay.active||replay.picking)replay.end();
     const next=row.file.workspace;
     const globals=new Map(next.drawings.filter(d=>d.scope==='global').map(d=>[d.id,d]));
     for (const d of drawings) if(d.scope==='global') globals.set(d.id,d);
@@ -369,6 +393,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
   function selectPeriod(value: Period) {
     if (value === period) return;
+    if (replay.active) {
+      if(replaying&&replay.base&&periods[value]<periods[replay.base])return;
+      replay.setPeriod(value);setReplayFollow(true);cancelDrawing();return;
+    }
     setInitialView(null);
     setViewport(follow ? null : chart.current?.viewport() ?? viewport);
     setWorkspace(current => ({...current, period: value}));
@@ -376,7 +404,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
   function changeChartLayout(value: 'single' | 'six', timeframe = period) {
     if (timeframe !== period) selectPeriod(timeframe);
-    else setInitialView(follow ? null : currentView());
+    else if(!replay.active)setInitialView(follow ? null : currentView());
     setWorkspace(current => ({...current, chartLayout: value}));
   }
   function toggleStudy(study: LiveStudy) {
@@ -384,7 +412,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       ? value.studies.filter(s => s !== study) : [...value.studies, study]}));
   }
   function loadAtChartEdge() {
-    if (!market.closed.length) return;
+    if (replaying||!market.closed.length) return;
     void market.loadOlder(false);
   }
   function jumpToDate(day: string) {
@@ -427,14 +455,57 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
   function reconnect() { setRetry(value => value + 1); }
   function goLatest() {
+    if(replaying){setReplayFollow(true);chart.current?.latest();return;}
     if (!market.archive && !market.findingWindow) chart.current?.latest();
     setViewport(null);
     setFollow(true);
   }
   function toggleFollow() {
+    if(replaying){if(replayFollow)setReplayFollow(false);else goLatest();return;}
     if (follow) setFollow(false);
     else goLatest();
   }
+
+  function beginReplay(){
+    if(replay.picking){replay.cancelPick();return;}
+    if(!replay.active){
+      liveCamera.current=currentView();
+      saveCamera.current();
+    }
+    cancelDrawing();closePanel();replay.pick();
+  }
+  function exitReplay(){
+    replay.end();cancelDrawing();closePanel();
+    const view=liveCamera.current;
+    if(view){setInitialView(view);setViewport(view.follow?null:view.viewport);setFollow(view.follow);}
+    liveCamera.current=null;
+  }
+  function recenterReplay(){
+    if(!replayFollow){chart.current?.latest();setReplayFollow(true);}
+  }
+  function startReplay(time:number,display:Period=period,base?:Period){
+    if(!replay.active && !liveCamera.current)liveCamera.current=currentView();
+    setReplayFollow(true);cancelDrawing();
+    void replay.start(time,display,base);
+  }
+  const replayPicker=replay.picking&&!replay.loading?{time:replay.candidate,onPick:replay.setCandidate}:undefined;
+  useEffect(()=>{
+    if(!replay.active&&!replay.picking)return;
+    function keyboard(event:KeyboardEvent){
+      if(event.defaultPrevented||event.ctrlKey||event.altKey||event.metaKey||
+        event.target instanceof Element&&event.target.closest('button,input,select,textarea,[contenteditable]')||document.querySelector('[aria-modal=true]'))return;
+      if(event.key==='Escape'&&replay.picking){event.preventDefault();replay.cancelPick();return;}
+      if(!replaying||replay.loading||mode)return;
+      if(event.code==='Space'&&!replay.atEnd){
+        event.preventDefault();recenterReplay();replay.setPlaying(value=>!value);
+      }
+      if(event.key==='ArrowLeft'||event.key==='ArrowRight'){
+        event.preventDefault();recenterReplay();replay.step(event.key==='ArrowLeft'?-1:1);
+      }
+    }
+    window.addEventListener('keydown',keyboard);
+    return ()=>window.removeEventListener('keydown',keyboard);
+  });
 
   const drawingToolsOverlay = activeDrawing && <section className="live-object-tools" aria-label="แก้ไขวัตถุที่เลือก">
     <button type="button" className="live-object-name" title={drawingTools[activeDrawing.kind].name + ' · ตั้งค่าวัตถุ'}
@@ -443,10 +514,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       <i className="live-object-swatch" style={{background: drawingInputColor(activeDrawing.color)}} aria-hidden="true"/></button>
     {activeMetrics && <span className="live-object-ratio">R/R {activeMetrics.ratio.toFixed(2)}</span>}
     <div className="live-object-actions">
-      {!activeDrawing.pane && ['trend','rect'].includes(activeDrawing.kind) && activeDrawing.points[0]?.time !== activeDrawing.points[1]?.time &&
+      {!replaying && !activeDrawing.pane && ['trend','rect'].includes(activeDrawing.kind) && activeDrawing.points[0]?.time !== activeDrawing.points[1]?.time &&
         <button type="button" className="live-icon" aria-label="แจ้งเตือนจากวัตถุ" title="แจ้งเตือนจากวัตถุ"
           onClick={()=>{setAlertDrawing(activeDrawing);setPanel('alerts')}}><Bell size={16}/></button>}
-      {activeMetrics && <button type="button" className="live-icon" aria-label="เปิด Forward Test" title="Forward Test"
+      {!replaying && activeMetrics && <button type="button" className="live-icon" aria-label="เปิด Forward Test" title="Forward Test"
         aria-haspopup="dialog" onClick={() => setPanel('forward')}><Target size={16}/></button>}
       <button type="button" className="live-icon" aria-label={activeDrawing.locked ? 'ปลดล็อกวัตถุ' : 'ล็อกวัตถุ'}
         title={activeDrawing.locked ? 'ปลดล็อกวัตถุ' : 'ล็อกวัตถุ'} aria-pressed={Boolean(activeDrawing.locked)}
@@ -463,25 +534,26 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const primaryChart = bars.length
     ? <ChartBoundary resetKey={viewportKey}>
       <ReplayChart live compact={sixCharts} key={viewportKey} liveActions={chart}
-        alertLevels={[...new Set(armedAlerts.filter(rule=>!rule.drawing).map(rule => rule.level))]}
-        liveViewport={viewport} initialView={initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
+        alertLevels={replaying?[]:[...new Set(armedAlerts.filter(rule=>!rule.drawing).map(rule => rule.level))]}
+        replayPicker={replayPicker}
+        liveViewport={replaying?null:viewport} initialView={replaying?null:initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
         fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
-        bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
-        drawings={visibleDrawings} drawingMode={mode} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={toggleMagnet} hiddenDrawings={hiddenDrawings}
+        bars={bars} trades={noTrades} plots={plots} follow={replaying?replayFollow:follow} seconds={periods[period]}
+        drawings={visibleDrawings} drawingMode={replay.picking?null:mode} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={toggleMagnet} hiddenDrawings={hiddenDrawings}
         selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingEdit={editDrawing} onDrawingRemove={id=>saveDrawings(drawings.filter(d=>d.id!==id))} onDrawingCancel={cancelDrawing}
         liveSelection={drawingToolsOverlay} liveStudyBadges={badges}
         liveLegend={<LiveStudyLegend badges={badges} onOpen={() => setPanel('studies')}
           details={pine.error || pine.warnings.join(' · ')} onDetails={() => setPanel('pine')}/>}
         onDrawing={drawing => {
-          const plan = forwardPlan(drawing);
+          const plan = replaying?null:forwardPlan(drawing);
           const placed = plan ? {...drawing, forwardTest: startForwardTest(plan, liveQuote)} : drawing;
           saveDrawings([...drawings, placed]);
           if (stayInDrawingMode) setSelected(null);
           else { setSelected(drawing.id); setMode(null); }
         }}
-        onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => setFollow(false)}
+        onDrawingChange={changeDrawing} onDrawingDelete={deleteDrawing} onDragStart={() => replaying?setReplayFollow(false):setFollow(false)}
         onDrawingUndo={() => restoreDrawing(undo.current, redo.current)} onDrawingRedo={() => restoreDrawing(redo.current, undo.current)}
-        onHistoryEdge={loadAtChartEdge} onLeaveLatest={() => setFollow(false)}/>
+        onHistoryEdge={loadAtChartEdge} onLeaveLatest={() => replaying?setReplayFollow(false):setFollow(false)}/>
     </ChartBoundary>
     : <div className="live-chart-empty" role="status"><span>{market.findingWindow ? 'กำลังโหลดช่วงเวลาเดิม'
           : market.barError && (viewport || backupFailed) ? 'โหลดแท่งราคาไม่ได้'
@@ -490,19 +562,20 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         </div>;
 
   const layoutAction = sixCharts ? 'สลับเป็นกราฟเดียว' : 'เปิดกราฟ 6 ไทม์เฟรม';
-  return <main className="live-workspace" data-focus={focusMode}>
+  return <main className="live-workspace" data-focus={focusMode} data-replay-controls={replay.active||replay.picking}>
     <header className="live-header">
       <h1>
         <button className="live-symbol" type="button" aria-label="EBW · ข้อมูลราคา XAUUSD" aria-haspopup="dialog"
-          title="ข้อมูลราคา XAUUSD" onClick={() => setPanel('quotes')}>
+          title="ข้อมูลราคา XAUUSD" disabled={replaying} onClick={() => setPanel('quotes')}>
           <img src={import.meta.env.BASE_URL + 'icons/ebw-mark.png'} alt="" width={42} height={12}/>
           <span>XAUUSD</span><ChevronDown size={13}/>
         </button>
       </h1>
       <div className="live-market-readout">
-        <strong aria-label="ราคา Bid">{quote ? price.format(quote.bid) : '—'}</strong>
-        <span className="live-feed" data-live={quote?.status === 'live' && !market.quoteError} title={status}>
-          <i aria-hidden="true"/><span role="status" aria-label={status}>{shortStatus}</span>
+        <strong aria-label={replaying?'ราคาจำลอง':'ราคา Bid'}>{replaying
+          ? bars.length?price.format(bars.at(-1)!.close):'—' : quote?price.format(quote.bid):'—'}</strong>
+        <span className="live-feed" data-live={replaying?false:quote?.status === 'live' && !market.quoteError} title={replaying?'Replay':status}>
+          <i aria-hidden="true"/><span role="status" aria-label={replaying?'Replay':status}>{replaying?'Replay':shortStatus}</span>
         </span>
       </div>
       <div className="live-chart-settings">
@@ -517,14 +590,18 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         <button className="header-appearance" type="button" aria-label="ตั้งค่ารูปลักษณ์กราฟ" title="ตั้งค่ารูปลักษณ์กราฟ"
           aria-haspopup="dialog" onClick={() => setPanel('appearance')}><Settings2 size={18}/></button>
       </div>
-      <button className="live-replay" type="button" aria-label="เปิด Replay" title="เปิด Replay" onClick={() => { saveCamera.current(); onReplay(); }}>
-        <ArrowLeft size={16}/><span>Replay</span>
+      <button className="live-replay" type="button" aria-label={replaying?'กลับสู่กราฟ Live':'เปิด Replay'}
+        aria-pressed={replay.picking||replay.active} title={replaying?'กลับ Live':'เลือกแท่งสำหรับ Replay'}
+        onClick={replaying?exitReplay:beginReplay}>
+        {replaying?<ArrowLeft size={16}/>:<History size={17}/>}<span>{replaying?'Live':'Replay'}</span>
       </button>
     </header>
 
     <div className="live-controls" aria-label="มุมมองราคา XAUUSD">
       <div className="live-periods" role="group" aria-label="ช่วงเวลาแท่งราคา">
         {periodList.map(tf => <button key={tf} type="button" aria-pressed={period === tf}
+          disabled={replaying&&Boolean(replay.base&&periods[tf]<periods[replay.base])}
+          title={replaying&&replay.base&&periods[tf]<periods[replay.base]?'ช่วงนี้มีข้อมูลละเอียดสุด '+timeframeName(replay.base):undefined}
           onClick={() => {
             selectPeriod(tf);
             if (sixCharts) document.getElementById('live-tile-' + tf)?.scrollIntoView({block: 'nearest'});
@@ -536,7 +613,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         {totalStudies > 0 && <span className="live-study-count" aria-label={totalStudies + ' ตัวที่เปิดอยู่'}>{totalStudies}</span>}
       </button>
       <div className="live-view-actions">
-        <button className="live-alert-button" type="button" aria-label="แจ้งเตือนราคา" aria-haspopup="dialog" title="แจ้งเตือนราคา"
+        <button className="live-alert-button" disabled={replaying} type="button" aria-label="แจ้งเตือนราคา" aria-haspopup="dialog" title="แจ้งเตือนราคา"
           data-armed={armedAlerts.length > 0} onClick={() => setPanel('alerts')}>
           <Bell size={17}/><span className="live-wide-label">แจ้งเตือน</span>
           {armedAlerts.length > 0 && <small className="live-study-count">{armedAlerts.length}</small>}
@@ -548,7 +625,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         <button className="live-wide-action" type="button" aria-pressed={follow} title="ติดตามแท่งล่าสุด"
           aria-label="ติดตามแท่งล่าสุด" onClick={toggleFollow}><Radio size={17}/></button>
         <button className="live-wide-action" type="button" aria-haspopup="dialog" title="แท่งย้อนหลัง"
-          aria-label="แท่งย้อนหลัง" onClick={() => setPanel('history')}><History size={17}/><span>ย้อนหลัง</span></button>
+          aria-label="แท่งย้อนหลัง" onClick={() => replaying?replay.pick():setPanel('history')}><History size={17}/><span>ย้อนหลัง</span></button>
         <button className="live-wide-action" type="button" aria-label="ไปแท่งล่าสุด" title="ไปแท่งล่าสุด"
           disabled={!bars.length && !viewport} onClick={goLatest}><SkipForward size={17}/></button>
         <button type="button" aria-label={focusMode ? 'ออกจากโหมดโฟกัส' : 'มุมมองกราฟ'}
@@ -566,7 +643,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     </div>
 
     <section className="live-chart-layout" aria-label="กราฟ XAUUSD">
-      <LiveDrawingToolbar mode={mode} enabled={!hiddenDrawings && bars.length > 0 && drawings.length < 500}
+      <LiveDrawingToolbar mode={mode} enabled={!replay.picking&&!hiddenDrawings && bars.length > 0 && drawings.length < 500}
         favorites={workspace.favoriteTools} favoritePosition={workspace.favoritePosition}
         onFavorite={kind => setWorkspace(value => ({...value, favoriteTools: value.favoriteTools.includes(kind)
           ? value.favoriteTools.filter(tool => tool !== kind) : [...value.favoriteTools, kind]}))}
@@ -584,10 +661,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         onUndo={() => { cancelDrawing(); restoreDrawing(undo.current, redo.current); }}
         onRedo={() => { cancelDrawing(); restoreDrawing(redo.current, undo.current); }} onDelete={deleteDrawing}
         navigation={<>
-          <button className="live-forward-dock" type="button" aria-label="Forward Test" title="Forward Test · Long / Short" aria-haspopup="dialog"
+          <button className="live-forward-dock" disabled={replaying} type="button" aria-label="Forward Test" title="Forward Test · Long / Short" aria-haspopup="dialog"
             onClick={() => setPanel('forward')}><Target size={19}/><span>จำลอง</span></button>
           <button className="live-dock-action" type="button" aria-label="แท่งย้อนหลัง" aria-haspopup="dialog"
-            onClick={() => setPanel('history')}><History size={19}/><span>ย้อนหลัง</span></button>
+            onClick={() => replaying?replay.pick():setPanel('history')}><History size={19}/><span>ย้อนหลัง</span></button>
           <button className="live-dock-action" type="button" aria-label="ไปแท่งล่าสุด" title="ไปแท่งล่าสุด"
             data-following={follow} disabled={!bars.length && !viewport} onClick={goLatest}><SkipForward size={19}/><span>ล่าสุด</span></button>
         </>}/>
@@ -595,21 +672,35 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         '--chart-up': appearance.upColor, '--chart-down': appearance.downColor} as CSSProperties}>
         {sixCharts ? <div className="live-chart-grid" aria-label="XAUUSD 6 ไทม์เฟรม">
           {periodList.map(tf => <LiveChartTile key={tf} period={tf} active={tf === period}
-            onSelect={() => selectPeriod(tf)} onExpand={() => changeChartLayout('single', tf)}>
+            available={!replaying||!replay.base||periods[tf]>=periods[replay.base]} onSelect={() => selectPeriod(tf)} onExpand={() => changeChartLayout('single', tf)}>
             {tf === period ? primaryChart : <LiveOverviewChart period={tf} frame={timeframes[tf]} onRetry={reconnect}
-              workspace={workspace} layoutVersion={layoutVersion}/>}
+              workspace={workspace} layoutVersion={layoutVersion} replayPicker={replayPicker}
+              replay={replaying?{frame:replayFrames[tf],asOf:replayAsOf??0,session:replay.id!}:undefined}/>}
           </LiveChartTile>)}
         </div> : primaryChart}
       </div>
     </section>
 
+    {(replay.active||replay.picking)&&<InlineReplayControls replay={replay} asOf={replayAsOf}
+      waiting={replaying&&pine.calculating} onStart={()=>{if(replay.candidate!==null)startReplay(replay.candidate)}}
+      onResume={()=>{if(replay.resume)startReplay(replay.resume.time,replay.resume.period,replay.resume.base)}}
+      onRecenter={recenterReplay} onExit={exitReplay} onJournal={()=>{saveCamera.current();onReplay()}}
+      onRandom={()=>{
+        const confirmed=liveFrame.market.closed;
+        if(confirmed.length)startReplay(confirmed[Math.floor(Math.random()*confirmed.length)].time);
+      }}
+      onPickDate={time=>{
+        if(time>market.serverNow())return;
+        setInitialView(null);setFollow(false);setViewport({time,span:100});setLayoutVersion(version=>version+1);
+        replay.setCandidate(null);
+      }}/>}
     <footer className="live-foot">
-      <span>Eightcap MT5 <span aria-hidden="true">·</span> Bid</span>
-      <span className="live-foot-status" role="status" title={chartStatus}>{chartStatus}</span>
+      <span>{replaying?'Eightcap · Replay':'Eightcap MT5 · Bid'}</span>
+      <span className="live-foot-status" role="status" title={replaying?'เวลาจำลอง':chartStatus}>{replaying?'เวลาจำลอง · กรุงเทพฯ':chartStatus}</span>
       <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a>
     </footer>
 
-    {alerts.notice && <aside className="alerts-toast" role="status" aria-label="ถึงราคาแจ้งเตือน">
+    {!replaying && alerts.notice && <aside className="alerts-toast" role="status" aria-label="ถึงราคาแจ้งเตือน">
       <Bell size={18} aria-hidden="true"/>
       <button type="button" onClick={() => {setPanel('alerts'); alerts.setNotice(null);}}>
         <strong>{alerts.notice.label || 'EBW · XAUUSD'}</strong><small>{alertText(alerts.notice)}</small>

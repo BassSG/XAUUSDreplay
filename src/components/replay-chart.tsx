@@ -40,6 +40,7 @@ const markerPosition=(s:string)=>{const v=(s||'').toLowerCase();return v.include
 const cssColor=(v:any,fallback='transparent')=>typeof v==='string'&&v&&v!=='na'?v:fallback;
 function chartPreference(key:string){try{return localStorage.getItem(key)==='true';}catch{return false;}}
 type ChartUtility = 'cross'|'dot'|'arrow'|'demo'|'magic'|'erase'|'zoom';
+type ReplayPicker = {time:number|null;onPick:(time:number)=>void};
 export type LiveChartActions = {
  utility: (tool:ChartUtility)=>void;
  fit: () => void;
@@ -52,7 +53,7 @@ export type LiveChartActions = {
  copyPng: () => Promise<void>;
 };
 
-export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingRemove,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,strongMagnet=false,onToggleMagnet,confirmDrawingPlacement,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,alertLevels=noAlertLevels,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveStudyBadges,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingRemove?:(id:string)=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;strongMagnet?:boolean;confirmDrawingPlacement?: boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;alertLevels?:number[];liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveStudyBadges?:LiveStudyBadge[];liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
+export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,replayPicker,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingRemove,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,strongMagnet=false,onToggleMagnet,confirmDrawingPlacement,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,alertLevels=noAlertLevels,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveStudyBadges,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;replayPicker?:ReplayPicker;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingRemove?:(id:string)=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;strongMagnet?:boolean;confirmDrawingPlacement?: boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;alertLevels?:number[];liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveStudyBadges?:LiveStudyBadge[];liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
  const [expanded,setExpanded]=useState(false),[paneCount,setPaneCount]=useState(0),[focus,setFocus]=useState('draft');
  const [utility,setUtility]=useState<ChartUtility>('cross');
  const [zoomBox,setZoomBox]=useState<{x:number;y:number;right:number;bottom:number}|null>(null);
@@ -79,6 +80,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
  function toggleText(){setShowPineText(v=>{try{localStorage.setItem('xau-pine-text',String(!v));}catch{}return !v;});}
  function toggleTables(){setShowPineTables(v=>{try{localStorage.setItem('xau-pine-tables',String(!v));}catch{}return !v;});}
  const [preview,setPreview]=useState<{id:string;price:number}|null>(null);const activeDrag=useRef<{level:ChartLevel;price:number}|null>(null);const levelRef=useRef({levels,onLevelPreview,onLevelCommit,onDragStart,magnet});levelRef.current={levels,onLevelPreview,onLevelCommit,onDragStart,magnet};
+ const pickRef=useRef(replayPicker);pickRef.current=replayPicker;
  const host=useRef<HTMLDivElement>(null);const placementHost=useRef<HTMLDivElement>(null);const ref=useRef<any>(null);const onPriceRef=useRef(onPrice);onPriceRef.current=onPrice;const drawingsRef=useRef({user:drawings,pine:pineDrawings});drawingsRef.current={user:drawings,pine:pineDrawings};const modeRef=useRef(drawingMode);modeRef.current=drawingMode;const redrawFrame=useRef<number|undefined>(undefined);const [,setViewTick]=useState(0);
  useEffect(()=>{
   if(!host.current)return;
@@ -88,14 +90,25 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   const priceMarker=live?new LivePriceMarker():null;
   if(priceMarker)series.attachPrimitive(priceMarker);
   livePriceMarker.current=priceMarker;
-  chart.subscribeClick((p:any)=>{if(modeRef.current||!p.point||(p.paneIndex??0)!==0)return;const price=series.coordinateToPrice(p.point.y);if(price!==null)onPriceRef.current?.(price);});
+  chart.subscribeClick(p=>{
+   if(!p.point||(p.paneIndex??0)!==0)return;
+   const pick=pickRef.current;
+   if(pick){
+    const row=typeof p.time==='number'&&p.seriesData.get(series);
+    if(row && 'open' in row && typeof row.time==='number')pick.onPick(row.time);
+    return;
+   }
+   if(modeRef.current)return;
+   const price=series.coordinateToPrice(p.point.y);
+   if(price!==null)onPriceRef.current?.(price);
+  });
   if(live)chart.subscribeCrosshairMove((p)=>{
    const bar=p.seriesData.get(series);
    setCursorTime(typeof p.time==='number'&&bar&&'open' in bar?p.time:null);
   });
   const redraw=()=>{
    if(redrawFrame.current!==undefined)return;
-   if(!modeRef.current&&!drawingsRef.current.user.length&&!drawingsRef.current.pine.length&&!levelRef.current.levels.length&&
+   if(!pickRef.current&&!modeRef.current&&!drawingsRef.current.user.length&&!drawingsRef.current.pine.length&&!levelRef.current.levels.length&&
       !(live&&chart.panes().length>1))return;
    redrawFrame.current=requestAnimationFrame(()=>{redrawFrame.current=undefined;setViewTick(v=>v+1)});
   };
@@ -402,8 +415,31 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
  }
  const brandMarkBottom=(ref.current?.chart.timeScale().height()||26)+brandMarkInset;
  const canvas = <>
-  <div className="chart-canvas" data-chart-utility={drawingMode?"cross":utility} ref={host} tabIndex={live?0:undefined} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}{drawingPanes.map(pane=><ChartDrawings key={pane.id} api={ref.current} pane={pane.id ? pane : undefined} host={host.current} controlsHost={placementHost.current} confirmPlacement={live || confirmDrawingPlacement} readOnly={readOnlyDrawings || pane.id!==activePane} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings.filter(d=>(d.pane??'')===pane.id)} mode={pane.id===activePane ? drawingMode : null} hidden={hiddenDrawings} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={onToggleMagnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onEdit={onDrawingEdit} onErase={!drawingMode && utility==='erase' ? onDrawingRemove : undefined} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>)}{!drawingMode&&!selectedDrawing&&handles}{tables}
-  {!drawingMode && utility==='zoom' && <div className="chart-zoom-drag" aria-label="ลากกรอบเพื่อซูมกราฟ"
+  <div className="chart-canvas" data-chart-utility={drawingMode?"cross":utility} ref={host} tabIndex={live?0:undefined} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}{drawingPanes.map(pane=><ChartDrawings key={pane.id} api={ref.current} pane={pane.id ? pane : undefined} host={host.current} controlsHost={placementHost.current} confirmPlacement={live || confirmDrawingPlacement} readOnly={Boolean(replayPicker)||readOnlyDrawings||pane.id!==activePane} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings.filter(d=>(d.pane??'')===pane.id)} mode={pane.id===activePane ? drawingMode : null} hidden={hiddenDrawings} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={onToggleMagnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onEdit={onDrawingEdit} onErase={!drawingMode && utility==='erase' ? onDrawingRemove : undefined} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>)}{!drawingMode&&!selectedDrawing&&handles}{tables}
+  {replayPicker && replayPicker.time!==null && (() => {
+    const r=ref.current;
+    if(!r)return null;
+    const scale=r.chart.timeScale();
+    const x=coordinateAtLogical(logicalAtTime(replayPicker.time,bars,seconds),slot=>scale.logicalToCoordinate(slot as Logical));
+    if(x===null || x<0 || x>scale.width())return null;
+    return <div className="inline-replay-marker" style={{left:x,height:r.chart.panes()[0]?.getHeight()}}>
+      <button type="button" aria-label="เลื่อนจุดเริ่ม Replay" title="ลากเพื่อเลื่อนจุดเริ่ม"
+        onPointerDown={event=>{if(event.isPrimary&&event.button===0)event.currentTarget.setPointerCapture(event.pointerId)}}
+        onPointerMove={event=>{
+          if(!event.currentTarget.hasPointerCapture(event.pointerId)||!host.current)return;
+          const logical=scale.coordinateToLogical(event.clientX-host.current.getBoundingClientRect().left);
+          const bar=logical===null?undefined:bars[Math.round(logical)];
+          if(bar)replayPicker.onPick(bar.time);
+        }}
+        onKeyDown={event=>{
+          if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight')return;
+          const index=Math.round(logicalAtTime(replayPicker.time!,bars,seconds))+(event.key==='ArrowLeft'?-1:1);
+          const bar=bars[index];
+          if(bar){event.preventDefault();replayPicker.onPick(bar.time);}
+        }}>↔</button>
+    </div>;
+  })()}
+  {!replayPicker && !drawingMode && utility==='zoom' && <div className="chart-zoom-drag" aria-label="ลากกรอบเพื่อซูมกราฟ"
     style={{width:ref.current?.chart.timeScale().width(),height:ref.current?.chart.panes()[0]?.getHeight()}}
     onPointerDown={event=>{
       if (!event.isPrimary || event.button!==0)return;

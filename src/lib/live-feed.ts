@@ -36,13 +36,25 @@ export function historyPage(period: Period, before: number, now: number, signal:
 
 export function createPineHistoryLoader() {
   const windows = new Map<string, {bars: Bar[]; ended: boolean}>();
-  return async ({period, before, limit}: PineHistoryQuery, asOf: number, signal: AbortSignal) => {
+  return async ({period, before, limit}: PineHistoryQuery, asOf: number, signal: AbortSignal, preferArchive = false) => {
     // Only accept read requests for the six known market routes up to this frame.
     if (!Object.hasOwn(periods, period) || !Number.isSafeInteger(before) ||
         before <= 0 || before > asOf || !Number.isSafeInteger(limit) || limit < 1 || limit > maxPineSourceBars) return [];
     const key = period + ':' + before;
     const saved = windows.get(key);
     if (saved && (saved.ended || saved.bars.length >= limit)) return saved.bars.slice(-limit);
+    if (preferArchive) {
+      const archive=(await historyCatalog().catch(()=>[])).find(d=>d.calendar==='eightcap' && d.timeframe===periods[period]
+        && d.start<before && d.end+periods[period]>=before);
+      if (archive) {
+        const bars=await loadBefore(archive.id,before,limit).catch(()=>[]);
+        if (bars.length) {
+          windows.set(key,{bars,ended:bars.length<limit});
+          if(windows.size>24)windows.delete(windows.keys().next().value!);
+          return bars;
+        }
+      }
+    }
     const now = Date.now() / 1000;
     const result = await readHistoryPages(saved?.bars[0]?.time ?? before, limit - (saved?.bars.length ?? 0), signal,
       edge => historyPage(period, edge, now, signal));

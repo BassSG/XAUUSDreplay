@@ -28,12 +28,13 @@ export function aggregatePineBars(bars:Bar[],tf:string,calendar:CandleCalendar){
 export function toKlines(bars:Bar[],tf:string,calendar:CandleCalendar){
  return bars.map(b=>({openTime:b.time*1000,closeTime:periodEnd(b.time,tf,calendar)*1000-1,open:b.open,high:b.high,low:b.low,close:b.close,volume:b.volume,quoteAssetVolume:0,numberOfTrades:0,takerBuyBaseAssetVolume:0,takerBuyQuoteAssetVolume:0,ignore:0}));
 }
-export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:CandleCalendar,asOf:number,bundled:boolean,warnings:string[],injected?:Record<string,Bar[]>,primary?:{tf:string;bars:Bar[]},liveMinutes?:Bar[],liveHistory?:PineHistoryLoader){
+export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:CandleCalendar,asOf:number,bundled:boolean,warnings:string[],injected?:Record<string,Bar[]>,primary?:{tf:string;bars:Bar[]},liveMinutes?:Bar[],liveHistory?:PineHistoryLoader,replay=false){
  const cache=new Map<string,Promise<Bar[]>>();const baseTF=String(baseSeconds/60);const known=baseBars.filter(b=>periodEnd(b.time,baseTF,calendar)<=asOf);
  const getRows=(tf:string,limit=2000)=>{
   const key=tf+':'+limit;if(!cache.has(key))cache.set(key,(async()=>{
    const seconds=timeframeSeconds(tf);let rows:Bar[]=[];let sourceSeconds=baseSeconds;
    if(liveMinutes && primary){
+    const chartSeconds=timeframeSeconds(primary.tf);
     if(liveHistory && seconds>=60){
      const nativePeriod=(Object.keys(periods) as Period[]).reverse().find(period =>
       /M$/i.test(tf)?period==='1d':seconds%periods[period]===0);
@@ -43,7 +44,7 @@ export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:Candle
       const before=bucketStart(asOf,sourceTF,calendar);
       const factor=seconds/sourceSeconds;
       const needed=Math.min(maxPineSourceBars,Math.ceil(Math.min(limit,3000)*factor)+(factor>1?2:0));
-      const local=(sourceSeconds===baseSeconds?primary.bars:sourceSeconds===60?liveMinutes:[])
+      const local=(sourceSeconds===chartSeconds?primary.bars:replay&&sourceSeconds===baseSeconds?known:sourceSeconds===60?liveMinutes:[])
        .filter(bar=>bar.time<before).slice(-needed);
       // Read the native candles when the chart and minute stream cannot cover
       // the requested warmup. Merge by UTC and discard any unclosed source bar.
@@ -59,10 +60,10 @@ export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:Candle
        // close[1] + lookahead_on. Supply the open native candle using only
        // bars already revealed at this frame. Never use a future native close.
        if(seconds>baseSeconds){
-        const useChart=sourceSeconds>=baseSeconds&&sourceSeconds%baseSeconds===0;
-        const fine=useChart?primary.bars:liveMinutes;
+        const useChart=sourceSeconds>=chartSeconds&&sourceSeconds%chartSeconds===0;
+        const fine=useChart?primary.bars:replay&&sourceSeconds>=baseSeconds&&sourceSeconds%baseSeconds===0?known:liveMinutes;
         if(fine.length&&fine[0].time<=before){
-         const tail=fine.filter(b=>b.time>=before&&(useChart?b.time<asOf:b.time+60<=asOf));
+         const tail=fine.filter(b=>b.time>=before&&(useChart?b.time<asOf:replay?periodEnd(b.time,baseTF,calendar)<=asOf:b.time+60<=asOf));
          const forming=aggregatePineBars(tail,sourceTF,calendar)[0];
          if(forming?.time===before)history.push(forming);
         }
@@ -73,10 +74,11 @@ export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:Candle
       }
      }
     }
-    const usePrimary=seconds>=baseSeconds && seconds%baseSeconds===0;
-    const source=usePrimary?primary.bars:liveMinutes;
+    const usePrimary=seconds>=chartSeconds && seconds%chartSeconds===0;
+    const useRevealed=replay && seconds>=baseSeconds && seconds%baseSeconds===0;
+    const source=usePrimary?primary.bars:useRevealed?known:liveMinutes;
     if(seconds<60 || !source.length){warnings.push('ไม่มีแท่งย้อนหลังสำหรับ '+tf+' ในช่วงที่เปิด');return [];}
-    const available=usePrimary?source:source.filter(b=>b.time+60<=asOf);
+    const available=usePrimary||useRevealed?source:source.filter(b=>b.time+60<=asOf);
     if(!usePrimary && (!available.length || available[0].time>primary.bars[0].time))
      warnings.push('ประวัติข้ามไทม์เฟรม '+tf+' จำกัดตามแท่ง 1m ที่โหลดได้');
     const aggregated=aggregatePineBars(available,tf,calendar);
