@@ -1,14 +1,14 @@
 //@version=6
 // EBW Focus · EBW-Fibo-1.10.22 → EBW-Fibo-1.10.32 Basic
-indicator("EBW-Fibo 1.10.32 · Basic · EBW Focus", "EBW FIBO · FOCUS", overlay=true, max_lines_count=35, max_labels_count=42, max_boxes_count=1, calc_bars_count=3000, dynamic_requests=true)
+indicator("EBW-Fibo 1.10.32 · Basic · EBW Focus", "EBW FIBO · FOCUS", overlay=true, max_lines_count=175, max_labels_count=180, max_boxes_count=9, calc_bars_count=3000, dynamic_requests=true)
 // Chart-timeframe calculation. Confirmed Stochastic/RSI geometry and target lifecycle.
-const string G_CONTEXT = "00 · Fibo หลาย TF บนกราฟ"
-bool showParent = input.bool(true, "แสดง TF ใหญ่ 1", inline="parent", group=G_CONTEXT, display=display.none)
-string parentInput = input.timeframe("", "TF", inline="parent", group=G_CONTEXT, active=showParent, tooltip="ค่าเริ่มต้นเลือก TF ใหญ่ถัดไปอัตโนมัติ · เลือกได้เฉพาะ TF ที่ใหญ่กว่ากราฟ", display=display.none)
-bool showSecond = input.bool(true, "แสดง TF ใหญ่ 2", inline="second", group=G_CONTEXT, display=display.none)
-string secondInput = input.timeframe("", "TF", inline="second", group=G_CONTEXT, active=showSecond, tooltip="ค่าเริ่มต้นขยับจาก TF ใหญ่ระดับแรกขึ้นอีกหนึ่งขั้น", display=display.none)
-const string G1 = "01 · สวิงและ Break"
-const string G4 = "02 · การแสดงผล"
+const string G_CONTEXT = "01 · ไทม์เฟรมอ้างอิง"
+bool showParent = input.bool(true, "เพิ่ม TF อ้างอิง 1", inline="parent", group=G_CONTEXT, display=display.none)
+string parentInput = input.timeframe("", "TF อ้างอิง 1 · อัตโนมัติหรือเลือกเอง", options=["", "3", "5", "15", "30", "60", "120", "240", "1D", "1W", "1M"], inline="parent", group=G_CONTEXT, active=showParent, tooltip="ค่าเริ่มต้นเลือก TF ใหญ่ถัดไปอัตโนมัติ · เลือกได้เฉพาะ TF ที่ใหญ่กว่ากราฟ", display=display.none)
+bool showSecond = input.bool(true, "เพิ่ม TF อ้างอิง 2", inline="second", group=G_CONTEXT, display=display.none)
+string secondInput = input.timeframe("", "TF อ้างอิง 2 · อัตโนมัติหรือเลือกเอง", options=["", "3", "5", "15", "30", "60", "120", "240", "1D", "1W", "1M"], inline="second", group=G_CONTEXT, active=showSecond, tooltip="ค่าเริ่มต้นขยับจาก TF ใหญ่ระดับแรกขึ้นอีกหนึ่งขั้น", display=display.none)
+const string G1 = "06 · สวิง RSI / Stochastic และ Break"
+const string G4 = "02 · กรอบและจุดสวิง"
 int rLen = input.int(14, "RSI", minval = 2, maxval = 100, group = G1, display = display.none)
 int kLen = input.int(9, "Stochastic length", minval = 2, maxval = 100, group = G1, display = display.none)
 int kSmooth = input.int(3, "Smooth K", minval = 1, maxval = 20, group = G1, display = display.none)
@@ -24,8 +24,52 @@ bool uiLabels = input.bool(true, "ราคา / ป้ายระดับ", g
 bool showAnchorMarks = input.bool(true, "แสดงจุด B / C", group=G4, display=display.none)
 bool showPendingFrame = input.bool(true, "แสดงกรอบรอ Break", group=G4, display=display.none)
 bool showReference = input.bool(true, "แสดงเส้นอ้างอิง 0% / 100%", group=G4, tooltip="แสดงเฉพาะชุดหลักด้วยเส้นบาง", display=display.none)
-bool showPreviousMain = input.bool(false, "เป้าค้างของชุดหลักเดิม · TF กราฟ", group=G4, tooltip="แสดงเป้าถัดไปหนึ่งระดับจากชุดหลักเดิมล่าสุดที่ยังมีผล", display=display.none)
-bool showAllPending = input.bool(false, "แสดงเป้าที่เหลือทั้งหมด", group=G4, display=display.none)
+bool showPreviousMain = input.bool(true, "เป้าค้างของชุดหลักเดิม · TF กราฟ", group=G4, tooltip="แสดงเป้าถัดไปของชุดหลักเดิมที่ยังมีผล", display=display.none)
+bool showAllPending = input.bool(true, "แสดงหลายระดับเป้าค้างต่อชุด", group=G4, display=display.none)
+const string G_SOURCES = "03 · รายชื่อ TF เสริม"
+const string G_LEVELS = "04 · ระดับและชุด Fibonacci"
+const string G_STYLE = "05 · สีและป้ายบนกราฟ"
+bool showChartFibo = input.bool(true, "แสดง Fibo ของ TF กราฟ", group=G_CONTEXT)
+bool scanAll = input.bool(true, "สแกนตามรายการ TF ด้านล่าง", group=G_SOURCES, tooltip="เลือก TF เสริมเพิ่มเติมจาก TF กราฟและ TF อ้างอิง 1/2")
+bool scan1 = input.bool(true, "1m", group=G_SOURCES, inline="m")
+bool scan3 = input.bool(false, "3m", group=G_SOURCES, inline="m")
+bool scan5 = input.bool(true, "5m", group=G_SOURCES, inline="m")
+bool scan15 = input.bool(true, "15m", group=G_SOURCES, inline="intra")
+bool scan30 = input.bool(false, "30m", group=G_SOURCES, inline="intra")
+bool scan60 = input.bool(true, "1H", group=G_SOURCES, inline="h")
+bool scan120 = input.bool(false, "2H", group=G_SOURCES, inline="h")
+bool scan240 = input.bool(true, "4H", group=G_SOURCES, inline="h")
+bool scanD = input.bool(true, "1D", group=G_SOURCES, inline="long")
+bool scanW = input.bool(true, "1W", group=G_SOURCES, inline="long")
+int scanBars = input.int(320, "ประวัติที่คำนวณต่อ TF เสริม", minval=120, maxval=900, step=20, group=G_SOURCES)
+bool showTargets = input.bool(true, "แสดงเป้าหลัง Break", group=G_LEVELS)
+int levelsLimit = input.int(3, "ระดับเป้าค้างสูงสุดต่อชุด", minval=1, maxval=6, group=G_LEVELS, tooltip="ใช้เมื่อเปิดแสดงหลายระดับ เลือกจาก 161.8, 200, 261.8, 350, 423.6 และ 547.2%")
+bool expandExtra = input.bool(false, "แสดงรายละเอียดครบใน TF เสริม", group=G_LEVELS, tooltip="ปิดไว้แสดงเป้าถัดไปของ TF เสริมหนึ่งระดับ TF กราฟและ TF อ้างอิงแสดงตามค่าที่เลือก")
+int retainedLimit = input.int(2, "จำนวนชุดเดิมสูงสุด · TF กราฟ", minval=1, maxval=2, group=G_LEVELS, tooltip="วาดเฉพาะชุดหลักเดิมที่ยังมีผล")
+bool showInner = input.bool(false, "แสดงระดับย่อย 38.2–78.6%", group=G_LEVELS)
+bool showReached = input.bool(false, "แสดงระดับที่เคยถึงแล้ว · TF กราฟ", group=G_LEVELS)
+bool showArchived = input.bool(false, "แสดงชุดครบเป้าหรือถูก Break สวนรับช่วง · TF กราฟ", group=G_LEVELS)
+bool showVacuum = input.bool(true, "แสดงโซน 261.8–423.6% · TF กราฟ", group=G_LEVELS)
+bool showClusters = input.bool(true, "เน้นเป้าถัดไปที่ซ้อนข้าม TF", group=G_LEVELS, tooltip="เส้นคงราคาของแต่ละ TF แยกกัน")
+int frameLimit = input.int(3, "จำนวนกรอบรอ Break สูงสุด", minval=0, maxval=8, group=G4, tooltip="เลือกจากกรอบที่ยังรอ Break เริ่มจาก TF กราฟและ TF อ้างอิง")
+bool showSwingLink = input.bool(true, "เส้นเชื่อมสวิง B → C", group=G4)
+bool showPrices = input.bool(true, "แสดงราคาในป้ายเป้า", group=G_STYLE)
+string labelScale = input.string("เล็ก", "ขนาดป้าย", options=["เล็ก", "ปกติ", "ใหญ่"], group=G_STYLE)
+color chartColor = input.color(#DAB76B, "สี TF กราฟ", group=G_STYLE)
+color firstColor = input.color(#82B8DD, "สี TF อ้างอิง 1", group=G_STYLE)
+color secondColor = input.color(#C7B6E7, "สี TF อ้างอิง 2", group=G_STYLE)
+
+
+const string G_TARGETS = "07 · เปิดหรือปิดทีละระดับ"
+bool show1618 = input.bool(true, "161.8%", group=G_TARGETS)
+bool show200 = input.bool(true, "200%", group=G_TARGETS)
+bool show2618 = input.bool(true, "261.8%", group=G_TARGETS)
+bool show350 = input.bool(true, "350%", group=G_TARGETS)
+bool show4236 = input.bool(true, "423.6%", group=G_TARGETS)
+bool show5472 = input.bool(true, "547.2%", group=G_TARGETS)
+bool showDivergence = input.bool(false, "แสดง RSI Divergence ล่าสุด · TF กราฟ", group=G4, tooltip="Regular และ Hidden แสดงเมื่อแท่งยืนยัน pivot ปิดแล้ว")
+bool showTFPanel = input.bool(false, "แผงสถานะและเป้าถัดไปของแต่ละ TF", group=G_STYLE, tooltip="ใช้การแสดงตาราง Pine ของกราฟเพื่อเปิดมุมขวาบน")
+
 max_bars_back(high, 2001)
 max_bars_back(low, 2001)
 max_bars_back(time, 2001)
@@ -424,22 +468,13 @@ f_bookAdd(array<BookTarget> records, BookTarget fresh) =>
             records.remove(discard)
     records.size()
 
-f_previousMain(array<BookTarget> records, int latestBorn) =>
-    BookTarget result = na
-    if records.size() > 0
-        for i = records.size() - 1 to 0
-            BookTarget p = records.get(i)
-            if f_bookActive(p) and p.born < latestBorn and p.role == 0 and not p.neck
-                result := p
-                break
-    result
-
 type BasicState
     BookTarget activeSet
     Frame currentFrame
-    BookTarget previousMain
+    array<BookTarget> records
+    int divergence = 0
 
-f_update(BasicState state, float rr, float kk, simple bool includePrevious = false) =>
+f_update(BasicState state, float rr, float kk) =>
     var Episode re = Episode.new()
     var SwingHead ke = SwingHead.new()
     var array<Point> rseq = array.new<Point>()
@@ -483,6 +518,7 @@ f_update(BasicState state, float rr, float kk, simple bool includePrevious = fal
         rBias := 0
 
     // Divergence only: confirmed price pivots, with RSI at the same candle.
+    state.divergence := 0
     float pl = ta.pivotlow(low, divLen, divLen)
     float ph = ta.pivothigh(high, divLen, divLen)
     if not na(pl)
@@ -492,6 +528,7 @@ f_update(BasicState state, float rr, float kk, simple bool includePrevious = fal
         bool hidden = not na(prevLow.p) and not separated and p.p > prevLow.p and p.r < prevLow.r
         if regular or hidden
             divState := regular ? 1 : 2
+            state.divergence := divState
             divR := p.r
             divRef := prevLow.p
         prevLow := p
@@ -502,6 +539,7 @@ f_update(BasicState state, float rr, float kk, simple bool includePrevious = fal
         bool hidden = not na(prevHigh.p) and not separated and p.p < prevHigh.p and p.r > prevHigh.r
         if regular or hidden
             divState := regular ? -1 : -2
+            state.divergence := divState
             divR := p.r
             divRef := prevHigh.p
         prevHigh := p
@@ -644,29 +682,59 @@ f_update(BasicState state, float rr, float kk, simple bool includePrevious = fal
     Frame waiting = useBull ? bull : bear.stage > 0 ? bear : na
     state.activeSet := active
     state.currentFrame := waiting
-    if includePrevious and (barstate.islastconfirmedhistory or barstate.islast)
-        state.previousMain := f_previousMain(bookRecords, latestTargetBorn)
+    state.records := bookRecords
     true
 
-const color GOLD = #E6C06A
 const color INK = #9EABC0
 const color PANEL = #131C27
 var array<float> targetRatios = array.from(1.618, 2.0, 2.618, 3.5, 4.236, 5.472)
+var array<bool> targetEnabled = array.from(show1618, show200, show2618, show350, show4236, show5472)
+var array<float> innerRatios = array.from(0.382, 0.5, 0.618, 0.786)
+string captionSize = labelScale == "ใหญ่" ? size.normal : labelScale == "ปกติ" ? size.small : size.tiny
 
-// Allocate drawing objects only when the latest confirmed state is displayed.
 var array<line> drawnLines = array.new<line>()
 var array<label> drawnLabels = array.new<label>()
-var box drawnFrame = na
+var array<box> drawnBoxes = array.new<box>()
 
-f_level(string caption, float price, int startT, int endT, color tint, int weight, string pattern, bool secondary = false, bool individualLabel = true, string detail = "") =>
-    drawnLines.push(line.new(startT, price, endT, price, xloc=xloc.bar_time, color=tint, width=weight, style=pattern))
-    if uiLabels and individualLabel
-        string value = str.tostring(price, format.mintick)
-        drawnLabels.push(label.new(endT, price, secondary ? caption : caption + "  " + value, xloc=xloc.bar_time, style=label.style_label_left, color=color.new(PANEL, secondary ? 65 : 15), textcolor=tint, size=secondary ? size.tiny : size.small, tooltip=(detail == "" ? caption : detail) + "  " + value))
+type TargetCaption
+    int direction
+    float price
+    label mark
+    string content
+    string details
+    int sources = 1
 
-f_tfCaption(simple string tf) =>
+var array<TargetCaption> targetCaptions = array.new<TargetCaption>()
+
+f_level(string caption, float price, int startT, int endT, color tint, int weight, string pattern, bool individualLabel = true, int direction = 0) =>
+    if not na(price) and not na(startT) and not na(endT)
+        drawnLines.push(line.new(startT, price, endT, price, xloc=xloc.bar_time, color=tint, width=weight, style=pattern))
+        if uiLabels and individualLabel
+            string value = str.tostring(price, format.mintick)
+            string content = showPrices ? caption + "  " + value : caption
+            string details = caption + "  " + value
+            bool combine = showClusters and direction != 0
+            TargetCaption match = na
+            if combine
+                for previous in targetCaptions
+                    if previous.direction == direction and math.abs(previous.price - price) < syminfo.mintick * 0.5
+                        match := previous
+                        break
+            if not na(match)
+                match.sources += 1
+                match.details += "\n" + details
+                label.set_text(match.mark, match.content + " +" + str.tostring(match.sources - 1))
+                label.set_tooltip(match.mark, match.details)
+            else
+                label mark = label.new(endT, price, content, xloc=xloc.bar_time, style=label.style_label_left, color=color.new(PANEL, 22), textcolor=tint, size=captionSize, tooltip=details)
+                drawnLabels.push(mark)
+                if combine
+                    targetCaptions.push(TargetCaption.new(direction, price, mark, content, details))
+    true
+
+f_tfCaption(string tf) =>
     int seconds = timeframe.in_seconds(tf)
-    seconds < 60 ? str.tostring(seconds) + "s" : seconds < 3600 ? str.tostring(seconds / 60) + "m" : seconds < 86400 ? str.tostring(seconds / 3600) + "H" : tf
+    seconds < 3600 ? str.tostring(seconds / 60) + "m" : seconds < 86400 ? str.tostring(seconds / 3600) + "H" : tf
 
 f_parentTF(simple int seconds) =>
     seconds < 300 ? "5" : seconds < 900 ? "15" : seconds < 3600 ? "60" : seconds < 14400 ? "240" : seconds < 86400 ? "1D" : seconds < 604800 ? "1W" : "1M"
@@ -674,55 +742,7 @@ f_parentTF(simple int seconds) =>
 f_nextTarget(BookTarget plan) =>
     na(plan.hit1618) ? 0 : na(plan.hit2000) ? 1 : na(plan.hit2618) ? 2 : na(plan.hit3500) ? 3 : na(plan.hit4236) ? 4 : 5
 
-f_anchorMarks(string prefix, int direction, float zero, float span, int bTime, int cTime, color tint, color cTint, int role) =>
-    if showAnchorMarks
-        drawnLabels.push(label.new(bTime, zero + span, "B", xloc=xloc.bar_time, style=direction == 1 ? label.style_label_down : label.style_label_up, color=PANEL, textcolor=tint, size=size.tiny, tooltip=prefix + "B · 100%  " + str.tostring(zero + span, format.mintick)))
-        string roleName = role == 3 ? "หักคอ" : role == 1 ? "ข้อต่อ" : role == 2 ? "ต่อ" : "หลัก"
-        drawnLabels.push(label.new(cTime, zero, "C", xloc=xloc.bar_time, style=direction == 1 ? label.style_label_up : label.style_label_down, color=PANEL, textcolor=cTint, size=size.tiny, tooltip=prefix + "C · " + roleName + " · 0%  " + str.tostring(zero, format.mintick)))
-
-f_drawTargets(string prefix, int direction, float zero, float span, int bTime, int cTime, int role, int nextTarget, int rightT, color tint, string pattern, bool overlap = false) =>
-    string targetPrefix = prefix + (direction == 1 ? "↑ " : "↓ ")
-    if role == 0 and showReference
-        color referenceTint = color.new(INK, 50)
-        f_level("0%", zero, cTime, rightT, referenceTint, 1, pattern, true, not showAnchorMarks, targetPrefix + "0%")
-        f_level("100%", zero + span, bTime, rightT, referenceTint, 1, pattern, true, not showAnchorMarks, targetPrefix + "100%")
-    int finalTarget = showAllPending ? targetRatios.size() - 1 : nextTarget
-    for j = nextTarget to finalTarget
-        float ratio = targetRatios.get(j)
-        bool isNext = j == nextTarget
-        bool highlighted = isNext and overlap
-        color levelTint = highlighted ? #FFD88A : isNext ? tint : color.new(tint, 62)
-        string percent = str.tostring(ratio * 100, "#.###") + "%"
-        string detail = targetPrefix + percent + (isNext ? " · เป้าถัดไป" : "")
-        f_level(isNext ? targetPrefix + percent : percent, zero + span * ratio, cTime, rightT, levelTint, highlighted ? 3 : isNext ? 2 : 1, pattern, not isNext, not highlighted, detail)
-    color cTint = role == 3 ? #BF92DC : role == 1 ? #79BDD5 : role == 2 ? INK : tint
-    f_anchorMarks(prefix, direction, zero, span, bTime, cTime, tint, cTint, role)
-
-// Transmit only primitive fields from the preceding, closed source candle.
-f_confirmedLevels(simple int lag = 1) =>
-    float sourceRSI = ta.rsi(close, rLen)
-    float sourceK = ta.sma(ta.stoch(close, high, low, kLen), kSmooth)
-    max_bars_back(sourceRSI, 240)
-    var BasicState source = BasicState.new()
-    f_update(source, sourceRSI, sourceK)
-    BookTarget plan = source.activeSet
-    Frame frame = source.currentFrame
-    bool active = f_bookActive(plan)
-    bool pending = not active and not na(frame) and frame.stage == 1
-    int phase = active ? 2 : pending ? 1 : 0
-    int direction = active ? plan.side : pending ? frame.side : 0
-    float zero = active ? plan.zero : pending ? frame.c.p : na
-    float span = active ? plan.span : pending ? frame.b.p - frame.c.p : na
-    int bTime = active ? plan.pbt : pending ? frame.b.t : na
-    int cTime = active ? plan.zeroT : pending ? frame.c.t : na
-    int role = active ? (plan.neck ? 3 : plan.role) : 0
-    int nextTarget = active ? f_nextTarget(plan) : 0
-    int bEnd = active ? plan.pbEnd : pending ? frame.b.closeT : na
-    int cEnd = active ? plan.pcEnd : pending ? frame.c.closeT : na
-    [phase[lag], direction[lag], zero[lag], span[lag], bTime[lag], cTime[lag], role[lag], nextTarget[lag], bEnd[lag], cEnd[lag]]
-
 type DisplaySet
-    int phase = 0
     int direction = 0
     float zero = na
     float span = na
@@ -732,6 +752,36 @@ type DisplaySet
     int nextTarget = 0
     int bEnd = na
     int cEnd = na
+    int frameSide = 0
+    int frameStart = na
+    float frameHi = na
+    float frameLo = na
+
+f_pack(BasicState source) =>
+    BookTarget plan = source.activeSet
+    Frame frame = source.currentFrame
+    DisplaySet result = DisplaySet.new()
+    if f_bookActive(plan)
+        result := DisplaySet.new(plan.side, plan.zero, plan.span, plan.pbt, plan.zeroT, plan.neck ? 3 : plan.role, f_nextTarget(plan), plan.pbEnd, plan.pcEnd)
+    if not na(frame) and frame.stage == 1
+        result.frameSide := frame.side
+        result.frameStart := frame.a.t
+        result.frameHi := math.max(frame.a.p, frame.b.p, frame.c.p)
+        result.frameLo := math.min(frame.a.p, frame.b.p, frame.c.p)
+    result
+
+f_confirmedLevels(simple int lag = 1) =>
+    float sourceRSI = ta.rsi(close, rLen)
+    float sourceK = ta.sma(ta.stoch(close, high, low, kLen), kSmooth)
+    max_bars_back(sourceRSI, 2001)
+    var BasicState source = BasicState.new()
+    if barstate.isconfirmed
+        f_update(source, sourceRSI, sourceK)
+    DisplaySet snapshot = f_pack(source)
+    snapshot[lag]
+
+f_lowerSet() =>
+    f_confirmedLevels(0)
 
 // Display only. An HTF candle is stamped at its open even when its wick
 // occurred on a later chart bar. Find the first matching wick in that candle.
@@ -756,112 +806,213 @@ f_alignAnchor(int opened, int ended, float price, bool isHigh) =>
                     break
     displayed
 
-// Compare only the next live target from each selected TF. Keep each line
-// at its original price and keep opposite-direction targets independent.
-f_lowerSet() =>
-    [phase, side, zero, span, bt, ct, role, target, bEnd, cEnd] = f_confirmedLevels(0)
-    DisplaySet.new(phase, side, zero, span, bt, ct, role, target)
+f_firstVisible(int start) =>
+    int result = -1
+    for i = start to targetRatios.size() - 1
+        if targetEnabled.get(i)
+            result := i
+            break
+    result
 
-f_nextPrice(DisplaySet s) =>
-    s.zero + s.span * targetRatios.get(s.nextTarget)
+f_nextPrice(DisplaySet source) =>
+    int index = f_firstVisible(source.nextTarget)
+    index < 0 ? na : source.zero + source.span * targetRatios.get(index)
 
 f_overlap(DisplaySet a, DisplaySet b, float atr) =>
     bool match = false
-    if a.phase == 2 and b.phase == 2 and a.direction == b.direction
+    if a.direction != 0 and a.direction == b.direction
         float band = math.max(syminfo.mintick, math.min(nz(atr) * 0.15, math.min(math.abs(a.span), math.abs(b.span)) * 0.02))
-        match := math.abs(f_nextPrice(a) - f_nextPrice(b)) <= band + syminfo.mintick * 0.000001
+        match := math.abs(f_nextPrice(a) - f_nextPrice(b)) <= band
     match
 
-f_clusterRow(DisplaySet s, string tf) =>
-    "\n" + tf + " · " + str.tostring(targetRatios.get(s.nextTarget) * 100, "#.###") + "%  " + str.tostring(f_nextPrice(s), format.mintick)
+f_drawSource(DisplaySet source, string name, color tint, string pattern, int rightT, bool detailed, bool align, bool overlap) =>
+    bool isUp = source.direction == 1
+    int bTime = align and detailed ? f_alignAnchor(source.bTime, source.bEnd, source.zero + source.span, isUp) : source.bTime
+    int cTime = align ? f_alignAnchor(source.cTime, source.cEnd, source.zero, not isUp) : source.cTime
+    string prefix = name + (isUp ? " ↑ " : " ↓ ")
+    if detailed
+        if source.role == 0 and showReference
+            f_level(name + " · 0%", source.zero, cTime, rightT, color.new(tint, 52), 1, pattern, not showAnchorMarks)
+            f_level(name + " · 100%", source.zero + source.span, bTime, rightT, color.new(tint, 52), 1, pattern, not showAnchorMarks)
+        if showInner
+            for ratio in innerRatios
+                f_level(name + " · " + str.tostring(ratio * 100, "#.###") + "%", source.zero + source.span * ratio, bTime, rightT, color.new(tint, 62), 1, line.style_dotted)
+        if showSwingLink
+            drawnLines.push(line.new(bTime, source.zero + source.span, cTime, source.zero, xloc=xloc.bar_time, color=color.new(tint, 44), width=1, style=line.style_dashed))
+        if showAnchorMarks
+            string roleName = source.role == 3 ? "หักคอ" : source.role == 1 ? "ข้อต่อ" : source.role == 2 ? "ต่อ" : "หลัก"
+            color cTint = source.role == 3 ? #BF92DC : source.role == 1 ? #79BDD5 : source.role == 2 ? INK : tint
+            drawnLabels.push(label.new(bTime, source.zero + source.span, "B", xloc=xloc.bar_time, style=isUp ? label.style_label_down : label.style_label_up, color=PANEL, textcolor=tint, size=captionSize, tooltip=prefix + "B · 100%"))
+            drawnLabels.push(label.new(cTime, source.zero, "C", xloc=xloc.bar_time, style=isUp ? label.style_label_up : label.style_label_down, color=PANEL, textcolor=cTint, size=captionSize, tooltip=prefix + "C · 0% · " + roleName))
+    int limit = detailed and showAllPending ? levelsLimit : 1
+    int shown = 0
+    for j = source.nextTarget to targetRatios.size() - 1
+        if targetEnabled.get(j)
+            float ratio = targetRatios.get(j)
+            bool isNext = shown == 0
+            color levelTint = isNext and overlap ? #FFD88A : isNext ? tint : color.new(tint, 47)
+            f_level(prefix + str.tostring(ratio * 100, "#.###") + "%", source.zero + source.span * ratio, cTime, rightT, levelTint, isNext ? (overlap ? 3 : 2) : 1, pattern, true, source.direction)
+            shown += 1
+            if shown >= limit
+                break
+    true
 
-f_drawSource(DisplaySet source, string name, color tint, string pattern, int rightT, bool overlap = false, bool align = false) =>
-    if source.phase == 2
-        int bTime = align and (showAnchorMarks or (source.role == 0 and showReference)) ? f_alignAnchor(source.bTime, source.bEnd, source.zero + source.span, source.direction == 1) : source.bTime
-        int cTime = align ? f_alignAnchor(source.cTime, source.cEnd, source.zero, source.direction == -1) : source.cTime
-        f_drawTargets(name + " ", source.direction, source.zero, source.span, bTime, cTime, source.role, source.nextTarget, rightT, tint, pattern, overlap)
-    else if showPendingFrame and source.phase == 1
-        string caption = name + " · รอ Break" + (source.direction == 1 ? " ↑" : " ↓")
-        int bTime = align ? f_alignAnchor(source.bTime, source.bEnd, source.zero + source.span, source.direction == 1) : source.bTime
-        f_level(caption, source.zero + source.span, bTime, rightT, color.new(tint, 25), 1, pattern)
+f_drawFrame(DisplaySet source, string name, int rightT, color tint) =>
+    string caption = name + " · รอ Break " + (source.frameSide == 1 ? "↑" : "↓")
+    drawnBoxes.push(box.new(source.frameStart, source.frameHi, rightT, source.frameLo, xloc=xloc.bar_time, border_color=color.new(tint, 53), border_style=line.style_dotted, bgcolor=color.new(tint, 96)))
+    if uiLabels
+        drawnLabels.push(label.new(source.frameStart, source.frameLo, caption, xloc=xloc.bar_time, style=label.style_label_upper_left, color=PANEL, textcolor=tint, size=captionSize))
+    true
 
-simple string autoFirst = f_parentTF(timeframe.in_seconds())
+f_drawReached(BookTarget plan, string name, color tint, bool archived) =>
+    for [index, ratio] in targetRatios
+        int hit = f_bookHitTime(plan, ratio)
+        if targetEnabled.get(index) and (not na(hit) or archived and not na(plan.closedT))
+            int endT = na(hit) ? plan.closedT : hit
+            string caption = name + " · " + str.tostring(ratio * 100, "#.###") + "%" + (na(hit) ? " · ย้อนหลัง" : " ✓")
+            f_level(caption, plan.zero + plan.span * ratio, plan.zeroT, endT, color.new(tint, 63), 1, line.style_dotted)
+    true
+
+simple int chartSeconds = timeframe.in_seconds()
+simple string autoFirst = f_parentTF(chartSeconds)
 simple string parentTF = parentInput == "" ? autoFirst : parentInput
-bool parentHigher = timeframe.in_seconds(parentTF) >= 300 and timeframe.in_seconds(parentTF) > timeframe.in_seconds()
+bool parentHigher = timeframe.in_seconds(parentTF) > chartSeconds
 simple string autoSecond = f_parentTF(timeframe.in_seconds(parentHigher ? parentTF : autoFirst))
 simple string secondTF = secondInput == "" ? autoSecond : secondInput
 bool useParent = showParent and parentHigher
-bool useSecond = showSecond and timeframe.in_seconds(secondTF) >= 300 and timeframe.in_seconds(secondTF) > timeframe.in_seconds() and (not useParent or timeframe.in_seconds(secondTF) != timeframe.in_seconds(parentTF))
-var DisplaySet parent = DisplaySet.new()
-var DisplaySet second = DisplaySet.new()
-if useParent
-    [phase, direction, zero, span, bTime, cTime, role, target, bEnd, cEnd] = request.security(syminfo.tickerid, parentTF, f_confirmedLevels(), lookahead=barmerge.lookahead_on, calc_bars_count=240)
-    if barstate.islast
-        parent := DisplaySet.new(phase, direction, zero, span, bTime, cTime, role, target, bEnd, cEnd)
-if useSecond
-    [phase, direction, zero, span, bTime, cTime, role, target, bEnd, cEnd] = request.security(syminfo.tickerid, secondTF, f_confirmedLevels(), lookahead=barmerge.lookahead_on, calc_bars_count=240)
-    if barstate.islast
-        second := DisplaySet.new(phase, direction, zero, span, bTime, cTime, role, target, bEnd, cEnd)
+bool useSecond = showSecond and timeframe.in_seconds(secondTF) > chartSeconds and (not useParent or timeframe.in_seconds(secondTF) != timeframe.in_seconds(parentTF))
+bool drawNow = barstate.islast or barstate.islastconfirmedhistory
+var DisplaySet parent = na
+var DisplaySet second = na
+if useParent and drawNow
+    DisplaySet packet = request.security(syminfo.tickerid, parentTF, f_confirmedLevels(), lookahead=barmerge.lookahead_on, calc_bars_count=scanBars)
+    if not na(packet)
+        parent := packet
+if useSecond and drawNow
+    DisplaySet packet = request.security(syminfo.tickerid, secondTF, f_confirmedLevels(), lookahead=barmerge.lookahead_on, calc_bars_count=scanBars)
+    if not na(packet)
+        second := packet
+
+var array<string> scanTFs = array.from("1", "3", "5", "15", "30", "60", "120", "240", "1D", "1W")
+var array<bool> scanEnabled = array.from(scan1, scan3, scan5, scan15, scan30, scan60, scan120, scan240, scanD, scanW)
+var array<DisplaySet> extras = array.new<DisplaySet>(scanTFs.size())
+if scanAll and drawNow
+    for [i, tf] in scanTFs
+        int sec = timeframe.in_seconds(tf)
+        if scanEnabled.get(i) and sec != chartSeconds and (not useParent or sec != timeframe.in_seconds(parentTF)) and (not useSecond or sec != timeframe.in_seconds(secondTF))
+            DisplaySet packet = na
+            if sec < chartSeconds
+                intrabars = request.security_lower_tf(syminfo.tickerid, tf, f_lowerSet(), calc_bars_count=scanBars)
+                if intrabars.size() > 0
+                    packet := intrabars.last()
+            else
+                packet := request.security(syminfo.tickerid, tf, f_confirmedLevels(), lookahead=barmerge.lookahead_on, calc_bars_count=scanBars)
+            if not na(packet)
+                extras.set(i, packet)
 
 float chartAtr = ta.atr(14)
 float rsi = ta.rsi(close, rLen)
 float stochastic = ta.sma(ta.stoch(close, high, low, kLen), kSmooth)
 max_bars_back(rsi, 2001)
 var BasicState state = BasicState.new()
-if timeframe.in_seconds() >= 300 and barstate.isconfirmed
-    f_update(state, rsi, stochastic, showPreviousMain)
-BookTarget activeSet = state.activeSet
-Frame currentFrame = state.currentFrame
+var array<label> divergenceMarks = array.new<label>()
+var table tfSummary = na
+if showChartFibo and chartSeconds >= 60 and barstate.isconfirmed
+    f_update(state, rsi, stochastic)
+    if showDivergence and state.divergence != 0
+        bool bullish = state.divergence > 0
+        string caption = math.abs(state.divergence) == 1 ? "RSI Div" : "RSI Hid"
+        color tint = bullish ? #75CBAB : #F0898F
+        divergenceMarks.push(label.new(time, bullish ? low : high, caption, xloc=xloc.bar_time, style=bullish ? label.style_label_up : label.style_label_down, color=PANEL, textcolor=tint, size=captionSize))
+        if divergenceMarks.size() > 12
+            label.delete(divergenceMarks.shift())
 
-if barstate.islast
+if drawNow
     for previousLine in drawnLines
         line.delete(previousLine)
     drawnLines.clear()
     for previousLabel in drawnLabels
         label.delete(previousLabel)
     drawnLabels.clear()
-    box.delete(drawnFrame)
-    drawnFrame := na
-    int barDuration = int(timeframe.in_seconds() * 1000)
-    int rightT = time + barDuration * reach
-    bool chartActive = not na(activeSet) and not f_bookDead(activeSet.side, activeSet.zero) and not f_bookDead(activeSet.side, activeSet.rootPrice)
-    DisplaySet current = DisplaySet.new()
-    if chartActive
-        current := DisplaySet.new(2, activeSet.side, activeSet.zero, activeSet.span, activeSet.pbt, activeSet.zeroT, activeSet.neck ? 3 : activeSet.role, f_nextTarget(activeSet))
-    string chartName = f_tfCaption(timeframe.period)
-    string firstName = f_tfCaption(parentTF)
-    string secondName = f_tfCaption(secondTF)
-    float stableAtr = barstate.isconfirmed ? chartAtr : chartAtr[1]
-    bool chartParent = useParent and f_overlap(current, parent, stableAtr)
-    bool chartSecond = useSecond and f_overlap(current, second, stableAtr)
-    bool bothHigher = useParent and useSecond and f_overlap(parent, second, stableAtr)
-    bool markChart = chartParent or chartSecond
-    bool markParent = chartParent or bothHigher
-    bool markSecond = chartSecond or bothHigher
-    f_drawSource(current, chartName, GOLD, line.style_solid, rightT, markChart)
-    BookTarget previous = state.previousMain
-    if showPreviousMain and f_bookActive(previous) and not f_bookDead(previous.side, previous.zero) and not f_bookDead(previous.side, previous.rootPrice)
-        float ratio = targetRatios.get(f_nextTarget(previous))
-        string priorCaption = chartName + (previous.side == 1 ? " ↑" : " ↓") + " · หลักเดิม · " + str.tostring(ratio * 100, "#.###") + "%"
-        f_level(chartName + (previous.side == 1 ? " ↑" : " ↓") + " เดิม", previous.zero + previous.span * ratio, previous.zeroT, rightT + barDuration * 9, color.new(INK, 25), 1, line.style_dashed, true, true, priorCaption)
-    if showPendingFrame and not na(currentFrame) and currentFrame.stage == 1 and not f_bookDead(currentFrame.side, currentFrame.c.p)
-        float frameTop = math.max(currentFrame.a.p, currentFrame.b.p, currentFrame.c.p)
-        float frameBottom = math.min(currentFrame.a.p, currentFrame.b.p, currentFrame.c.p)
-        drawnFrame := box.new(currentFrame.a.t, frameTop, rightT, frameBottom, xloc=xloc.bar_time, border_color=color.new(INK, 65), border_style=line.style_dotted, bgcolor=color.new(INK, 98))
-        drawnLabels.push(label.new(currentFrame.a.t, frameBottom, f_tfCaption(timeframe.period) + " · รอ Break" + (currentFrame.side == 1 ? " ↑" : " ↓"), xloc=xloc.bar_time, style=label.style_label_upper_left, color=PANEL, textcolor=INK, size=size.tiny))
+    targetCaptions.clear()
+    for previousBox in drawnBoxes
+        box.delete(previousBox)
+    drawnBoxes.clear()
 
-    if useParent
-        f_drawSource(parent, firstName, #82B8DD, line.style_dashed, rightT + barDuration * 3, markParent, true)
-    if useSecond
-        f_drawSource(second, secondName, #C7B6E7, line.style_dotted, rightT + barDuration * 6, markSecond, true)
-    if uiLabels and (markChart or bothHigher)
-        // In a three-way chain, anchor to the TF that directly matches both others.
-        DisplaySet anchor = chartParent and chartSecond ? current : chartParent and bothHigher ? parent : markSecond ? second : parent
-        string caption = (anchor.direction == 1 ? "↑" : "↓") + " เป้าถัดไปซ้อน TF"
-        caption += markChart ? f_clusterRow(current, chartName) : ""
-        caption += markParent ? f_clusterRow(parent, firstName) : ""
-        caption += markSecond ? f_clusterRow(second, secondName) : ""
-        int labelT = rightT + barDuration * (markSecond ? 6 : 3)
-        string names = (markChart ? chartName : "") + (markParent ? (markChart ? "+" : "") + firstName : "") + (markSecond ? "+" + secondName : "")
-        string compact = names + (anchor.direction == 1 ? " ↑ " : " ↓ ") + str.tostring(f_nextPrice(anchor), format.mintick)
-        drawnLabels.push(label.new(labelT, f_nextPrice(anchor), compact, xloc=xloc.bar_time, style=label.style_label_left, color=PANEL, textcolor=#FFD88A, size=size.small, tooltip=caption))
+    int barDuration = int(nz(time_close - time, chartSeconds * 1000))
+    int rightT = time + barDuration * reach
+    string chartName = f_tfCaption(timeframe.period)
+    DisplaySet current = f_pack(state)
+    array<DisplaySet> sources = array.from(current, parent, second)
+    array<string> tfs = array.from(timeframe.period, parentTF, secondTF)
+    if scanAll
+        for [i, extra] in extras
+            if not na(extra)
+                sources.push(extra)
+                tfs.push(scanTFs.get(i))
+    float stableAtr = barstate.isconfirmed ? chartAtr : chartAtr[1]
+    int framesDrawn = 0
+    for [i, source] in sources
+        if not na(source)
+            string tf = tfs.get(i)
+            int sec = timeframe.in_seconds(tf)
+            string name = f_tfCaption(tf)
+            color tint = i == 0 ? chartColor : i == 1 ? firstColor : i == 2 ? secondColor : INK
+            string pattern = i == 0 ? line.style_solid : sec > chartSeconds ? line.style_dashed : line.style_dotted
+            int laneT = rightT + (i % 4) * barDuration * 2
+            if showTargets and source.direction != 0
+                bool overlap = false
+                if showClusters
+                    for [j, other] in sources
+                        if i != j and not na(other) and f_overlap(source, other, stableAtr)
+                            overlap := true
+                            break
+                f_drawSource(source, name, tint, pattern, laneT, i < 3 or expandExtra, sec > chartSeconds, overlap)
+            if showPendingFrame and source.frameSide != 0 and framesDrawn < frameLimit
+                f_drawFrame(source, name, laneT, tint)
+                framesDrawn += 1
+
+    if showTFPanel
+        if na(tfSummary)
+            tfSummary := table.new(position.top_right, 2, 14, bgcolor=color.new(PANEL, 8), border_width=1, border_color=color.new(INK, 82))
+        table.clear(tfSummary, 0, 0, 1, 13)
+        table.cell(tfSummary, 0, 0, "TF", text_color=chartColor, text_size=captionSize)
+        table.cell(tfSummary, 1, 0, "สถานะ Fibo", text_color=chartColor, text_size=captionSize)
+        int row = 1
+        for [i, source] in sources
+            if not na(source) and (source.direction != 0 or source.frameSide != 0)
+                string status = source.frameSide != 0 ? "รอ Break" : "Break แล้ว"
+                float nextPrice = source.direction != 0 ? f_nextPrice(source) : na
+                if not na(nextPrice)
+                    status := (source.direction == 1 ? "↑ " : "↓ ") + str.tostring(nextPrice, format.mintick)
+                table.cell(tfSummary, 0, row, f_tfCaption(tfs.get(i)), text_color=INK, text_size=captionSize)
+                table.cell(tfSummary, 1, row, status, text_color=INK, text_size=captionSize)
+                row += 1
+
+    if showChartFibo and showTargets and f_bookActive(state.activeSet)
+        if showVacuum and f_bookPending(state.activeSet, 4.236)
+            float p1 = current.zero + current.span * 2.618
+            float p2 = current.zero + current.span * 4.236
+            drawnBoxes.push(box.new(state.activeSet.born, math.max(p1, p2), rightT, math.min(p1, p2), xloc=xloc.bar_time, border_color=color.new(chartColor, 63), bgcolor=color.new(chartColor, 93), text=uiLabels ? "261.8–423.6%" : "", text_color=chartColor, text_size=captionSize, text_halign=text.align_right))
+        if showReached
+            f_drawReached(state.activeSet, chartName, chartColor, false)
+
+    if showChartFibo and showTargets and (showPreviousMain or showArchived) and not na(state.records)
+        int retainedDrawn = 0
+        bool archivedDrawn = false
+        int index = state.records.size() - 1
+        while index >= 0
+            BookTarget previous = state.records.get(index)
+            bool primary = not na(state.activeSet) and state.activeSet.id == previous.id and state.activeSet.born == previous.born
+            if not primary
+                if showPreviousMain and retainedDrawn < retainedLimit and f_bookActive(previous) and previous.role == 0 and not previous.neck
+                    int target = f_firstVisible(f_nextTarget(previous))
+                    if target >= 0
+                        float ratio = targetRatios.get(target)
+                        string caption = chartName + (previous.side == 1 ? " ↑ " : " ↓ ") + "เดิม · " + str.tostring(ratio * 100, "#.###") + "%"
+                        f_level(caption, previous.zero + previous.span * ratio, previous.zeroT, rightT + barDuration * (4 + retainedDrawn), color.new(INK, 23), 1, line.style_dashed)
+                        retainedDrawn += 1
+                else if showArchived and not archivedDrawn and not f_bookActive(previous)
+                    f_drawReached(previous, chartName, INK, true)
+                    archivedDrawn := true
+            index -= 1

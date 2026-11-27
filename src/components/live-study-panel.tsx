@@ -85,10 +85,9 @@ export default function LiveStudyPanel({
               <span role="status">{pendingStatus || 'กำลังคำนวณสคริปต์'}</span><button type="button" onClick={onCancelApply}>ยกเลิก</button>
             </div>}
             {script.enabled && evaluation?.error && <p role="alert">{evaluation.error}</p>}
-            {inputsFor === script.id && (evaluation?.inputs.length
-              ? <PineInputs study={evaluation} values={script.inputs ?? {}}
-                onChange={inputs => { if (!pendingId) onScriptChange({...script, inputs}); }}/>
-              : <p>{evaluation ? 'สคริปต์นี้ไม่มีพารามิเตอร์ให้ปรับ' : 'กำลังอ่านพารามิเตอร์จากสคริปต์'}</p>)}
+            {inputsFor === script.id && <PineInputs study={evaluation} values={script.inputs}
+              managed={isFocusedIndicator(script.builtinId)}
+              onChange={inputs => { if (!pendingId) onScriptChange({...script, inputs}); }}/>}
           </div>;
         })}
         {custom.length > 0 && matches.length > 0 && <h3>อินดิเคเตอร์ในตัว</h3>}

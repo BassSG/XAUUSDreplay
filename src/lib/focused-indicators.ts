@@ -8,6 +8,26 @@ export function isFocusedIndicator(id?:string): boolean {
   return id===focusIds[0]||id===focusIds[1];
 }
 
+export type IndicatorInputs=NonNullable<IndicatorSpec['inputs']>;
+export const focusHistoryInput={
+  id:'ebw-history-bars', name:'ประวัติแท่ง', title:'แท่งย้อนหลังบน TF ของกราฟ',
+  type:'int', defval:focusBarCount, minval:250, maxval:6000, step:1, group:'00 · ประวัติแท่ง',
+  tooltip:'จำนวนแท่งที่ใช้คำนวณอินดิเคเตอร์นี้ เริ่มต้น 3,000 ถ้าช่วงที่เปิดมีข้อมูลไม่พอจะใช้เท่าที่มี',
+} as const;
+
+export function focusHistoryBars(inputs?:IndicatorInputs):number {
+  const raw=inputs?.[focusHistoryInput.id];
+  const count=typeof raw==='number'||(typeof raw==='string'&&raw.trim())?Number(raw):NaN;
+  return Number.isFinite(count)
+    ? Math.max(focusHistoryInput.minval,Math.min(focusHistoryInput.maxval,Math.round(count)))
+    : focusBarCount;
+}
+
+export function focusHistoryTarget(studies:readonly Pick<IndicatorSpec,'builtinId'|'inputs'>[]):number {
+  return studies.reduce((target,study)=>isFocusedIndicator(study.builtinId)
+    ? Math.max(target,focusHistoryBars(study.inputs)) : target,focusBarCount);
+}
+
 export async function installFocusedIndicators(saved:IndicatorSpec[],defaults:readonly IndicatorSpec[],
   previousSources:ReadonlySet<string>):Promise<IndicatorSpec[]> {
   const canonical=new Set(defaults.map(study=>study.id));
@@ -29,12 +49,12 @@ export async function installFocusedIndicators(saved:IndicatorSpec[],defaults:re
 
 // Keep a warm chart window per Focus script. Preserve its opening bar on
 // incremental updates until the runtime needs to release older history.
-export function focusedChartBars(bars:Bar[],previous?:Bar[]):Bar[] {
-  if(bars.length<=focusBarCount)return bars;
-  if(previous&&previous.length>=focusBarCount) {
+export function focusedChartBars(bars:Bar[],previous?:Bar[],count=focusBarCount):Bar[] {
+  if(bars.length<=count)return bars;
+  if(previous&&previous.length>=count) {
     const index=bars.findIndex(bar=>bar.time===previous[0].time);
-    if(index>=0&&bars.length-index>=focusBarCount&&bars.length-index<=focusBarCount+240)
+    if(index>=0&&bars.length-index>=count&&bars.length-index<=count+240)
       return index===0?bars:bars.slice(index);
   }
-  return bars.slice(-focusBarCount);
+  return bars.slice(-count);
 }

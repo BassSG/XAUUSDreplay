@@ -54,3 +54,28 @@
 .drawing-tools button.active{border-color:#d7b46a;color:#f2d99c;background:#d7b46a14}
 .replay-throughput{font-size:11px;color:#b8c9df;white-space:nowrap;font-variant-numeric:tabular-nums}
 @media(max-width:700px){.drawing-properties{gap:6px}.drawing-properties button{min-height:36px}.drawing-instruction{font-size:11px;gap:6px}.replay-throughput{font-size:10px}}
+
+.pine-settings .pine-input-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.pine-settings .pine-input-grid .field {
+  margin: 0; padding: 8px 10px; border: 1px solid #2a3544; border-radius: 7px;
+  min-width: 0; background: #141e2b; align-content: start;
+}
+.pine-settings .pine-input-grid .field :is(input:not([type=checkbox]),select,textarea) {
+  width: 100%; min-width: 0; min-height: 36px;
+}
+.pine-settings .pine-input-grid .pine-input-toggle {
+  display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center;
+}
+.pine-input-toggle input[type=checkbox] { margin: 0; width: 17px; height: 17px; accent-color: #d7b46a; }
+.pine-settings .pine-input-note { grid-column: 1 / -1; color: #9baac0; line-height: 1.4; }
+.pine-input-actions {
+  position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 8px; padding: 8px 0 1px; background: #121b28; border-top: 1px solid #2a3544;
+}
+.pine-input-actions small { color: #aebbd0; }
+.indicator-row .pine-row-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 4px; }
+@media(max-width:600px) {
+  .pine-settings .pine-input-grid { grid-template-columns: minmax(0,1fr); }
+  .pine-settings .pine-input-grid :is(input:not([type=checkbox]),select,textarea) { font-size: 16px; }
+  .pine-input-actions button { min-height: 40px; }
+}

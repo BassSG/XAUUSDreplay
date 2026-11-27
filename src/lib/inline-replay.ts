@@ -8,7 +8,7 @@ export function replayFrame(tape: Pick<ReplayTape,'bars'|'period'>, cursor: numb
   if (seconds<base || !tape.bars[cursor]) return null;
   const revealed=tape.bars.slice(0,cursor+1);
   const asOf=candleWindow(revealed.at(-1)!.time,base).close;
-  if (seconds===base) return {bars:revealed,revealed,asOf};
+  if (seconds===base) return {bars:history.length?[...history.filter(bar=>bar.time<revealed[0].time),...revealed]:revealed,revealed,asOf};
   const first=candleWindow(revealed[0].time,seconds);
   const firstCovered=revealed[0].time===first.open?first.open:first.close;
   const earlier=history.filter(bar=>bar.time<firstCovered&&candleWindow(bar.time,seconds).close<=asOf);

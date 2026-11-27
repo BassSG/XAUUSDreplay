@@ -5,10 +5,10 @@ import type {ReplayTape} from './inline-replay';
 import {focusBarCount} from './focused-indicators';
 
 const pagePeriods=Object.keys(periods) as Period[];
-const warmBars=3600;
 const upcomingBars=1500;
 
-export async function openReplayTape(time:number, display:Period, now:number, signal:AbortSignal, savedBase?:Period) {
+export async function openReplayTape(time:number, display:Period, now:number, signal:AbortSignal, savedBase?:Period, focusBars=focusBarCount) {
+  const warmBars=focusBars+600;
   const catalog=await historyCatalog().catch(()=>[]);
   signal.throwIfAborted();
   const archive=catalog.filter(d=>d.calendar==='eightcap' && d.start<=time && d.end+d.timeframe>time &&
@@ -36,16 +36,16 @@ export async function openReplayTape(time:number, display:Period, now:number, si
   throw Error('ไม่พบแท่งที่ปิดแล้วสำหรับจุดเริ่มนี้ ลองเลือกแท่งก่อนหน้า หรือขยับไปช่วงที่มีประวัติ Eightcap');
 }
 
-export async function replayPrefix(tape: ReplayTape,period: Period,now:number,signal:AbortSignal) {
+export async function replayPrefix(tape: ReplayTape,period: Period,now:number,signal:AbortSignal, limit=focusBarCount) {
   const seconds=periods[period];
-  if (seconds<=periods[tape.period]) return [];
+  if (seconds<periods[tape.period]) return [];
   const first=candleWindow(tape.bars[0].time,seconds);
   const before=tape.bars[0].time===first.open?first.open:first.close;
   const archive=(await historyCatalog().catch(()=>[])).find(d=>d.calendar==='eightcap'&&d.timeframe===seconds&&
     d.start<before&&d.end+seconds>=first.open);
   signal.throwIfAborted();
-  if (archive) return loadBefore(archive.id,before,focusBarCount);
-  const history=await readHistoryPages(before,focusBarCount,signal,edge=>historyPage(period,edge,now,signal));
+  if (archive) return loadBefore(archive.id,before,limit);
+  const history=await readHistoryPages(before,limit,signal,edge=>historyPage(period,edge,now,signal));
   return history.bars;
 }
 

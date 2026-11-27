@@ -108,7 +108,7 @@ export function useLiveFeed(retry: number) {
 
 export type LiveFeed = ReturnType<typeof useLiveFeed>;
 
-export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anchorTime: number | null = null, warm = true, enabled = true) {
+export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anchorTime: number | null = null, warm = true, enabled = true, historyTarget = focusBarCount) {
   const key = period + ':' + (anchorTime ?? 'latest');
   const seconds = periods[period];
   const {quote, quoteError, sampled: liveSampled, rows: liveMinutes, minuteError, minuteCache, serverNow, historyCache: cache} = feed;
@@ -155,7 +155,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
         if (checkWindow && anchorTime !== null && rows[0].time > anchorTime) {
           try {
             const before = Math.min(serverNow(), anchorTime + seconds * 128);
-            const {bars: past} = await readHistoryPages(before, focusBarCount + 128, signal,
+            const {bars: past} = await readHistoryPages(before, historyTarget + 128, signal,
               edge => historyPage(period, edge, serverNow(), signal));
             if (!past.length || past[0].time > anchorTime) {
               throw Error('ช่วงนี้ไม่มีแท่งราคาที่ขอ');
@@ -171,7 +171,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
               const source = (await historyCatalog()).find(d => d.calendar === 'eightcap'
                 && d.timeframe === seconds && d.start <= anchorTime && d.end >= anchorTime);
               if (source) {
-                const {bars} = await loadWindow(source.id, anchorTime, focusBarCount, 128);
+                const {bars} = await loadWindow(source.id, anchorTime, historyTarget, 128);
                 archive = true;
                 checkWindow = false;
                 apply(state => ({...state, closed: bars, archive: true, findingWindow: false, barError: false}));
@@ -205,7 +205,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
       if (active.current === run) active.current = null;
       clearTimeout(timer);
     };
-  }, [key, period, seconds, retry, anchorTime, minuteCache, serverNow, enabled]);
+  }, [key, period, seconds, retry, anchorTime, minuteCache, serverNow, enabled, historyTarget]);
 
   useEffect(() => {
     if (!enabled || period !== '1m') return;
@@ -241,7 +241,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
     };
     apply(current => ({...current, historyStatus: 'loading'}));
     try {
-      const dataset = all ? await historyCatalog().then(datasets => datasets.find(d => d.calendar === 'eightcap'
+      const dataset = all || view.archive ? await historyCatalog().then(datasets => datasets.find(d => d.calendar === 'eightcap'
         && d.timeframe === seconds)).catch(() => undefined) : undefined;
       const read = async (before: number) => {
         if (dataset && dataset.start < before && dataset.end >= before) {
@@ -255,7 +255,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
             if (local && remote && local.time === before && remote.time === before &&
                 local.open === remote.open && local.high === remote.high &&
                 local.low === remote.low && local.close === remote.close) {
-              return await loadBefore(dataset.id, before, dataset.count);
+              return await loadBefore(dataset.id, before, all ? dataset.count : limit);
             }
           } catch { /* Continue with broker pages if the export is unavailable. */ }
         }
@@ -272,16 +272,16 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
       run.backfill = null;
       if (all && !run.signal.aborted) setProgress(null);
     }
-  }, [key, period, seconds, view.closed, view.historyStatus, serverNow]);
+  }, [key, period, seconds, view.closed, view.historyStatus, view.archive, serverNow]);
 
-  const canWarm = enabled && warm && !view.findingWindow && !view.archive &&
-    view.closed.length > 0 && view.closed.length < focusBarCount;
+  const canWarm = enabled && warm && !view.findingWindow &&
+    view.closed.length > 0 && view.closed.length < historyTarget;
   const shouldWarm = canWarm && view.historyStatus === 'ready';
   const warmingHistory = shouldWarm || canWarm && view.historyStatus === 'loading';
   useEffect(() => {
     if (!shouldWarm) return;
-    void loadOlder(false, focusBarCount - view.closed.length);
-  }, [shouldWarm, loadOlder, view.closed.length]);
+    void loadOlder(false, historyTarget - view.closed.length);
+  }, [shouldWarm, loadOlder, historyTarget, view.closed.length]);
 
   return {...view, bars, studyBars, warmingHistory, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
     serverNow, loadOlder, progress: progress?.key === key ? progress : null,

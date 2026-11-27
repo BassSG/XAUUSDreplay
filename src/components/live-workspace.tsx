@@ -1,5 +1,6 @@
 import DrawingObjects from './drawing-objects';
 import {prepareFocusedIndicators} from '../lib/focused-defaults';
+import {focusHistoryTarget} from '../lib/focused-indicators';
 import InlineReplayControls from './inline-replay-controls';
 import {useInlineReplay} from '../lib/use-inline-replay';
 import {useReplayChartFrames} from '../lib/use-inline-replay-studies';
@@ -134,7 +135,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const redo = useRef<Drawing[][]>([]);
   const sixCharts = chartLayout === 'six';
   const feed = useLiveFeed(retry);
-  const replay=useInlineReplay(livePeriod,feed.serverNow,sixCharts);
+  const replay=useInlineReplay(livePeriod,feed.serverNow,sixCharts,focusHistoryTarget(scripts.filter(script=>script.enabled)));
   const [replayFollow,setReplayFollow]=useState(true);
   const liveCamera=useRef<ReturnType<LiveChartActions['captureView']>>(null);
   const replaying=replay.active&&!replay.picking;

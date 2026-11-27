@@ -1,68 +1,115 @@
 //@version=6
 // EBW Focus · All-Indy-1.4.20 → All-Indy-1.4.33 Basic
-indicator("All Indy 1.4.33 · Basic · EBW Focus", "ALL INDY · EBW", overlay=false, calc_bars_count=3000, max_boxes_count=8, dynamic_requests=true)
+indicator("All Indy 1.4.33 · Basic · EBW Focus", "ALL INDY · EBW", overlay=false, calc_bars_count=3000, max_boxes_count=12, max_lines_count=2, max_labels_count=2, dynamic_requests=true)
 
-string boxText = input.string("ตัวย่อ", "ข้อความบนกล่อง", options=["ไม่แสดง", "ตัวย่อ", "เต็ม"], tooltip="ตัวย่อ: D = Demand, S = Supply, SB = STRUCT BUY, SS = STRUCT SELL")
+const string G_ZONES = "01 · กล่อง S/D และ STRUCT"
+const string G_SOURCES = "02 · ไทม์เฟรมต้นทาง"
+const string G_STYLE = "03 · สีและป้ายบนกราฟ"
+const string G_OSC = "04 · Stochastic และ RSI"
+const string G_RULES = "05 · อายุโซนและตัวกรอง"
+
+// Preserve the order of the original EBW Focus inputs for saved layouts.
+string boxText = input.string("ตัวย่อ", "ข้อความบนกล่อง", options=["ไม่แสดง", "ตัวย่อ", "เต็ม"], group=G_STYLE, tooltip="D = Demand, S = Supply, SB = STRUCT BUY, SS = STRUCT SELL")
+bool showSD = input.bool(true, "แสดง Supply / Demand", group=G_ZONES)
+bool showStruct = input.bool(true, "แสดง STRUCT Buy / Sell", group=G_ZONES)
+bool showParent = input.bool(true, "เพิ่ม TF อ้างอิง", group=G_SOURCES, tooltip="ใช้ TF ถัดไปหากไม่ได้เลือก TF อ้างอิงเอง การสแกน TF อื่นยังตั้งได้แยกกัน")
+bool keepTested = input.bool(true, "S/D · คงกล่องหลังแตะ", group=G_RULES)
+bool showStoch = input.bool(true, "แสดง Stochastic", group=G_OSC)
+bool showRSI = input.bool(true, "แสดง RSI", group=G_OSC)
+bool book_filter = input.bool(false, "STRUCT · แสดงเฉพาะชุดที่กวาด IDM แล้ว", group=G_RULES, tooltip="ปิดเพื่อรวมชุดรอ IDM ด้วย")
+bool book_context = input.bool(true, "ใช้สวิง TF อ้างอิงประเมินบริบท STRUCT", group=G_RULES, tooltip="ใช้สวิงที่ยืนยันแล้วของ TF อ้างอิงในการจัดอันดับ")
+
+int sdBoxLimit = input.int(4, "จำนวนกล่อง S/D สูงสุด", minval=0, maxval=8, group=G_ZONES, tooltip="รวม Demand และ Supply ทั้งสองฝั่ง เลือกจากโซนที่ยังมีผล")
+int structBoxLimit = input.int(4, "จำนวนกล่อง STRUCT สูงสุด", minval=0, maxval=4, group=G_ZONES, tooltip="โควตาอิสระจาก S/D ตามต้นฉบับ")
+bool showChartZones = input.bool(true, "แสดงโซน TF ของกราฟ", group=G_ZONES)
+bool mergeOverlaps = input.bool(true, "รวมโซนชนิดเดียวที่ซ้อนข้าม TF", group=G_ZONES, tooltip="แสดงเฉพาะช่วงราคาที่ซ้อนกัน ปิดเพื่อเห็นขอบเต็มของแต่ละโซน")
+bool showLiquidity = input.bool(true, "แสดง Swing Liquidity (BSL / SSL)", group=G_ZONES, tooltip="Swing High และ Low ล่าสุดของ TF กราฟที่ยังไม่ถูกกวาด เส้นนับแยกจากกล่อง")
+string parentInput = input.timeframe("", "TF อ้างอิง · อัตโนมัติหรือเลือกเอง", options=["", "3", "5", "15", "30", "60", "120", "240", "1D", "1W"], group=G_SOURCES, tooltip="ต้องใหญ่กว่า TF ของกราฟ")
+bool scanAll = input.bool(true, "สแกนตามรายการ TF ด้านล่าง", group=G_SOURCES, tooltip="เลือก TF ต้นทางเพิ่มเติมจาก TF กราฟและ TF อ้างอิง")
+bool scan1 = input.bool(true, "1m", group=G_SOURCES, inline="m")
+bool scan3 = input.bool(false, "3m", group=G_SOURCES, inline="m")
+bool scan5 = input.bool(true, "5m", group=G_SOURCES, inline="m")
+bool scan15 = input.bool(true, "15m", group=G_SOURCES, inline="intra")
+bool scan30 = input.bool(false, "30m", group=G_SOURCES, inline="intra")
+bool scan60 = input.bool(true, "1H", group=G_SOURCES, inline="h")
+bool scan120 = input.bool(false, "2H", group=G_SOURCES, inline="h")
+bool scan240 = input.bool(true, "4H", group=G_SOURCES, inline="h")
+bool scanD = input.bool(true, "1D", group=G_SOURCES, inline="long")
+bool scanW = input.bool(false, "1W", group=G_SOURCES, inline="long")
+int zoneExtend = input.int(10, "ยื่นกล่องไปทางขวา (แท่งกราฟ)", minval=1, maxval=60, group=G_STYLE)
+bool showStatus = input.bool(false, "เพิ่มสถานะ Fresh / Tested / Defended บนกล่อง", group=G_STYLE)
+bool focusVisual = input.bool(true, "เน้นสี STRUCT ตามหลักฐาน", group=G_STYLE)
+color demandColor = input.color(#22B8A9, "สี Demand", group=G_STYLE)
+color supplyColor = input.color(#E76F70, "สี Supply", group=G_STYLE)
+color structBuyColor = input.color(#60A5FA, "สี STRUCT Buy", group=G_STYLE)
+color structSellColor = input.color(#C084FC, "สี STRUCT Sell", group=G_STYLE)
+int kLength = input.int(9, "คาบ Stochastic", minval=2, maxval=100, group=G_OSC)
+int smoothK = input.int(3, "Smooth K", minval=1, maxval=20, group=G_OSC)
+int smoothD = input.int(3, "Smooth D", minval=1, maxval=20, group=G_OSC)
+int rsiLength = input.int(14, "คาบ RSI", minval=2, maxval=100, group=G_OSC)
+int stochOS = input.int(20, "Stochastic Oversold", minval=1, maxval=49, group=G_OSC)
+int stochOB = input.int(80, "Stochastic Overbought", minval=51, maxval=99, group=G_OSC)
+int rsiOS = input.int(30, "RSI Oversold", minval=1, maxval=49, group=G_OSC)
+int rsiOB = input.int(70, "RSI Overbought", minval=51, maxval=99, group=G_OSC)
+bool showGuides = input.bool(true, "แสดงเส้นไกด์และแถบสี", group=G_OSC)
+int sdMaxAge = input.int(240, "อายุ S/D สูงสุด (แท่ง TF ต้นทาง)", minval=30, maxval=600, group=G_RULES)
+int sdMaxTests = input.int(1, "S/D · จำนวนครั้งแตะสูงสุด", minval=1, maxval=5, group=G_RULES)
+bool book_keepTested = input.bool(true, "STRUCT · คงกล่องหลังแตะ", group=G_RULES)
+int book_maxTests = input.int(1, "STRUCT · จำนวนครั้งแตะสูงสุด", minval=1, maxval=5, group=G_RULES)
+int book_maxAge = input.int(240, "อายุ STRUCT สูงสุด (แท่ง TF ต้นทาง)", minval=30, maxval=600, group=G_RULES)
+int z_swingLen = input.int(5, "แท่งยืนยัน Swing / STRUCT", minval=2, maxval=20, group=G_RULES)
+int scanBars = input.int(320, "ประวัติที่คำนวณต่อ TF เสริม", minval=120, maxval=900, step=20, group=G_RULES, tooltip="แยกจากจำนวนแท่งของกราฟ ยิ่งสูงยิ่งค้นโซนเก่าได้มากขึ้น")
+
 bool showBoxText = boxText != "ไม่แสดง"
 bool shortBoxText = boxText == "ตัวย่อ"
-bool showSD = input.bool(true, "Supply / Demand")
-bool showStruct = input.bool(true, "STRUCT ฟ้า / ม่วง")
-bool showParent = input.bool(true, "กล่อง TF ใหญ่ถัดไป")
-bool keepTested = input.bool(true, "แสดงหลังแตะครั้งแรก")
-bool showStoch = input.bool(true, "แสดง Stochastic")
-bool showRSI = input.bool(true, "แสดง RSI")
+bool useSD = showSD and sdBoxLimit > 0
+bool useStruct = showStruct and structBoxLimit > 0
 
-// Two slots per family: latest valid demand and supply for this source.
 type Zone
-    float lo = na
-    float hi = na
-    int origin = na
-    int born = 0
+    float lo
+    float hi
+    int origin
+    int born
+    int side
+    float buffer
     int tests = 0
     bool touching = false
-    float buffer = na
 
-method update(Zone z, int side, float bottom, float top, int origin, float atr) =>
-    if not na(z.lo)
-        bool broken = side == 1 ? close < z.lo - z.buffer : close > z.hi + z.buffer
-        bool touched = low <= z.hi and high >= z.lo
-        if touched and not z.touching
-            z.tests += 1
-        z.touching := touched
-        if broken or z.tests > (keepTested ? 1 : 0) or bar_index - z.born > 240
-            z.lo := na
-    if not na(bottom) and not na(top) and top > bottom
-        z.lo := bottom
-        z.hi := top
-        z.origin := origin
-        z.born := bar_index
-        z.tests := 0
-        z.touching := false
-        z.buffer := atr * 0.12
+f_stepZones(array<Zone> zones, simple int lag) =>
+    float atr = ta.atr(14)
+    float srcLow = low[lag]
+    float srcHigh = high[lag]
+    float srcClose = close[lag]
+    int index = zones.size() - 1
+    while index >= 0
+        Zone zone = zones.get(index)
+        bool broken = zone.side == 1 ? srcClose < zone.lo - zone.buffer : srcClose > zone.hi + zone.buffer
+        bool touched = srcLow <= zone.hi and srcHigh >= zone.lo
+        if touched and not zone.touching
+            zone.tests += 1
+        zone.touching := touched
+        if broken or zone.tests > (keepTested ? sdMaxTests : 0) or bar_index - zone.born > sdMaxAge
+            zones.remove(index)
+        index -= 1
+    float body = srcClose - open[lag]
+    float baseBody = math.abs(close[lag + 1] - open[lag + 1])
+    bool base = high[lag + 1] - low[lag + 1] <= atr[lag + 1] * 1.25 and baseBody <= atr[lag + 1] * 0.5
+    bool demand = base and body >= atr[lag] * 0.8 and srcClose > high[lag + 1]
+    bool supply = base and body <= -atr[lag] * 0.8 and srcClose < low[lag + 1]
+    if demand or supply
+        float lo = demand ? low[lag + 1] : math.min(open[lag + 1], close[lag + 1])
+        float hi = demand ? math.max(open[lag + 1], close[lag + 1]) : high[lag + 1]
+        if hi > lo
+            zones.push(Zone.new(lo, hi, time[lag + 1], bar_index, demand ? 1 : -1, atr[lag] * 0.12))
+            if zones.size() > 16
+                zones.shift()
     true
 
-f_zones(simple int lag) =>
-    float atr = ta.atr(14)
-    float body = close - open
-    float baseBody = math.abs(close[1] - open[1])
-    bool up = body >= atr * 0.8
-    bool down = body <= -atr * 0.8
-    bool base = high[1] - low[1] <= atr[1] * 1.25
-    bool demand = showSD and base and baseBody <= atr[1] * 0.5 and up and close > high[1]
-    bool supply = showSD and base and baseBody <= atr[1] * 0.5 and down and close < low[1]
-    var Zone demandZone = Zone.new()
-    var Zone supplyZone = Zone.new()
-    demandZone.update(1, demand ? low[1] : na, math.max(open[1], close[1]), time[1], atr)
-    supplyZone.update(-1, supply ? math.min(open[1], close[1]) : na, high[1], time[1], atr)
-    float dl = demandZone.lo
-    float dh = demandZone.hi
-    int dt = demandZone.origin
-    float sl = supplyZone.lo
-    float sh = supplyZone.hi
-    int st = supplyZone.origin
-    bool demandTested = demandZone.tests > 0
-    bool supplyTested = supplyZone.tests > 0
-    [dl[lag], dh[lag], dt[lag], demandTested[lag], sl[lag], sh[lag], st[lag], supplyTested[lag]]
+f_sdSnapshot(array<Zone> zones) =>
+    array<Zone> result = array.new<Zone>()
+    for zone in zones
+        result.push(zone.copy())
+    result
 
 f_higher(simple int seconds) =>
     seconds < 300 ? "5" : seconds < 900 ? "15" : seconds < 3600 ? "60" : seconds < 14400 ? "240" : seconds < 86400 ? "1D" : seconds < 604800 ? "1W" : "1M"
@@ -71,7 +118,7 @@ f_caption(string tf) =>
     int seconds = timeframe.in_seconds(tf)
     seconds < 60 ? str.tostring(seconds) + "s" : seconds < 3600 ? str.tostring(seconds / 60) + "m" : seconds < 86400 ? str.tostring(seconds / 3600) + "H" : tf
 
-var array<box> boxes = array.new<box>(8)
+var array<box> boxes = array.new<box>(12)
 // Candidates are collected only for the most recent map. Kind +/-1 is
 // demand/supply, +/-2 is STRUCT buy/sell. Each group keeps its common core.
 type VisibleBand
@@ -82,15 +129,17 @@ type VisibleBand
     int kind
     string tf
     bool tested
+    bool defended
     int emphasis
+    float priority
     string names = ""
     string members = ""
 
 var array<VisibleBand> candidates = array.new<VisibleBand>()
 
-f_offer(float lo, float hi, int origin, int right, int kind, string tf, bool tested, int emphasis = 1) =>
+f_offer(float lo, float hi, int origin, int right, int kind, string tf, bool tested, bool defended, int emphasis, float priority) =>
     if not na(origin) and hi > lo
-        candidates.push(VisibleBand.new(lo, hi, origin, right, kind, tf, tested, emphasis))
+        candidates.push(VisibleBand.new(lo, hi, origin, right, kind, tf, tested, defended, emphasis, priority))
     true
 
 f_shared(float aLo, float aHi, float bLo, float bHi) =>
@@ -118,34 +167,28 @@ f_draw(int slot, float lo, float hi, int origin, int right, string caption, colo
             box.set_text(item, caption)
             box.set_text_color(item, color.new(tint, emphasis == 0 ? 28 : 0))
     else if not na(item)
-        box.set_lefttop(item, na, na)
-        box.set_rightbottom(item, na, na)
+        box.delete(item)
+        boxes.set(slot, na)
     true
 
 simple int seconds = timeframe.isticks ? na : timeframe.in_seconds()
-simple string parent = na(seconds) ? "1D" : f_higher(seconds)
+simple string parent = parentInput == "" ? (na(seconds) ? "1D" : f_higher(seconds)) : parentInput
 simple int parentSeconds = timeframe.in_seconds(parent)
 bool zonesOK = chart.is_standard and not na(seconds)
-bool chartZonesOK = zonesOK and seconds >= 300
+bool chartZonesOK = zonesOK and showChartZones
 bool parentOK = zonesOK and showParent and parentSeconds > seconds
 int stepMs = int(nz(time_close - time, seconds * 1000))
 bool drawNow = barstate.islast or barstate.islastconfirmedhistory
 if drawNow
     candidates.clear()
 
-bool book_filter = input.bool(false, "STRUCT · แสดงเฉพาะชุดที่กวาด IDM แล้ว", tooltip="เปิด: แสดงเฉพาะโซนที่ระบุ IDM ใกล้ FVG แล้วราคากลับมากวาดในแท่งถัดไป; ปิด: แสดงชุดรอ IDM ด้วย โดยไม่ติดป้าย VALID ก่อนครบลำดับ", display=display.none)
-bool book_confirmSequence = true // Mandatory ordered structure; not an optional display setting.
-bool book_context = input.bool(true, "ใช้สวิง TF ใหญ่ประเมินบริบท STRUCT", tooltip="ทดลอง: ใช้ pivot ที่ยืนยันแล้วของ TF ใหญ่ที่ใกล้ที่สุดเป็นบริบท การสวนเทรนด์ยังแสดงได้; ไม่มีคะแนนความน่าจะเป็น", display=display.none)
-string book_qualityMode = "Balanced" // fixed internal setting
-float book_pbMin = 0.12 // fixed internal setting
-float book_pbMax = 0.90 // fixed internal setting
-float book_pbNearATR = 2.0 // fixed internal setting
-int book_maxTests = 1 // fixed internal setting
-float book_breakATR = 0.12 // fixed internal setting
-float book_defendATR = 0.5 // fixed internal setting
-int book_maxAge = 240 // fixed internal setting
-bool book_keepTested = keepTested
-int z_swingLen = 5
+bool book_confirmSequence = true
+string book_qualityMode = "Balanced"
+float book_pbMin = 0.12
+float book_pbMax = 0.90
+float book_pbNearATR = 2.0
+float book_breakATR = 0.12
+float book_defendATR = 0.5
 
 type nz_Packet
     int stamp = na
@@ -536,74 +579,103 @@ f_book_focusScore(nz_Zone zone, int parentTrend) =>
     score
 
 
-// One data request for the shared higher timeframe. Disabled modules skip their
-// source engine, while the chart still processes 1,200 bars by default.
-f_parentData() =>
-    nz_Packet packet = showStruct ? f_nz_event(1) : na
-    float demandLo = na
-    float demandHi = na
-    int demandTime = na
-    float supplyLo = na
-    float supplyHi = na
-    int supplyTime = na
-    bool demandTested = false
-    bool supplyTested = false
-    if showSD
-        [dl, dh, dt, dTested, sl, sh, st, sTested] = f_zones(1)
-        demandLo := dl
-        demandHi := dh
-        demandTime := dt
-        supplyLo := sl
-        supplyHi := sh
-        supplyTime := st
-        demandTested := dTested
-        supplyTested := sTested
-    [packet, demandLo, demandHi, demandTime, demandTested, supplyLo, supplyHi, supplyTime, supplyTested]
+// Separate source state from the chart's display quota.
+type ScanMap
+    array<Zone> sd
+    array<nz_Zone> structure
 
+f_scanSource(simple int lag) =>
+    var array<Zone> sd = array.new<Zone>()
+    var array<nz_Zone> structure = array.new<nz_Zone>()
+    var int seen = 0
+    if useSD
+        f_stepZones(sd, lag)
+    if useStruct
+        seen := f_nz_ingest(structure, seen, timeframe.period, timeframe.in_seconds(), f_nz_event(lag), na)
+    ScanMap result = na
+    if bar_index >= last_bar_index - 3
+        array<nz_Zone> snapshot = array.new<nz_Zone>()
+        for zone in structure
+            snapshot.push(zone.copy())
+        result := ScanMap.new(f_sdSnapshot(sd), snapshot)
+    result
+
+f_parentData() =>
+    var array<Zone> sd = array.new<Zone>()
+    if useSD
+        f_stepZones(sd, 1)
+    nz_Packet packet = useStruct ? f_nz_event(1) : na
+    array<Zone> snapshot = bar_index >= last_bar_index - 3 ? f_sdSnapshot(sd) : na
+    [packet, snapshot]
+
+f_offerSD(array<Zone> records, string tf, int rightT, float reference, float atr) =>
+    if not na(records)
+        for zone in records
+            float gap = math.max(0, math.max(zone.lo - reference, reference - zone.hi))
+            float rank = -gap / math.max(atr, syminfo.mintick) - zone.tests * 0.25
+            f_offer(zone.lo, zone.hi, zone.origin, rightT, zone.side, tf, zone.tests > 0, false, 1, rank)
+    true
+
+f_offerStruct(array<nz_Zone> records, int epoch, int rightT, float reference) =>
+    if not na(records)
+        for zone in records
+            int trend = f_nz_parentTrend(zone, epoch)
+            if f_book_eligible(zone, trend)
+                float gap = math.max(0, math.max(zone.lo - reference, reference - zone.hi))
+                float evidence = f_book_focusScore(zone, trend)
+                float rank = evidence - math.min(25, gap / math.max(nz(zone.sourceAtr, 0), syminfo.mintick))
+                int emphasis = not focusVisual ? 1 : evidence >= 75 ? 2 : evidence >= 60 ? 1 : 0
+                f_offer(zone.lo, zone.hi, zone.origin, rightT, 2 * zone.side, zone.tf, zone.tests > 0, zone.defended, emphasis, rank)
+    true
+
+float chartATR = ta.atr(14)
+float reference = barstate.isconfirmed ? close : nz(close[1], close)
+int zoneRight = time + stepMs * zoneExtend
 varip nz_Packet parentContext = na
-if parentOK and (showSD or showStruct)
-    [packet, dl, dh, dt, dTested, sl, sh, st, sTested] = request.security(syminfo.tickerid, parent, f_parentData(), lookahead=barmerge.lookahead_on, calc_bars_count=280)
-    if showStruct and barstate.isconfirmed and not na(packet) and packet.stamp <= time
+if parentOK and (useSD or useStruct)
+    [packet, sd] = request.security(syminfo.tickerid, parent, f_parentData(), lookahead=barmerge.lookahead_on, calc_bars_count=scanBars)
+    if useStruct and barstate.isconfirmed and not na(packet) and packet.stamp <= time
         parentSeen := f_nz_ingest(parentZones, parentSeen, parent, parentSeconds, packet, na)
         if packet.stamp == parentSeen
             parentContext := packet
             parentEpoch := packet.mainEpoch
-    if showSD and drawNow
-        f_offer(dl, dh, dt, time + stepMs * 10, 1, parent, dTested)
-        f_offer(sl, sh, st, time + stepMs * 10, -1, parent, sTested)
-
-if chartZonesOK and showSD
-    [dl, dh, dt, dTested, sl, sh, st, sTested] = f_zones(0)
     if drawNow
-        f_offer(barstate.isconfirmed ? dl : dl[1], barstate.isconfirmed ? dh : dh[1], barstate.isconfirmed ? dt : dt[1], time + stepMs * 6, 1, timeframe.period, barstate.isconfirmed ? dTested : dTested[1])
-        f_offer(barstate.isconfirmed ? sl : sl[1], barstate.isconfirmed ? sh : sh[1], barstate.isconfirmed ? st : st[1], time + stepMs * 6, -1, timeframe.period, barstate.isconfirmed ? sTested : sTested[1])
+        f_offerSD(sd, parent, zoneRight, reference, chartATR)
+        f_offerStruct(parentZones, parentEpoch, zoneRight, reference)
 
-if zonesOK and showStruct
-    if chartZonesOK and barstate.isconfirmed
-        nz_Packet chartPacket = f_nz_event(0)
-        chartSeen := f_nz_ingest(chartZones, chartSeen, timeframe.period, seconds, chartPacket, parentContext)
-    if drawNow
-        array<nz_Zone> zones = array.copy(chartZones)
-        zones.concat(parentZones)
-        array<float> scores = array.new<float>()
-        array<int> emphasisByZone = array.new<int>()
-        for zone in zones
-            int trend = f_nz_parentTrend(zone, parentEpoch)
-            float gap = math.max(0.0, math.max(zone.lo - close, close - zone.hi))
-            float evidence = f_book_focusScore(zone, trend)
-            float score = evidence - math.min(25, gap / math.max(zone.sourceAtr, syminfo.mintick))
-            scores.push(f_book_eligible(zone, trend) ? score : na)
-            emphasisByZone.push(evidence >= 75 ? 2 : evidence >= 60 ? 1 : 0)
-        int shown = 0
-        for index in array.sort_indices(scores, order.descending)
-            if not na(scores.get(index))
-                nz_Zone zone = zones.get(index)
-                bool isChart = zone.tfSec == seconds
-                f_offer(zone.lo, zone.hi, zone.origin, time + stepMs * (isChart ? 6 : 10), 2 * zone.side, zone.tf, zone.tests > 0, emphasisByZone.get(index))
-                shown += 1
-                if shown >= 4
-                    break
-// Display grouping never feeds the source lifecycle or the evidence score.
+var array<string> scanTFs = array.from("1", "3", "5", "15", "30", "60", "120", "240", "1D", "1W")
+var array<bool> scanEnabled = array.from(scan1, scan3, scan5, scan15, scan30, scan60, scan120, scan240, scanD, scanW)
+var array<ScanMap> lastMaps = array.new<ScanMap>(scanTFs.size())
+if scanAll and zonesOK and drawNow and (useSD or useStruct)
+    for [slot, tf] in scanTFs
+        int sec = timeframe.in_seconds(tf)
+        if scanEnabled.get(slot) and sec != seconds and (not parentOK or sec != parentSeconds)
+            ScanMap current = na
+            if sec < seconds
+                intrabars = request.security_lower_tf(syminfo.tickerid, tf, f_scanSource(0), calc_bars_count=scanBars)
+                if intrabars.size() > 0
+                    current := intrabars.last()
+            else
+                current := request.security(syminfo.tickerid, tf, f_scanSource(1), lookahead=barmerge.lookahead_on, calc_bars_count=scanBars)
+            if not na(current)
+                lastMaps.set(slot, current)
+            else
+                current := lastMaps.get(slot)
+            if not na(current)
+                f_offerSD(current.sd, tf, zoneRight, reference, chartATR)
+                f_offerStruct(current.structure, na, zoneRight, reference)
+
+varip array<Zone> chartSD = array.new<Zone>()
+if chartZonesOK and barstate.isconfirmed
+    if useSD
+        f_stepZones(chartSD, 0)
+    if useStruct
+        chartSeen := f_nz_ingest(chartZones, chartSeen, timeframe.period, seconds, f_nz_event(0), parentContext)
+if chartZonesOK and drawNow
+    f_offerSD(chartSD, timeframe.period, zoneRight, reference, chartATR)
+    f_offerStruct(chartZones, parentEpoch, zoneRight, reference)
+
+// Apply display quotas after merging. Same-source records keep their own geometry.
 if drawNow
     array<VisibleBand> groups = array.new<VisibleBand>()
     array<int> periods = array.new_int()
@@ -611,72 +683,124 @@ if drawNow
         periods.push(timeframe.in_seconds(item.tf))
     for idx in array.sort_indices(periods, order.ascending)
         VisibleBand item = candidates.get(idx)
+        string name = f_caption(item.tf)
+        string token = "|" + name + "|"
         VisibleBand match = na
         int best = 0
-        for g in groups
-            if g.kind == item.kind
-                int common = f_shared(g.lo, g.hi, item.lo, item.hi)
-                if common > best
-                    best := common
-                    match := g
+        if mergeOverlaps
+            for g in groups
+                if g.kind == item.kind and not str.contains(g.members, token)
+                    int common = f_shared(g.lo, g.hi, item.lo, item.hi)
+                    if common > best
+                        best := common
+                        match := g
         if na(match)
-            VisibleBand g = item.copy()
-            groups.push(g)
-            match := g
+            VisibleBand own = item.copy()
+            groups.push(own)
+            match := own
         else
             match.lo := math.max(match.lo, item.lo)
             match.hi := math.min(match.hi, item.hi)
             match.origin := math.max(match.origin, item.origin)
-            match.right := math.max(match.right, item.right)
             match.tested := match.tested or item.tested
+            match.defended := match.defended and item.defended
+            match.priority := math.max(match.priority, item.priority)
             match.emphasis := math.max(match.emphasis, item.emphasis)
-        if showBoxText
-            string name = f_caption(item.tf)
-            string token = "|" + name + "|"
-            if not str.contains(match.members, token)
-                match.names := match.names == "" ? name : match.names + "+" + name
-                match.members += token
-    for [slot, g] in groups
-        string caption = ""
-        if showBoxText
-            string kindName = switch g.kind
-                2 => shortBoxText ? "SB" : "STRUCT BUY"
-                -2 => shortBoxText ? "SS" : "STRUCT SELL"
-                1 => shortBoxText ? "D" : "Demand"
-                => shortBoxText ? "S" : "Supply"
-            caption := g.names + " · " + kindName
-            if math.abs(g.kind) == 2
-                for sd in groups
-                    if sd.kind * 2 == g.kind
-                        int common = f_shared(g.lo, g.hi, sd.lo, sd.hi)
-                        int narrower = math.round(math.min(g.hi - g.lo, sd.hi - sd.lo) / syminfo.mintick)
-                        if common > 0 and common * 2 >= narrower
-                            caption += sd.kind == 1 ? " +D" : " +S"
-                            break
-        color tint = g.kind == 2 ? #60A5FA : g.kind == -2 ? #C084FC : g.kind == 1 ? #22B8A9 : #E76F70
-        f_draw(slot, g.lo, g.hi, g.origin, g.right, caption, tint, g.tested, g.emphasis)
-    if groups.size() < boxes.size()
-        for slot = groups.size() to boxes.size() - 1
+        match.names := match.names == "" ? name : match.names + "+" + name
+        match.members += token
+
+    array<float> ranks = array.new<float>()
+    for item in groups
+        ranks.push(item.priority)
+    int sdShown = 0
+    int structureShown = 0
+    int drawn = 0
+    for idx in array.sort_indices(ranks, order.descending)
+        VisibleBand g = groups.get(idx)
+        bool structure = math.abs(g.kind) == 2
+        if structure ? structureShown < structBoxLimit : sdShown < sdBoxLimit
+            string caption = ""
+            if showBoxText
+                string kindName = switch g.kind
+                    2 => shortBoxText ? "SB" : "STRUCT BUY"
+                    -2 => shortBoxText ? "SS" : "STRUCT SELL"
+                    1 => shortBoxText ? "D" : "Demand"
+                    => shortBoxText ? "S" : "Supply"
+                caption := g.names + " · " + kindName
+                if structure
+                    for sd in groups
+                        if sd.kind * 2 == g.kind
+                            int common = f_shared(g.lo, g.hi, sd.lo, sd.hi)
+                            int narrower = math.round(math.min(g.hi - g.lo, sd.hi - sd.lo) / syminfo.mintick)
+                            if common > 0 and common * 2 >= narrower
+                                caption += sd.kind == 1 ? " +D" : " +S"
+                                break
+                if showStatus
+                    caption += g.defended ? " · Defended" : g.tested ? " · Tested" : " · Fresh"
+            color tint = g.kind == 2 ? structBuyColor : g.kind == -2 ? structSellColor : g.kind == 1 ? demandColor : supplyColor
+            f_draw(drawn, g.lo, g.hi, g.origin, g.right, caption, tint, g.tested, g.emphasis)
+            drawn += 1
+            if structure
+                structureShown += 1
+            else
+                sdShown += 1
+    if drawn < boxes.size()
+        for slot = drawn to boxes.size() - 1
             f_draw(slot, na, na, na, na, "", color.white)
 
-float k = ta.sma(ta.stoch(close,high,low,9),3)
-float d = ta.sma(k,3)
-float rsi = ta.rsi(close,14)
+float swingHigh = showLiquidity ? ta.pivothigh(high, z_swingLen, z_swingLen) : na
+float swingLow = showLiquidity ? ta.pivotlow(low, z_swingLen, z_swingLen) : na
+var float buySide = na
+var float sellSide = na
+var int buyOrigin = na
+var int sellOrigin = na
+var line buyLiquidity = na
+var line sellLiquidity = na
+var label buyLabel = na
+var label sellLabel = na
+if showLiquidity and barstate.isconfirmed
+    if high > buySide
+        buySide := na
+    if low < sellSide
+        sellSide := na
+    if not na(swingHigh)
+        buySide := swingHigh
+        buyOrigin := time[z_swingLen]
+    if not na(swingLow)
+        sellSide := swingLow
+        sellOrigin := time[z_swingLen]
+if showLiquidity and drawNow
+    line.delete(buyLiquidity)
+    line.delete(sellLiquidity)
+    label.delete(buyLabel)
+    label.delete(sellLabel)
+    if not na(buySide)
+        buyLiquidity := line.new(buyOrigin, buySide, zoneRight, buySide, xloc=xloc.bar_time, color=color.new(supplyColor, 36), style=line.style_dotted, force_overlay=true)
+        if showBoxText
+            buyLabel := label.new(zoneRight, buySide, "BSL", xloc=xloc.bar_time, style=label.style_label_left, color=color.new(supplyColor, 80), textcolor=supplyColor, size=size.tiny, force_overlay=true)
+    if not na(sellSide)
+        sellLiquidity := line.new(sellOrigin, sellSide, zoneRight, sellSide, xloc=xloc.bar_time, color=color.new(demandColor, 36), style=line.style_dotted, force_overlay=true)
+        if showBoxText
+            sellLabel := label.new(zoneRight, sellSide, "SSL", xloc=xloc.bar_time, style=label.style_label_left, color=color.new(demandColor, 80), textcolor=demandColor, size=size.tiny, force_overlay=true)
+
+float k = ta.sma(ta.stoch(close, high, low, kLength), smoothK)
+float d = ta.sma(k, smoothD)
+float rsi = ta.rsi(close, rsiLength)
 const color guideStrong = #D4AA58
 const color guideQuiet = #545B68
-stoTop = hline(200, "Stochastic top (100)", color=color.new(guideQuiet, 15))
-stoUpper = hline(180, "Stochastic overbought (80)", color=guideStrong, linestyle=hline.style_solid)
-hline(150, "Stochastic midpoint (50)", color=color.new(guideQuiet, 24), linestyle=hline.style_dotted)
-stoLower = hline(120, "Stochastic oversold (20)", color=guideStrong, linestyle=hline.style_solid)
-divider = hline(100, "Divider: Stochastic above / RSI below", color=#8B95A3, linestyle=hline.style_solid, linewidth=2)
-rsiUpper = hline(70, "RSI overbought (70)", color=guideStrong, linestyle=hline.style_solid)
-hline(50, "RSI midpoint (50)", color=color.new(guideQuiet, 24), linestyle=hline.style_dotted)
-rsiLower = hline(30, "RSI oversold (30)", color=guideStrong, linestyle=hline.style_solid)
-rsiBottom = hline(0, "RSI bottom (0)", color=color.new(guideQuiet, 15))
-fill(stoTop, stoUpper, color=showStoch ? color.new(#E27E83, 93) : na, title="Stochastic · 80–100")
-fill(stoLower, divider, color=showStoch ? color.new(#58BDAA, 93) : na, title="Stochastic · 0–20")
-fill(divider, rsiUpper, color=showRSI ? color.new(#E27E83, 95) : na, title="RSI · 70–100")
-fill(rsiLower, rsiBottom, color=showRSI ? color.new(#58BDAA, 95) : na, title="RSI · 0–30")
-plot(showStoch ? k + 100.0 : na, "Stochastic K (display +100)", color=color.white, linewidth=2, display=display.pane)
-plot(showStoch ? d + 100.0 : na, "Stochastic D (display +100)", color=#F07178, linewidth=1, display=display.pane)
-plot(showRSI ? rsi : na, "RSI", color=#EEF2F8, linewidth=2, display=display.pane)
+stoTop = hline(200, "Stochastic top", color=color.new(guideQuiet, 15), display=showStoch and showGuides ? display.all : display.none)
+stoUpper = hline(100 + stochOB, "Stochastic overbought", color=guideStrong, linestyle=hline.style_solid, display=showStoch and showGuides ? display.all : display.none)
+hline(150, "Stochastic midpoint", color=color.new(guideQuiet, 24), linestyle=hline.style_dotted, display=showStoch and showGuides ? display.all : display.none)
+stoLower = hline(100 + stochOS, "Stochastic oversold", color=guideStrong, linestyle=hline.style_solid, display=showStoch and showGuides ? display.all : display.none)
+divider = hline(100, "Stochastic / RSI divider", color=#8B95A3, linestyle=hline.style_solid, linewidth=2, display=showStoch and showRSI and showGuides ? display.all : display.none)
+rsiUpper = hline(rsiOB, "RSI overbought", color=guideStrong, linestyle=hline.style_solid, display=showRSI and showGuides ? display.all : display.none)
+hline(50, "RSI midpoint", color=color.new(guideQuiet, 24), linestyle=hline.style_dotted, display=showRSI and showGuides ? display.all : display.none)
+rsiLower = hline(rsiOS, "RSI oversold", color=guideStrong, linestyle=hline.style_solid, display=showRSI and showGuides ? display.all : display.none)
+rsiBottom = hline(0, "RSI bottom", color=color.new(guideQuiet, 15), display=showRSI and showGuides ? display.all : display.none)
+fill(stoTop, stoUpper, color=showStoch and showGuides ? color.new(#E27E83, 93) : na, title="Stochastic upper band")
+fill(stoLower, divider, color=showStoch and showGuides ? color.new(#58BDAA, 93) : na, title="Stochastic lower band")
+fill(divider, rsiUpper, color=showRSI and showGuides ? color.new(#E27E83, 95) : na, title="RSI upper band")
+fill(rsiLower, rsiBottom, color=showRSI and showGuides ? color.new(#58BDAA, 95) : na, title="RSI lower band")
+plot(showStoch ? k + 100.0 : na, "Stochastic K (display +100)", color=color.white, linewidth=2, display=showStoch ? display.pane : display.none)
+plot(showStoch ? d + 100.0 : na, "Stochastic D (display +100)", color=#F07178, linewidth=1, display=showStoch ? display.pane : display.none)
+plot(showRSI ? rsi : na, "RSI", color=#EEF2F8, linewidth=2, display=showRSI ? display.pane : display.none)

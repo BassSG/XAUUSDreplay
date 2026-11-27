@@ -1,4 +1,4 @@
-import {focusIds,focusedChartBars,installFocusedIndicators} from '../src/lib/focused-indicators.ts';
+import {focusIds,focusedChartBars,focusHistoryBars,focusHistoryInput,focusHistoryTarget,installFocusedIndicators} from '../src/lib/focused-indicators.ts';
 import fs from 'node:fs';import {gunzipSync} from 'node:zlib';import assert from 'node:assert/strict';import test from 'node:test';import {builtinIndicators,sourceHash,upgradeBundledIndicators} from '../src/lib/builtin-indicators.ts';
 const legacy=id=>gunzipSync(fs.readFileSync(new URL('./fixtures/'+id+'-legacy.pine.gz',import.meta.url))).toString();const full=item=>fs.readFileSync(new URL('../public/'+item.file,import.meta.url),'utf8');const spec=(source,id='study')=>({id,name:'My indicator',source,enabled:false,inputs:{test:1}});
 test('recognized shipped truncations upgrade to exact full source while keeping IDs and settings',async()=>{
@@ -33,4 +33,16 @@ test('Focus retains the warmup origin across updates and bounds cold calculation
  const next=bars.concat(bars.slice(0,250).map(bar=>({...bar,time:bar.time+3300})));
  assert.equal(focusedChartBars(next,first).length,3000);
  assert.equal(focusedChartBars(next,first)[0].time,550);
+});
+
+test('Focus presets let each study choose a bounded chart history without reducing the default price history',()=>{
+ const short={[focusHistoryInput.id]:750};
+ const long={[focusHistoryInput.id]:5400};
+ assert.equal(focusHistoryBars(),3000);
+ assert.equal(focusHistoryBars({[focusHistoryInput.id]:''}),3000);
+ assert.equal(focusHistoryBars({[focusHistoryInput.id]:10000}),6000);
+ assert.equal(focusHistoryTarget([{builtinId:focusIds[0],inputs:short}]),3000);
+ assert.equal(focusHistoryTarget([{builtinId:focusIds[0],inputs:short},{builtinId:focusIds[1],inputs:long}]),5400);
+ const bars=Array.from({length:5500},(_,time)=>({time,open:1,high:1,low:1,close:1,volume:1}));
+ assert.equal(focusedChartBars(bars,undefined,focusHistoryBars(long))[0].time,100);
 });

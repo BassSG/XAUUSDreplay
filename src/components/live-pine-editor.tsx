@@ -46,12 +46,12 @@ export default function LivePineEditor({scripts, studies, draft, setDraft, pendi
               onChange={() => onChange(scripts.map(row => row.id === s.id ? {...row, enabled: !row.enabled} : row))}/>{s.name}</label>
             {!isFocusedIndicator(s.builtinId)&&<button className="live-icon" disabled={pending} aria-label={'แก้ไข ' + s.name} title="แก้ไขซอร์ส"
               onClick={() => edit({id: s.id, name: s.name, source: s.source})}><Pencil size={15}/></button>}
-            <button className="live-icon" disabled={!s.enabled || !study?.inputs.length || pending} aria-label={'ตั้งค่า ' + s.name} title="ตั้งค่าพารามิเตอร์"
+            <button className="live-icon" disabled={(!s.enabled && !study?.inputs.length) || pending} aria-label={'ตั้งค่า ' + s.name} title="ตั้งค่าพารามิเตอร์"
               aria-expanded={inputsFor === s.id} onClick={() => setInputsFor(inputsFor === s.id ? '' : s.id)}><SlidersHorizontal size={15}/></button>
             {!isFocusedIndicator(s.builtinId)&&<button className="live-icon" disabled={pending} aria-label={'ถอด ' + s.name} title="ถอดจากกราฟ"
               onClick={() => { onChange(scripts.filter(row => row.id !== s.id)); if (draft.id === s.id) edit({...newScriptDraft, source: s.source, name: s.name}); }}><Trash2 size={15}/></button>}
           </div>
-          {inputsFor === s.id && s.enabled && <PineInputs study={study} values={s.inputs ?? {}}
+          {inputsFor === s.id && <PineInputs study={study} values={s.inputs} managed={isFocusedIndicator(s.builtinId)}
             onChange={inputs => onChange(scripts.map(row => row.id === s.id ? {...row, inputs} : row))}/>}
         </div>;
       })}

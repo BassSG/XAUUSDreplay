@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {gunzipSync} from 'node:zlib';
 import test from 'node:test';
 import {createHash} from 'node:crypto';
 import {aggregate} from '../src/lib/engine.ts';
-import {replayProvider} from '../src/lib/pine-data.ts';
+import {periodEnd,replayProvider} from '../src/lib/pine-data.ts';
+import {periods} from '../src/lib/live-market.ts';
 import {adaptPineSource,optimizePrepared} from '../src/lib/pine-compat.ts';
-let callback,progressCallback,partialCallback,sequence=0;
+let callback,progressCallback,partialCallback,historyCallback,sequence=0;
 globalThis.self={postMessage:value=>{
- if(value.progress)progressCallback?.(value);
+ if(value.historyRequest)historyCallback?.(value.historyRequest);
+ else if(value.progress)progressCallback?.(value);
  else if(value.partial)partialCallback?.(structuredClone(value));
  else callback(value);
 }};
@@ -283,10 +286,50 @@ test('the shipped Focus pair calculates 3,000 Replay bars with bounded drawing o
  const result=await run('',{scripts,bars,seconds:300,baseSeconds:300,plotLimit:2000});
  assertGood(result);
  assert.deepEqual(result.studies.map(study=>study.id),['focus-all','focus-fibo']);
+ assert.ok(result.studies[0].inputs.some(input=>input.varId==='sdBoxLimit'&&input.defval===4&&input.maxval===8));
+ assert.ok(result.studies[0].inputs.some(input=>input.varId==='structBoxLimit'&&input.defval===4&&input.maxval===4));
+ assert.ok(result.studies[1].inputs.some(input=>input.varId==='frameLimit'&&input.defval===3));
+ assert.ok(result.studies[1].inputs.some(input=>input.varId==='showVacuum'&&input.defval===true));
  const osc=result.plots.filter(p=>p.indicatorId==='focus-all'&&p.style!=='hline');
  assert.equal(osc.length,3);
  assert.ok(osc.every(p=>!p.overlay&&p.data.some(point=>point.value!==null)));
  assert.ok(osc.every(p=>p.data.length===3000&&p.data[0].time===bars[50].time));
  assert.ok(result.drawings.filter(d=>d.kind==='box'&&d.indicatorId==='focus-all').length<=8);
  assert.equal(result.tables.length,0);
+});
+
+test('Focus overrides change the chart window and draw the selected zone and Fibo layers',async()=>{
+ const calendar='eightcap', seconds=14400;
+ const root=new URL('../public/',import.meta.url);
+ const {datasets}=JSON.parse(fs.readFileSync(new URL('data/catalog-v2.json',root),'utf8'));
+ const sources=new Map(datasets.map(dataset=>{
+   const chunk=dataset.chunks.at(-1);
+   const data=JSON.parse(gunzipSync(fs.readFileSync(new URL(chunk.file,root))));
+   return [dataset.timeframe,data.bars??data];
+ }));
+ const bars=sources.get(seconds).slice(-1400);
+ const asOf=periodEnd(bars.at(-1).time,'240',calendar);
+ const scripts=[
+   {id:'zones-options',builtinId:'ebw-focus-all-indy',name:'Zones',file:'all-indy-ebw-focus.pine',
+     inputs:{sdBoxLimit:1,structBoxLimit:0,'ebw-history-bars':850}},
+   {id:'fibo-options',builtinId:'ebw-focus-fibo',name:'Fibo',file:'ebw-fibo-focus.pine',
+     inputs:{frameLimit:0,levelsLimit:1,showVacuum:false,showSwingLink:false,show1618:false,showTFPanel:true,'ebw-history-bars':1300}},
+ ].map(({file,...job})=>({...job,source:fs.readFileSync(new URL('../src/indicators/'+file,import.meta.url),'utf8')}));
+ const result=await new Promise(resolve=>{
+   callback=resolve;
+   historyCallback=({number,query})=>{
+     const rows=sources.get(periods[query.period]).filter(bar=>bar.time<query.before).slice(-query.limit);
+     queueMicrotask(()=>self.onmessage({data:{historyResponse:{number,bars:rows}}}));
+   };
+   self.onmessage({data:{id:++sequence,scripts,bars,seconds,calendar,live:{asOf,minutes:[],nativeHistory:true}}});
+ }).finally(()=>{historyCallback=undefined;});
+ assertGood(result);
+ assert.equal(result.plots.find(plot=>plot.name==='RSI').data.length,850);
+ const boxes=result.drawings.filter(drawing=>drawing.kind==='box');
+ assert.deepEqual(boxes.map(box=>box.indicatorId),['zones-options']);
+ assert.match(boxes[0].text,/ · [DS]$/);
+ const targets=result.drawings.filter(drawing=>drawing.kind==='label'&&drawing.indicatorId==='fibo-options'&&/[↑↓].+%/.test(drawing.text));
+ assert.ok(targets.length>0);
+ assert.ok(targets.every(target=>!target.text.includes('161.8%')));
+ assert.equal(result.tables.filter(table=>table.indicatorId==='fibo-options').length,1);
 });

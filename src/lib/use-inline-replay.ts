@@ -17,7 +17,7 @@ function restore():Resume|null {
   return null;
 }
 
-export function useInlineReplay(activePeriod: Period, now:()=>number, grid:boolean) {
+export function useInlineReplay(activePeriod: Period, now:()=>number, grid:boolean,historyTarget:number) {
   const [session,setSession]=useState<Session|null>(null);
   const [picking,setPicking]=useState(false);
   const [candidate,setCandidate]=useState<number|null>(null);
@@ -27,7 +27,7 @@ export function useInlineReplay(activePeriod: Period, now:()=>number, grid:boole
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState('');
   const [resume,setResume]=useState(restore);
-  const [prefixes,setPrefixes]=useState<Partial<Record<Period,Bar[]>>>({});
+  const [prefixes,setPrefixes]=useState<Partial<Record<Period,{bars:Bar[];limit:number}>>>({});
   const operation=useRef<AbortController|null>(null);
   const generation=useRef(0);
   const tape=session?.tape;
@@ -38,7 +38,7 @@ export function useInlineReplay(activePeriod: Period, now:()=>number, grid:boole
     if(!tape)return {};
     const wanted=Object.keys(periods) as Period[];
     return Object.fromEntries((grid?wanted:[activePeriodForTape]).map(tf=>
-      [tf,replayFrame(tape,cursor,tf,prefixes[tf]??empty)]));
+      [tf,replayFrame(tape,cursor,tf,prefixes[tf]?.bars??empty)]));
   },[grid,tape,cursor,prefixes,activePeriodForTape]) as Partial<Record<Period,ReturnType<typeof replayFrame>>>;
 
   useEffect(()=>()=>operation.current?.abort(),[]);
@@ -50,15 +50,17 @@ export function useInlineReplay(activePeriod: Period, now:()=>number, grid:boole
     async function prepareHistory(){
       for(const tf of ordered){
         if(!tape||controller.signal.aborted)return;
-        if(periods[tf]<=periods[tape.period]||prefixes[tf])continue;
-        const rows=await replayPrefix(tape,tf,now(),controller.signal).catch(()=>[]);
+        if(periods[tf]<periods[tape.period])continue;
+        const limit=tf===tape.period?historyTarget-cursor-1:historyTarget;
+        if(limit<1||(prefixes[tf]?.limit??0)>=limit)continue;
+        const rows=await replayPrefix(tape,tf,now(),controller.signal,limit).catch(()=>[]);
         if(controller.signal.aborted)return;
-        setPrefixes(previous=>({...previous,[tf]:rows}));
+        setPrefixes(previous=>({...previous,[tf]:{bars:rows,limit}}));
       }
     }
     void prepareHistory();
     return ()=>controller.abort();
-  },[session?.id,period,grid,now]);
+  },[session?.id,period,grid,now,historyTarget]);
 
   const resumeTime=tape?.bars[cursor]?.time;
   useEffect(()=>{
@@ -73,7 +75,7 @@ export function useInlineReplay(activePeriod: Period, now:()=>number, grid:boole
     const request=new AbortController();operation.current=request;
     setPlaying(false);setLoading(true);setError('');
     try {
-      const {tape,cursor}=await openReplayTape(time,display,now(),request.signal,base);
+      const {tape,cursor}=await openReplayTape(time,display,now(),request.signal,base,historyTarget);
       if (request.signal.aborted) return;
       setPrefixes({});setPeriod(display);setSession({id:++generation.current,tape,cursor});
       setPicking(false);

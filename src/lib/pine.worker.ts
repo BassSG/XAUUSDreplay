@@ -5,7 +5,7 @@ import {periodEnd,replayProvider} from './pine-data.ts';
 import {installReplaySnapshots} from './pine-stream.ts';
 import {checkPineIndicator,type LivePineFrame,type PineHistoryLoader} from './live-pine.ts';
 import {sameMarketBar} from './live-market.ts';
-import {focusBarCount,focusedChartBars,isFocusedIndicator} from './focused-indicators.ts';
+import {focusedChartBars,focusHistoryBars,focusHistoryInput,isFocusedIndicator} from './focused-indicators.ts';
 import {readPineBand,type PineBand} from './pine-bands.ts';
 installReplaySnapshots();
 const secondaryRun=PineTS.prototype.runPretranspiled;
@@ -98,15 +98,18 @@ context.onmessage=async(event:MessageEvent)=>{
     },indicator);
     compiled.set(job.id,item);
    }
-   item.indicator.inputs={...job.inputs};item.bridge=bridge;study.inputs=item.meta;
+   const focused=isFocusedIndicator(job.builtinId);
+   const lookback=focused?focusHistoryBars(job.inputs):undefined;
+   item.indicator.inputs={...job.inputs};
+   if(focused)delete item.indicator.inputs[focusHistoryInput.id];
+   item.bridge=bridge;study.inputs=focused?[focusHistoryInput,...item.meta]:item.meta;
    study.bridge=src.includes('indicator("EBW-Fibo 1.9')&&bridge.size===17;
    context.postMessage({id,progress:job.name,metadata:study});
    const prior=item.runtime;
-   const focused=isFocusedIndicator(job.builtinId);
    // Retain runtime history while sending only the drawable window.
-   const outputLimit=focused?focusBarCount:plotLimit;
+   const outputLimit=lookback??plotLimit;
    const outputFrom=outputLimit&&outputLimit>0?(bars[Math.max(0,bars.length-Math.floor(outputLimit))]?.time??0):0;
-   const chartBars=focused?focusedChartBars(bars,prior?.bars):bars;
+   const chartBars=focused?focusedChartBars(bars,prior?.bars,lookback):bars;
    const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars:chartBars},live?.minutes,liveHistory,live?.replay);
    const settings=JSON.stringify([seconds,baseSeconds,calendar,bundled,job.inputs,focused]);
    const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>sameMarketBar(b,next[i]));

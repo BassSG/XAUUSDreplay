@@ -11,7 +11,7 @@ import {focusBarCount} from './focused-indicators';
 const emptyBars: Bar[] = [];
 type Market = ReturnType<typeof useLiveMarket>;
 
-export function useLiveBars(period: Period, market: Market, retry: number, anchored = false, enabled = true) {
+export function useLiveBars(period: Period, market: Market, retry: number, anchored = false, enabled = true, historyTarget = focusBarCount) {
   const [backup, setBackup] = useState<{period: Period; bars: Bar[]; failed?: boolean}>();
   const needsBackup = !anchored && market.barError && market.bars.length === 0;
 
@@ -23,7 +23,7 @@ export function useLiveBars(period: Period, market: Market, retry: number, ancho
         const datasets = await historyCatalog();
         const dataset = datasets.filter(d => d.timeframe === periods[period] && d.id.startsWith('eightcap-'))
           .sort((a, b) => b.end - a.end)[0];
-        const bars = dataset ? await loadBefore(dataset.id, dataset.end + 1, focusBarCount) : [];
+        const bars = dataset ? await loadBefore(dataset.id, dataset.end + 1, historyTarget) : [];
         if (active) setBackup({period, bars, failed: !bars.length});
       } catch {
         if (active) setBackup({period, bars: [], failed: true});
@@ -31,7 +31,7 @@ export function useLiveBars(period: Period, market: Market, retry: number, ancho
     }
     void loadBackup();
     return () => { active = false; };
-  }, [period, needsBackup, retry, enabled]);
+  }, [period, needsBackup, retry, enabled, historyTarget]);
 
   const historical = needsBackup && backup?.period === period ? backup.bars : emptyBars;
   const bars = market.bars.length ? market.bars : historical;
