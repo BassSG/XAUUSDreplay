@@ -8,7 +8,7 @@ import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type Re
 import {
   ArrowLeft, Bell, BookOpen, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
   Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, SkipBack, SkipForward, Trash2, X,
-  CalendarDays, Code2, Copy, PanelsTopLeft, Settings2, Target,
+  CalendarDays, Code2, Copy, PanelsTopLeft, Redo2, Settings2, Target, Undo2,
 } from 'lucide-react';
 import ChartBoundary from './chart-boundary';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
@@ -405,6 +405,14 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     destination.push(drawings);
     storeDrawings(next);
   }
+  function undoDrawing() {
+    cancelDrawing();
+    restoreDrawing(undo.current, redo.current);
+  }
+  function redoDrawing() {
+    cancelDrawing();
+    restoreDrawing(redo.current, undo.current);
+  }
   function selectPeriod(value: Period) {
     if (value === period) return;
     if (replay.active) {
@@ -605,6 +613,12 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           <i aria-hidden="true"/><span role="status" aria-label={replaying?'Replay':status}>{replaying?'Replay':shortStatus}</span>
         </span>
       </div>
+      <div className="live-history-actions" role="group" aria-label="ย้อนและทำซ้ำการวาด">
+        <button type="button" aria-label="ย้อนการวาด" title="ย้อนการวาด · Ctrl+Z"
+          disabled={!undo.current.length} onClick={undoDrawing}><Undo2 size={17}/></button>
+        <button type="button" aria-label="ทำการวาดซ้ำ" title="ทำการวาดซ้ำ · Ctrl+Y"
+          disabled={!redo.current.length} onClick={redoDrawing}><Redo2 size={17}/></button>
+      </div>
       <div className="live-chart-settings">
         <button className="header-save" type="button" aria-label="บันทึกกราฟตอนนี้" title={saveError || (saveState === 'error' ? 'บันทึกไม่สำเร็จ' : saveState === 'saved' && savedAt ? 'บันทึกล่าสุด ' + new Date(savedAt).toLocaleTimeString('th-TH', {hour: '2-digit', minute: '2-digit'}) + ' · เก็บในเครื่องนี้' : 'บันทึกกราฟตอนนี้ · เก็บในเครื่องนี้')} disabled={saveState === 'saving'} onClick={() => void saveWorkingCopy.current()}>
           <Save size={17}/><span>บันทึก</span>
@@ -663,6 +677,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     <section className="live-chart-layout" aria-label="กราฟ XAUUSD">
       <LiveDrawingToolbar mode={mode} enabled={!replay.picking&&!hiddenDrawings && bars.length > 0 && drawings.length < 500}
         favorites={workspace.favoriteTools} favoritePosition={workspace.favoritePosition}
+        favoriteCollapsed={workspace.favoriteCollapsed}
+        onToggleFavorites={() => setWorkspace(value => ({...value, favoriteCollapsed: !value.favoriteCollapsed}))}
         onFavorite={kind => setWorkspace(value => ({...value, favoriteTools: value.favoriteTools.includes(kind)
           ? value.favoriteTools.filter(tool => tool !== kind) : [...value.favoriteTools, kind]}))}
         onMoveFavorites={position => setWorkspace(value => ({...value, favoritePosition: position}))}
@@ -676,8 +692,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           cancelDrawing();
           setWorkspace(value => ({...value, hiddenDrawings: !value.hiddenDrawings}));
         }}
-        onUndo={() => { cancelDrawing(); restoreDrawing(undo.current, redo.current); }}
-        onRedo={() => { cancelDrawing(); restoreDrawing(redo.current, undo.current); }} onDelete={deleteDrawing}
+        onUndo={undoDrawing} onRedo={redoDrawing} onDelete={deleteDrawing}
         desktopAction={<button className="live-desktop-tool live-forward-shortcut" disabled={replaying} type="button"
           aria-label="Forward Test" title="Forward Test · Long / Short" aria-haspopup="dialog"
           onClick={() => setPanel('forward')}><Target size={19}/></button>}

@@ -229,7 +229,7 @@
 .live-workspace[data-focus=true] .live-chart-layout { grid-template: "plot" minmax(0, 1fr) / minmax(0, 1fr); }
 
 .live-workspace .user-drawing-overlay { touch-action: none; }
-.live-placement-slot { position: absolute; inset-inline: 8px; bottom: 34px; z-index: 10; pointer-events: none; }
+.live-placement-slot { position: absolute; inset-inline: 8px; bottom: 34px; z-index: 14; pointer-events: none; }
 .live-placement { max-width: min(440px, 100%); margin-inline: auto; padding: 6px 8px; border: 1px solid var(--live-border);
   border-radius: 10px; background: var(--live-rail); display: grid; gap: 4px; pointer-events: auto; box-shadow: 0 4px 16px #0005; }
 .live-placement-info, .live-placement-actions, .live-placement-price, .live-placement-coordinate { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
@@ -243,9 +243,7 @@
 .live-placement-actions .live-place-confirm:hover:not(:disabled) { background: #4b3821; }
 .live-placement-price { gap: 5px; font-size: 12px; color: var(--live-muted); }
 .live-placement-price input { width: 90px; min-height: 36px; padding: 5px 6px; border: 1px solid var(--live-border); border-radius: 6px; background: var(--live-rail); color: var(--live-text); font-variant-numeric: tabular-nums; }
-.live-aim-target, .live-stroke-target { position: absolute; z-index: 7; touch-action: none; user-select: none; }
-.live-aim-target { width: 52px; height: 52px; transform: translate(-50%, -50%); cursor: grab; }
-.live-aim-target:active { cursor: grabbing; }
+.live-stroke-target { position: absolute; z-index: 7; touch-action: none; user-select: none; }
 .live-stroke-target { inset: 0 auto auto 0; cursor: crosshair; }
 
 .live-object-tools, .live-object-actions { display: flex; align-items: center; gap: 3px; min-width: 0; }
@@ -601,10 +599,8 @@
 .object-manager-actions button, .object-manager-row button { min-height:38px; }
 .object-manager-row button { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; text-align:start; }
 .object-manager-row input { flex:none; width:20px; height:20px; }
-.live-aim-target { touch-action:none; }
 @media (pointer:coarse) {
   .object-manager-actions button, .object-manager-row button { min-height:44px; }
-  .live-aim-target { width:50px; height:50px; }
 }
 
 .drawing-image-preview { display:block; max-width:100%; max-height:150px; object-fit:contain; }
@@ -760,4 +756,23 @@
 
 @media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
   .inline-replay-clock { flex-basis: auto; }
+}
+
+.live-history-actions { display: flex; align-items: center; gap: 1px; flex: none; }
+.live-history-actions button {
+  min-width: 34px; min-height: 36px; padding: 0; justify-content: center;
+  color: var(--live-muted); border-color: transparent; background: transparent;
+}
+.live-history-actions button:disabled { opacity: .35; }
+.live-favorite-bar .live-favorite-toggle { color: var(--live-gold); }
+.live-favorite-bar[data-collapsed=true] { padding: 1px; }
+.live-favorite-bar[data-collapsed=true] button { border-color: transparent; background: transparent; }
+@media (max-width: 720px), (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .live-market-readout { margin-inline-start: auto; }
+  .live-history-actions button { min-width: 40px; min-height: 44px; }
+}
+@media (max-width: 355px) {
+  .live-header { gap: 4px; padding-inline: 6px; }
+  .live-header .live-symbol { gap: 4px; }
+  .live-header .live-symbol img { width: 29px; }
 }

@@ -107,7 +107,6 @@ export default function ChartDrawings(props: Props) {
   const active = useRef<DrawingDrag | null>(null);
   const press = useRef<DrawingPress | null>(null);
   const lastTap = useRef<{id: string; x: number; y: number; at: number} | null>(null);
-  const candidateDrag = useRef<{id:number; dx:number; dy:number} | null>(null);
   const stroke = useRef<Stroke | null>(null);
   const ctrlMagnet = useRef(false);
   const hoverLocation = useRef<XY | null>(null);
@@ -132,7 +131,6 @@ export default function ChartDrawings(props: Props) {
   }
 
   function resetDraft() {
-    candidateDrag.current = null;
     stroke.current = null;
     aimLocation.current = null;
     updateDraft(emptyDraft);
@@ -177,6 +175,18 @@ export default function ChartDrawings(props: Props) {
     }
     const time = timeAtLogical(logical + offset, timeline, seconds);
     return time > 0 ? {time, price: roundPrice(price)} : null;
+  }
+
+  function pointCoordinates(point: DrawingPoint): XY | null {
+    const {api, pane, offset} = state.current;
+    if (!api) return null;
+    const chartPane = api.chart.panes()[pane?.index ?? 0];
+    const series = pane ? chartPane?.getSeries()[0] : api.series;
+    if (!series || !chartPane) return null;
+    const scale = api.chart.timeScale();
+    if (point.screen) return {x: point.screen.x * scale.width(), y: point.screen.y * chartPane.getHeight()};
+    const logical = (indexAt(point.time) - offset) as Parameters<typeof scale.logicalToCoordinate>[0];
+    return {x: scale.logicalToCoordinate(logical) ?? NaN, y: series.priceToCoordinate(point.price) ?? NaN};
   }
 
   function coordinates(event: Pick<PointerEvent, 'clientX' | 'clientY'>) {
@@ -313,39 +323,58 @@ export default function ChartDrawings(props: Props) {
   useEffect(() => {
     const host = props.host;
     if (!host || !props.confirmPlacement || props.readOnly) return;
-    let start: {id: number; x: number; y: number} | null = null;
-    const startTap = (event: PointerEvent) => {
+    let press: {id: number; start: XY; origin: XY; draggable: boolean; moved: boolean} | null = null;
+    const startAim = (event: PointerEvent) => {
+      press = null;
       const {mode, hidden} = state.current;
-      if (!mode || hidden || isStroke(mode) || !event.isPrimary || event.button !== 0) {
-        start = null;
-        return;
-      }
-      start = {id: event.pointerId, x: event.clientX, y: event.clientY};
+      if (!mode || hidden || isStroke(mode) || !event.isPrimary || event.button !== 0) return;
+      const start = coordinates(event);
+      if (!start || !pointAt(start.x, start.y, event.ctrlKey)) return;
+      const target = draftRef.current.candidate;
+      const projected = target ? pointCoordinates(target) : null;
+      const origin = projected && Number.isFinite(projected.x) && Number.isFinite(projected.y) ? projected : start;
+      press = {id: event.pointerId, start, origin, draggable: confirmPlacement && event.pointerType === 'touch', moved: false};
     };
-    const moveTap = (event: PointerEvent) => {
-      if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) start = null;
+    const moveAim = (event: PointerEvent) => {
+      if (!press || event.pointerId !== press.id) return;
+      const position = coordinates(event);
+      if (!position) return;
+      const dx = position.x - press.start.x, dy = position.y - press.start.y;
+      if (!press.moved && Math.hypot(dx, dy) < 6) return;
+      press.moved = true;
+      if (!press.draggable) return;
+      const {api, pane} = state.current;
+      if (!api) return;
+      const height = api.chart.panes()[pane?.index ?? 0]?.getHeight() ?? 0;
+      const x = Math.max(0, Math.min(api.chart.timeScale().width(), press.origin.x + dx));
+      const y = Math.max(0, Math.min(height, press.origin.y + dy));
+      const point = pointAt(x, y, event.ctrlKey);
+      if (point) chooseCandidate(point, {x, y});
     };
-    const endTap = (event: PointerEvent) => {
-      if (!start || start.id !== event.pointerId) return;
-      start = null;
+    const endAim = (event: PointerEvent) => {
+      if (!press || press.id !== event.pointerId) return;
+      const moved = press.moved;
+      if (moved) moveAim(event);
+      press = null;
+      if (moved) return;
       const position = coordinates(event);
       const point = position ? pointAt(position.x, position.y, event.ctrlKey) : null;
       const {mode, hidden} = state.current;
       if (!point || !mode || hidden || isStroke(mode)) return;
-      // The chart library can consume the second click of a fast pair as a double click.
+      // Handle taps here because the chart can combine fast taps as a double click.
       if (confirmPlacement) chooseCandidate(point, position);
       else accept(point);
     };
-    const cancelTap = () => { start = null; };
-    host.addEventListener('pointerdown', startTap, true);
-    host.addEventListener('pointermove', moveTap, true);
-    host.addEventListener('pointerup', endTap, true);
-    host.addEventListener('pointercancel', cancelTap, true);
+    const cancelAim = () => { press = null; };
+    host.addEventListener('pointerdown', startAim, true);
+    host.addEventListener('pointermove', moveAim, true);
+    host.addEventListener('pointerup', endAim, true);
+    host.addEventListener('pointercancel', cancelAim, true);
     return () => {
-      host.removeEventListener('pointerdown', startTap, true);
-      host.removeEventListener('pointermove', moveTap, true);
-      host.removeEventListener('pointerup', endTap, true);
-      host.removeEventListener('pointercancel', cancelTap, true);
+      host.removeEventListener('pointerdown', startAim, true);
+      host.removeEventListener('pointermove', moveAim, true);
+      host.removeEventListener('pointerup', endAim, true);
+      host.removeEventListener('pointercancel', cancelAim, true);
     };
   }, [props.host, props.confirmPlacement, confirmPlacement, props.mode, props.readOnly]);
 
@@ -353,7 +382,7 @@ export default function ChartDrawings(props: Props) {
     if (props.readOnly) return;
     const pan = !props.mode || (confirmPlacement && !isStroke(props.mode));
     props.api?.chart.applyOptions({handleScroll: {
-      pressedMouseMove: pan, horzTouchDrag: pan, vertTouchDrag: !confirmPlacement && !props.mode, mouseWheel: true,
+      pressedMouseMove: pan, horzTouchDrag: !props.mode, vertTouchDrag: !confirmPlacement && !props.mode, mouseWheel: true,
     }});
   }, [props.api, props.mode, confirmPlacement, props.readOnly]);
 
@@ -397,11 +426,12 @@ export default function ChartDrawings(props: Props) {
       } else if ((event.key === 'Delete' || event.key === 'Backspace') && p.selected) {
         event.preventDefault();
         p.onDelete();
-      } else if ((event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) {
+      } else if ((event.ctrlKey || event.metaKey) && (['z', 'y'].includes(event.key.toLowerCase()) ||
+        event.ctrlKey && event.key.toLowerCase() === 'u' && target && p.host?.contains(target))) {
         event.preventDefault();
         resetDraft();
         p.onCancel();
-        if (event.shiftKey || event.key.toLowerCase() === 'y') p.onRedo();
+        if (event.shiftKey || event.key.toLowerCase() !== 'z') p.onRedo();
         else p.onUndo();
       }
     };
@@ -480,17 +510,6 @@ export default function ChartDrawings(props: Props) {
     cancelDrag();
   }
 
-  function moveCandidate(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = candidateDrag.current;
-    const position = coordinates(event);
-    const chart = state.current.api?.chart;
-    if (drag?.id !== event.pointerId || !position || !chart) return;
-    const x = Math.max(0, Math.min(chart.timeScale().width(), position.x + drag.dx));
-    const y = Math.max(0, Math.min((chart.panes()[state.current.pane?.index??0]?.getHeight()??0), position.y + drag.dy));
-    const point = pointAt(x, y, event.ctrlKey);
-    if (point) chooseCandidate(point, {x,y});
-  }
-
   function startStroke(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || stroke.current) return;
     const position = coordinates(event);
@@ -563,10 +582,10 @@ export default function ChartDrawings(props: Props) {
   const controls = mode && tool && confirmPlacement && <section className="live-placement" aria-label="วางจุดบนกราฟ">
     <div className="live-placement-info">
       <strong>{tool.name}</strong>
-      <span role="status">{(aimOnAnchor ? 'ลากเป้าไปจุดถัดไป' : candidateError) ?? (freehand
+      <span role="status">{(aimOnAnchor ? 'ลากที่กราฟเพื่อเล็งจุดถัดไป' : candidateError) ?? (freehand
         ? ready ? 'พร้อมวางเส้น' : 'ลากนิ้วเพื่อวาดเส้น'
         : (tool.variable ? 'จุดที่ ' + (draft.anchors.length + 1) : tool.points[draft.anchors.length] ?? tool.points[0])
-          + (draft.candidate ? ' · ลากเป้าหรือแตะกราฟ' : ' · แตะกราฟเพื่อเล็ง'))}</span>
+          + ' · ลากหรือแตะกราฟเพื่อเล็ง')}</span>
     </div>
     <div className="live-placement-actions">
       {!freehand && <label className="live-placement-price">
@@ -685,17 +704,6 @@ export default function ChartDrawings(props: Props) {
         </g>}
       </g>
     </svg>
-    {mode && canDragAim && aim && aim.x >= 0 && aim.x <= width && aim.y >= 0 && aim.y <= height
-      && <div className="live-aim-target" data-drawing-interaction="aim-target" aria-hidden="true" style={{left: aim.x, top: top+aim.y}}
-        onPointerDown={event => {
-          if (event.button !== 0 || !event.isPrimary || candidateDrag.current !== null) return;
-          const position = coordinates(event);
-          if (!position) return;
-          event.preventDefault();
-          candidateDrag.current = {id:event.pointerId, dx:aim.x-position.x, dy:aim.y-position.y};
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }} onPointerMove={moveCandidate} onPointerUp={() => { candidateDrag.current = null; }}
-        onPointerCancel={() => { candidateDrag.current = null; }} onLostPointerCapture={() => { candidateDrag.current = null; }}/>}
     {freehand && <div className="live-stroke-target" aria-hidden="true" style={{width, height, top}}
       onPointerDown={startStroke} onPointerMove={moveStroke} onPointerUp={stopStroke}
       onPointerCancel={stopStroke} onLostPointerCapture={stopStroke}/>}

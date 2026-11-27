@@ -1,7 +1,7 @@
 import {useRef, useState, type ReactNode} from 'react';
 import {
   ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Brush, CalendarRange, ChartCandlestick,
-  ChartColumnIncreasing, ChartLine, ChartNoAxesCombined, Circle, CornerUpRight, Crosshair,
+  ChartColumnIncreasing, ChartLine, ChartNoAxesCombined, ChevronLeft, Circle, CornerUpRight, Crosshair,
   Diamond, Ellipsis, Eye, EyeOff, Fan, Flag, GitFork, Grid2X2, Highlighter, Info,
   ListTree, Magnet, MessageSquare, Minus, MousePointer2, MoveHorizontal, MoveUpRight,
   MoveVertical, PanelsLeftBottom, PencilRuler, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
@@ -104,6 +104,7 @@ type Props = {
   canUndo: boolean; canRedo: boolean; canDelete: boolean;
   desktopAction: ReactNode; mobileStart: ReactNode; mobileEnd: ReactNode;
   favorites: DrawingKind[]; favoritePosition: {x: number; y: number};
+  favoriteCollapsed: boolean; onToggleFavorites: () => void;
   onFavorite: (kind: DrawingKind) => void; onMoveFavorites: (position: Props['favoritePosition']) => void;
   onPick: (kind: DrawingKind) => void; onSelect: () => void; onMagnet: () => void;
   onStayInDrawingMode: () => void;
@@ -118,10 +119,14 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
   const position = preview ?? props.favoritePosition;
   const clamp = (n: number) => Math.min(1, Math.max(0, n));
   return <div className="live-favorite-area" ref={bounds}>
-    <div className="live-favorite-bar" ref={bar} role="toolbar" aria-label="เครื่องมือโปรด"
+    <div className="live-favorite-bar" ref={bar} role="toolbar" aria-label="เครื่องมือโปรด" data-collapsed={props.favoriteCollapsed}
       style={{left: position.x * 100 + '%', top: position.y * 100 + '%',
         transform: `translate(${-position.x * 100}%, ${-position.y * 100}%)`}}>
-      <button type="button" className="live-favorite-grip" title="ลากเพื่อย้ายแถบเครื่องมือโปรด" aria-label="ย้ายแถบเครื่องมือโปรด"
+      <button type="button" className="live-favorite-toggle" aria-expanded={!props.favoriteCollapsed}
+        aria-label={props.favoriteCollapsed ? 'ขยายแถบเครื่องมือโปรด' : 'พับแถบเครื่องมือโปรด'}
+        title={props.favoriteCollapsed ? 'ขยายแถบเครื่องมือโปรด' : 'พับแถบเครื่องมือโปรด'}
+        onClick={props.onToggleFavorites}>{props.favoriteCollapsed ? <Star size={17}/> : <ChevronLeft size={17}/>}</button>
+      {!props.favoriteCollapsed && <><button type="button" className="live-favorite-grip" title="ลากเพื่อย้ายแถบเครื่องมือโปรด" aria-label="ย้ายแถบเครื่องมือโปรด"
         onPointerDown={e => {
           if (e.button !== 0 || drag.current) return;
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -156,7 +161,7 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
           return <button type="button" key={kind} title={tool.name + ' · ' + tool.help} aria-label={tool.name}
             aria-pressed={props.mode === kind} disabled={!props.enabled} onClick={() => pick(kind)}><Icon size={17}/></button>;
         })}
-      </div>
+      </div></>}
     </div>
   </div>;
 }

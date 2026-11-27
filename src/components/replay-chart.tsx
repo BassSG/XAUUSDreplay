@@ -498,10 +498,6 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
      {shownBar&&<div className="live-ohlc" aria-label="ราคาแท่งเทียน" data-up={shownBar.close>=shownBar.open}>
       {candleTime}{ohlcValues}
      </div>}
-     {shownBar&&<details className="live-candle-details" data-up={shownBar.close>=shownBar.open}>
-      <summary aria-label="ดูราคาเปิด สูงสุด ต่ำสุด และปิดของแท่งเทียน">{candleTime}</summary>
-      <div className="live-ohlc" aria-label="ราคาแท่งเทียน" data-up={shownBar.close>=shownBar.open}>{ohlcValues}</div>
-     </details>}
      {liveLegend}
     </div>
     {plotTop!==undefined&&livePanes&&paneStudies.map(([id,plot],index)=>{

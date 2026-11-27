@@ -47,7 +47,7 @@ const workspaceSchema = z.object({
   removedGlobal: z.array(z.string().max(128)).max(2000).default([]),
   scripts: z.array(indicatorSchema).refine(rows => new Set(rows.map(row => row.id)).size === rows.length),
   magnet: z.boolean(), strongMagnet:z.boolean().default(false), hiddenDrawings: z.boolean(), stayInDrawingMode: z.boolean().default(false), appearance: appearanceSchema,
-  favoriteTools, favoritePosition,
+  favoriteTools, favoritePosition, favoriteCollapsed: z.boolean().default(false),
 });
 export type LiveWorkspaceState = z.infer<typeof workspaceSchema>;
 
@@ -70,6 +70,7 @@ export function loadLiveWorkspace(value: unknown): LiveWorkspaceState {
     stayInDrawingMode: fields.stayInDrawingMode.parse(row.stayInDrawingMode),
     favoriteTools: [...new Set(items(row.favoriteTools, z.enum(drawingKinds)))],
     favoritePosition: favoritePosition.catch({x: .5, y: .82}).parse(row.favoritePosition),
+    favoriteCollapsed: row.favoriteCollapsed === true,
     appearance: appearanceSchema.catch(defaultAppearance).parse(row.appearance),
   };
 }
