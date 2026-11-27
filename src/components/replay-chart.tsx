@@ -4,6 +4,7 @@ import {createChart,CrosshairMode,CandlestickSeries,LineSeries,HistogramSeries,A
 import ChartDrawings from './chart-drawings';
 import {PineBandLayer} from './pine-band-layer';
 import {PineBox,PineLabel,pineDash,pineStroke} from './pine-annotations';
+import './mobile-chart.css';
 import type {PineBand} from '../lib/pine-bands';
 import {LivePriceCountdown,LivePriceMarker} from './live-price-marker';
 import {captureLiveViewport,coordinateAtLogical,logicalAtTime,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
@@ -25,6 +26,7 @@ const dateFmt=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-di
 const tickTime=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false});
 const tickDate=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short'});
 const ohlcNumber=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const compactChartMedia='(max-width: 720px), (orientation: landscape) and (max-height: 500px) and (pointer: coarse)';
 const prices=[['open','O','เปิด'],['high','H','สูงสุด'],['low','L','ต่ำสุด'],['close','C','ปิด']] as const;
 function latestLiveRange(count:number,width:number){
  // Reserve useful space for projected Pine zones while keeping the latest
@@ -256,6 +258,8 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   if(!r||!host.current||!pineDrawings.length)return null;
   const scale=(r.chart as IChartApi).timeScale();
   const w=scale.width(),h=host.current.clientHeight;
+  const narrow = live && window.matchMedia(compactChartMedia).matches;
+  const paneHeight = r.chart.panes()[0].getHeight();
   const barX = (slot: number) => scale.logicalToCoordinate(slot as Logical);
   function pineX(value:unknown,xloc:unknown): number|null {
    if(value==null)return null;
@@ -269,7 +273,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
    if (exact !== null) return exact;
    return coordinateAtLogical(logicalAtTime(time,timeline,seconds)-barIndexOffset,barX);
   }
-  const items:any[]=[];
+  const items:ReactNode[]=[];
   for(const d of [...pineDrawings.filter(d=>d.kind==='linefill'),...pineDrawings.filter(d=>d.kind!=='linefill')]){if(d.overlay===false)continue;
    if(d.kind==='linefill'&&d.line1&&d.line2&&!d.line1._deleted&&!d.line2._deleted){const points=[d.line1,d.line2].map(line=>{let ax=pineX(line.x1,line.xloc),bx=pineX(line.x2,line.xloc),ay=r.series.priceToCoordinate(Number(line.y1)),by=r.series.priceToCoordinate(Number(line.y2));if(ax===null||bx===null||ay===null||by===null)return null;const slope=(by-ay)/(bx-ax||1);if(['l','b','left','both'].includes(String(line.extend))){ay+=slope*(0-ax);ax=0;}if(['r','b','right','both'].includes(String(line.extend))){by+=slope*(w-bx);bx=w;}return [[ax,ay],[bx,by]];});if(points.every(Boolean)){const [a,b]=points as number[][][];items.push(<polygon key={'p-f-'+d.indicatorId+'-'+d.id} points={[...a,...b.slice().reverse()].map(p=>p.join(',')).join(' ')} fill={cssColor(d.color)}/>);}}
 
@@ -278,14 +282,15 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
     const left=pineX(d.left,d.xloc),right=pineX(d.right,d.xloc);
     if(left===null||right===null||!Number.isFinite(d.top)||!Number.isFinite(d.bottom))continue;
     const top=r.series.priceToCoordinate(d.top),bottom=r.series.priceToCoordinate(d.bottom);
-    if(top!==null&&bottom!==null)items.push(<PineBox key={'p-b-'+d.indicatorId+'-'+d.id} d={d} left={left} right={right} top={top} bottom={bottom} paneWidth={w} showText={showPineText}/>);
+    if(top!==null&&bottom!==null)items.push(<PineBox key={'p-b-'+d.indicatorId+'-'+d.id} d={d} left={left} right={right} top={top} bottom={bottom} paneWidth={w} showText={showPineText} compact={narrow}/>);
    }
    if(d.kind==='label'&&showPineText&&Number.isFinite(d.y)){
     const x=pineX(d.x,d.xloc),y=r.series.priceToCoordinate(d.y);
-    if(x!==null&&y!==null)items.push(<PineLabel key={'p-t-'+d.indicatorId+'-'+d.id} d={d} x={x} y={y}/>);
+    if(x!==null&&y!==null)items.push(<PineLabel key={'p-t-'+d.indicatorId+'-'+d.id} d={d} x={x} y={y}
+     bounds={narrow ? {width:w,height:paneHeight} : undefined}/>);
    }
   }
-  return <svg className="drawing-overlay" width={w} height={h}><defs><clipPath id={pricePaneClip}><rect width={w} height={r.chart.panes()[0].getHeight()}/></clipPath></defs><g clipPath={'url(#'+pricePaneClip+')'}>{items}</g></svg>})();
+  return <svg className="drawing-overlay" width={w} height={h}><defs><clipPath id={pricePaneClip}><rect width={w} height={paneHeight}/></clipPath></defs><g clipPath={'url(#'+pricePaneClip+')'}>{items}</g></svg>})();
  const priceAt=(clientY:number)=>{const r=ref.current;if(!r||!host.current)return null;const y=clientY-host.current.getBoundingClientRect().top;if(y<0||y>r.chart.panes()[0].getHeight())return null;const value=r.series.coordinateToPrice(y);return value===null?null:Math.round(value*100)/100;};
  const groups=[...new Set(levels.map(l=>l.tradeId||l.orderId||'draft'))];const handles=levels.filter(l=>(l.tradeId||l.orderId||'draft')===(groups.includes(focus)?focus:'draft')).map(l=>{const r=ref.current;if(!r)return null;const price=preview?.id===l.id?preview.price:l.price;const y=r.series.priceToCoordinate(price);if(y===null||y<0||y>r.chart.panes()[0].getHeight())return null;return <button key={l.id} className={'chart-price-handle '+l.kind+(l.pending?' pending-level':'')} style={{top:y-17,borderColor:l.color,color:l.color}} aria-label={l.label+' '+price.toFixed(2)+(l.editable?' ลากเพื่อปรับราคา':'')} disabled={!l.editable} onPointerDown={e=>{e.preventDefault();e.stopPropagation();levelRef.current.onDragStart?.();e.currentTarget.setPointerCapture(e.pointerId);if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};activeDrag.current={level:l,price:l.price};setPreview({id:l.id,price:l.price});}} onPointerMove={e=>{if(!activeDrag.current||activeDrag.current.level.id!==l.id)return;const value=priceAt(e.clientY);if(value===null)return;activeDrag.current.price=value;setPreview({id:l.id,price:value});if(l.draft)levelRef.current.onLevelPreview?.(l,value);}} onPointerUp={e=>{if(!activeDrag.current)return;const drag=activeDrag.current;activeDrag.current=null;if(ref.current)ref.current.dragRange=null;e.currentTarget.releasePointerCapture(e.pointerId);setPreview(null);if(drag.price!==drag.level.price)levelRef.current.onLevelCommit?.(drag.level,drag.price);}} onPointerCancel={()=>{if(activeDrag.current?.level.draft)levelRef.current.onLevelPreview?.(activeDrag.current.level,activeDrag.current.level.price);activeDrag.current=null;if(ref.current)ref.current.dragRange=null;setPreview(null);}} onKeyDown={e=>{if(e.key==='Escape'){if(activeDrag.current?.level.draft)levelRef.current.onLevelPreview?.(activeDrag.current.level,activeDrag.current.level.price);activeDrag.current=null;if(ref.current)ref.current.dragRange=null;setPreview(null);}if(e.key==='ArrowUp'||e.key==='ArrowDown'){e.preventDefault();levelRef.current.onDragStart?.();levelRef.current.onLevelCommit?.(l,Math.round((l.price+(e.key==='ArrowUp'?1:-1)*(e.shiftKey?1:.01))*100)/100);}}}><span>{l.label}</span><strong>{price.toFixed(2)}</strong>{l.editable&&<span className="handle-grip">⠿</span>}</button>;});
  async function chartPng(): Promise<Blob> {
@@ -476,6 +481,10 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
    width={brandMarkWidth} height={brandMarkHeight} style={{left:brandMarkInset,bottom:brandMarkBottom}}/>
  </>;
 
+ const ohlcValues=shownBar&&<div>{prices.map(([key,label,description])=><span key={key} aria-label={description} data-price={key}>
+  <small>{label}</small> {ohlcNumber.format(shownBar[key])}
+ </span>)}</div>;
+ const candleTime=shownBar&&<time dateTime={new Date(shownBar.time*1000).toISOString()}>{dateFmt.format(shownBar.time*1000)}</time>;
  const plotTop=live&&paneCount?host.current?.getBoundingClientRect().top:undefined;
  const livePanes:ReturnType<IChartApi['panes']>|undefined=plotTop===undefined?undefined:ref.current?.chart.panes();
 
@@ -487,11 +496,12 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
      <LivePriceCountdown marker={livePriceMarker.current} price={liveBid} seconds={seconds} serverNow={liveClock}/>}
     <div className="live-chart-meta">
      {shownBar&&<div className="live-ohlc" aria-label="ราคาแท่งเทียน" data-up={shownBar.close>=shownBar.open}>
-      <time dateTime={new Date(shownBar.time*1000).toISOString()}>{dateFmt.format(shownBar.time*1000)}</time>
-      <div>{prices.map(([key,label,description])=><span key={key} aria-label={description} data-price={key}>
-       <small>{label}</small> {ohlcNumber.format(shownBar[key])}
-      </span>)}</div>
+      {candleTime}{ohlcValues}
      </div>}
+     {shownBar&&<details className="live-candle-details" data-up={shownBar.close>=shownBar.open}>
+      <summary aria-label="ดูราคาเปิด สูงสุด ต่ำสุด และปิดของแท่งเทียน">{candleTime}</summary>
+      <div className="live-ohlc" aria-label="ราคาแท่งเทียน" data-up={shownBar.close>=shownBar.open}>{ohlcValues}</div>
+     </details>}
      {liveLegend}
     </div>
     {plotTop!==undefined&&livePanes&&paneStudies.map(([id,plot],index)=>{

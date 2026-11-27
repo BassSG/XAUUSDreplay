@@ -6,7 +6,7 @@ import {useInlineReplay} from '../lib/use-inline-replay';
 import {useReplayChartFrames} from '../lib/use-inline-replay-studies';
 import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {
-  ArrowLeft, Bell, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
+  ArrowLeft, Bell, BookOpen, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
   Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, SkipBack, SkipForward, Trash2, X,
   CalendarDays, Code2, Copy, PanelsTopLeft, Settings2, Target,
 } from 'lucide-react';
@@ -122,7 +122,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [viewport, setViewport] = useState<LiveViewport | null>(initial.view?.follow ? null : initial.view?.viewport ?? null);
   const [retry, setRetry] = useState(0);
   const [storageFailed, setStorageFailed] = useState(false);
-  const [panel, setPanel] = useState<'quotes' | 'view' | 'history' | 'drawing' | 'objects' | 'studies' | 'appearance' | 'layouts' | 'pine' | 'alerts' | 'forward' | null>(() =>
+  const [panel, setPanel] = useState<'quotes' | 'view' | 'timeframe' | 'history' | 'drawing' | 'objects' | 'studies' | 'appearance' | 'layouts' | 'pine' | 'alerts' | 'forward' | null>(() =>
     new URLSearchParams(location.search).get('panel') === 'alerts' ? 'alerts' : null);
   const [editingDrawing, setEditingDrawing] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
@@ -416,6 +416,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setWorkspace(current => ({...current, period: value}));
     cancelDrawing();
   }
+  function selectVisiblePeriod(value: Period) {
+    selectPeriod(value);
+    if (sixCharts) document.getElementById('live-tile-' + value)?.scrollIntoView({block: 'nearest'});
+  }
   function changeChartLayout(value: 'single' | 'six', timeframe = period) {
     if (timeframe !== period) selectPeriod(timeframe);
     else if(!replay.active)setInitialView(follow ? null : currentView());
@@ -575,8 +579,17 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           {market.barError && (viewport || backupFailed) && <button type="button" onClick={reconnect}><RefreshCw size={16}/>เชื่อมต่อใหม่</button>}
         </div>;
 
+  function openChartMenu() {
+    if (focusMode) { setFocusMode(false); return; }
+    setSnapshot(previous => previous.busy ? previous : {busy:false,message:''});
+    setPanel('view');
+  }
+  const saveLabel = saveState === 'saving' ? 'กำลังบันทึก…' : saveState === 'error' ? 'บันทึกไม่สำเร็จ'
+    : savedAt ? 'บันทึก ' + shortClock.format(savedAt) : 'อัตโนมัติ 5 นาที';
   const layoutAction = sixCharts ? 'สลับเป็นกราฟเดียว' : 'เปิดกราฟ 6 ไทม์เฟรม';
   return <main className="live-workspace" data-focus={focusMode} data-replay-controls={replay.active||replay.picking}>
+    {focusMode && <button className="live-focus-exit" type="button" aria-label="ออกจากโหมดโฟกัส"
+      onClick={() => setFocusMode(false)}><Minimize2 size={18}/></button>}
     <header className="live-header">
       <h1>
         <button className="live-symbol" type="button" aria-label="EBW · ข้อมูลราคา XAUUSD" aria-haspopup="dialog"
@@ -597,7 +610,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           <Save size={17}/><span>บันทึก</span>
         </button>
         <span className="live-save-status" data-state={saveState} role="status" aria-live="polite">
-          {saveState === 'saving' ? 'กำลังบันทึก…' : saveState === 'error' ? 'บันทึกไม่สำเร็จ' : savedAt ? 'บันทึก ' + new Date(savedAt).toLocaleTimeString('th-TH', {hour: '2-digit', minute: '2-digit'}) : 'อัตโนมัติ 5 นาที'}
+          {saveLabel}
         </span>
         <button className="header-layout" type="button" aria-label="เลย์เอาต์" title="บันทึกและเปิดเลย์เอาต์"
           aria-haspopup="dialog" onClick={() => setPanel('layouts')}><PanelsTopLeft size={18}/><span>{activeLayout?.name ?? 'เลย์เอาต์'}</span></button>
@@ -616,10 +629,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         {periodList.map(tf => <button key={tf} type="button" aria-pressed={period === tf}
           disabled={replaying&&Boolean(replay.base&&periods[tf]<periods[replay.base])}
           title={replaying&&replay.base&&periods[tf]<periods[replay.base]?'ช่วงนี้มีข้อมูลละเอียดสุด '+timeframeName(replay.base):undefined}
-          onClick={() => {
-            selectPeriod(tf);
-            if (sixCharts) document.getElementById('live-tile-' + tf)?.scrollIntoView({block: 'nearest'});
-          }}>{timeframeName(tf)}</button>)}
+          onClick={() => selectVisiblePeriod(tf)}>{timeframeName(tf)}</button>)}
       </div>
       <button className="live-studies-button" type="button" aria-haspopup="dialog" aria-label="อินดิเคเตอร์"
         title="อินดิเคเตอร์" onClick={() => setPanel('studies')}>
@@ -644,13 +654,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
           disabled={!bars.length && !viewport} onClick={goLatest}><SkipForward size={17}/></button>
         <button type="button" aria-label={focusMode ? 'ออกจากโหมดโฟกัส' : 'มุมมองกราฟ'}
           title={focusMode ? 'ออกจากโหมดโฟกัส' : 'มุมมองกราฟ'} aria-haspopup={focusMode ? undefined : 'dialog'}
-          onClick={() => {
-            if (focusMode) setFocusMode(false);
-            else {
-              setSnapshot(previous => previous.busy ? previous : {busy:false,message:''});
-              setPanel('view');
-            }
-          }}>
+          onClick={openChartMenu}>
           {focusMode ? <Minimize2 size={19}/> : <Ellipsis size={21}/>}
         </button>
       </div>
@@ -674,13 +678,29 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         }}
         onUndo={() => { cancelDrawing(); restoreDrawing(undo.current, redo.current); }}
         onRedo={() => { cancelDrawing(); restoreDrawing(redo.current, undo.current); }} onDelete={deleteDrawing}
-        navigation={<>
-          <button className="live-forward-dock" disabled={replaying} type="button" aria-label="Forward Test" title="Forward Test · Long / Short" aria-haspopup="dialog"
-            onClick={() => setPanel('forward')}><Target size={19}/><span>จำลอง</span></button>
-          <button className="live-dock-action" type="button" aria-label="แท่งย้อนหลัง" aria-haspopup="dialog"
-            onClick={() => replaying?replay.pick():setPanel('history')}><History size={19}/><span>ย้อนหลัง</span></button>
-          <button className="live-dock-action" type="button" aria-label="ไปแท่งล่าสุด" title="ไปแท่งล่าสุด"
-            data-following={follow} disabled={!bars.length && !viewport} onClick={goLatest}><SkipForward size={19}/><span>ล่าสุด</span></button>
+        desktopAction={<button className="live-desktop-tool live-forward-shortcut" disabled={replaying} type="button"
+          aria-label="Forward Test" title="Forward Test · Long / Short" aria-haspopup="dialog"
+          onClick={() => setPanel('forward')}><Target size={19}/></button>}
+        mobileStart={<button className="live-mobile-command live-dock-period" type="button" aria-label="ไทม์เฟรม"
+          aria-haspopup="dialog" aria-expanded={panel === 'timeframe'} onClick={() => setPanel('timeframe')}>
+          <strong>{timeframeName(period)}</strong><span>ไทม์เฟรม</span>
+        </button>}
+        mobileEnd={<>
+          <button className="live-mobile-command" type="button" aria-label="อินดิเคเตอร์" aria-haspopup="dialog"
+            onClick={() => setPanel('studies')}>
+            <span className="live-dock-icon"><ChartSpline size={19}/>{totalStudies > 0 && <small>{totalStudies}</small>}</span>
+            <span>อินดิเคเตอร์</span>
+          </button>
+          <button className="live-mobile-command" type="button"
+            aria-label={replay.picking ? 'ยกเลิกเลือก Replay' : replaying ? 'กลับสู่กราฟ Live' : 'เปิด Replay'}
+            aria-pressed={replay.picking || replay.active} onClick={replay.picking ? beginReplay : replaying ? exitReplay : beginReplay}>
+            {replaying ? <ArrowLeft size={18}/> : <History size={19}/>}<span>{replaying ? 'กลับ Live' : 'Replay'}</span>
+          </button>
+          <button className="live-mobile-command" type="button" aria-label="เพิ่มเติม" aria-haspopup="dialog"
+            aria-expanded={panel === 'view'} onClick={openChartMenu}>
+            <span className="live-dock-icon"><Ellipsis size={20}/>{armedAlerts.length > 0 && <i aria-label="มีการแจ้งเตือนที่เปิดอยู่"/>}</span>
+            <span>เพิ่มเติม</span>
+          </button>
         </>}/>
       <div className="live-chart" data-light={appearance.background.toLowerCase() === "#ffffff"} style={{'--chart-bg': appearance.background, '--chart-ink': appearance.text,
         '--chart-up': appearance.upColor, '--chart-down': appearance.downColor} as CSSProperties}>
@@ -748,17 +768,58 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       </div>
     </LivePanel>}
 
-    {panel === 'view' && <LivePanel title="มุมมองกราฟ" onClose={closePanel}>
+    {panel === 'timeframe' && <LivePanel title="ไทม์เฟรม" onClose={closePanel}>
+      <div className="live-timeframe-options" role="group" aria-label="ช่วงเวลาแท่งราคา">
+        {periodList.map(tf => <button key={tf} type="button" aria-pressed={period === tf}
+          disabled={replaying && Boolean(replay.base && periods[tf] < periods[replay.base])}
+          onClick={() => { selectVisiblePeriod(tf); closePanel(); }}>{timeframeName(tf)}</button>)}
+      </div>
+      {replaying && replay.base && <p className="chart-hint">ข้อมูล Replay ช่วงนี้ละเอียดสุด {timeframeName(replay.base)}</p>}
+    </LivePanel>}
+
+    {panel === 'view' && <LivePanel title="เมนูกราฟ" onClose={closePanel}>
+      <section className="live-mobile-menu" aria-label="คำสั่งกราฟ">
+        <div className="live-menu-summary">
+          <span>{replaying ? 'Bar Replay' : chartStatus || status}</span>
+          <span role="status">{saveLabel}</span>
+        </div>
+        <div className="live-panel-options">
+          <button type="button" disabled={saveState === 'saving'} onClick={() => void saveWorkingCopy.current()}>
+            <Save size={18}/><span>บันทึกกราฟตอนนี้</span>
+          </button>
+          <button type="button" aria-pressed={sixCharts} onClick={() => { changeChartLayout(sixCharts ? 'single' : 'six'); closePanel(); }}>
+            <LayoutGrid size={18}/><span>{layoutAction}</span>
+          </button>
+          <button type="button" disabled={replaying} onClick={() => setPanel('alerts')}>
+            <Bell size={18}/><span>แจ้งเตือนราคา{armedAlerts.length ? ' · ' + armedAlerts.length : ''}</span>
+          </button>
+          <button type="button" disabled={replaying} onClick={() => setPanel('forward')}>
+            <Target size={18}/><span>Forward Test</span>
+          </button>
+          <button type="button" onClick={() => { if (replaying) beginReplay(); else setPanel('history'); }}>
+            <History size={18}/><span>{replaying ? 'เลือกจุดเริ่ม Replay ใหม่' : 'แท่งย้อนหลัง'}</span>
+          </button>
+          <button type="button" disabled={!bars.length && !viewport} onClick={() => { goLatest(); closePanel(); }}>
+            <SkipForward size={18}/><span>ไปแท่งล่าสุด</span>
+          </button>
+          <button type="button" onClick={() => { saveCamera.current(); closePanel(); onReplay(); }}>
+            <BookOpen size={18}/><span>สมุดฝึก Replay</span>
+          </button>
+        </div>
+        <h3>การแสดงผลและเลย์เอาต์</h3>
+      </section>
       <div className="live-panel-options">
         <button type="button" onClick={() => setPanel('appearance')}><Settings2 size={18}/><span>ตั้งค่ารูปลักษณ์กราฟ</span></button>
         <button type="button" onClick={() => setPanel('layouts')}><PanelsTopLeft size={18}/><span>เลย์เอาต์</span></button>
         <button type="button" onClick={() => setPanel('objects')}><Pencil size={18}/><span>วัตถุบนกราฟ</span></button>
         <button type="button" onClick={() => setPanel('pine')}><Code2 size={18}/><span>Pine Editor</span></button>
-        <button type="button" aria-pressed={follow} onClick={() => { toggleFollow(); closePanel(); }}>
+        <button type="button" aria-pressed={replaying ? replayFollow : follow} onClick={() => { toggleFollow(); closePanel(); }}>
           <Radio size={18}/><span>ติดตามแท่งล่าสุด</span>
         </button>
         <button type="button" disabled={!bars.length} onClick={() => {
-          setInitialView(null); setFollow(true); setViewport(null); chart.current?.resetView(); closePanel();
+          if (replaying) setReplayFollow(true);
+          else { setInitialView(null); setFollow(true); setViewport(null); }
+          chart.current?.resetView(); closePanel();
         }}><ScanLine size={18}/><span>รีเซ็ตมุมมองกราฟ</span></button>
         <label className="chart-field">เคอร์เซอร์และซูม
           <select defaultValue="" onChange={event=>{
@@ -770,7 +831,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
             <option value="erase">ยางลบ</option><option value="zoom">ลากกรอบซูม</option>
           </select>
         </label>
-        <button type="button" disabled={!bars.length} onClick={() => { setFollow(false); chart.current?.fit(); closePanel(); }}>
+        <button type="button" disabled={!bars.length} onClick={() => { if (replaying) setReplayFollow(false); else setFollow(false); chart.current?.fit(); closePanel(); }}>
           <ScanLine size={18}/><span>พอดีช่วงที่โหลด</span>
         </button>
         <button type="button" onClick={() => { setFocusMode(true); closePanel(); }}>

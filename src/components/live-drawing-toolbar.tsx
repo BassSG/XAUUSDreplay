@@ -102,7 +102,7 @@ export function DrawingPicker({group, enabled, actions, onClose, onPick, favorit
 type Props = {
   mode: DrawingKind | null; enabled: boolean; magnet: boolean; strongMagnet?:boolean; hidden: boolean; stayInDrawingMode: boolean;
   canUndo: boolean; canRedo: boolean; canDelete: boolean;
-  navigation: ReactNode;
+  desktopAction: ReactNode; mobileStart: ReactNode; mobileEnd: ReactNode;
   favorites: DrawingKind[]; favoritePosition: {x: number; y: number};
   onFavorite: (kind: DrawingKind) => void; onMoveFavorites: (position: Props['favoritePosition']) => void;
   onPick: (kind: DrawingKind) => void; onSelect: () => void; onMagnet: () => void;
@@ -195,15 +195,17 @@ export default function LiveDrawingToolbar(props: Props) {
   }
 
   return <>
-    <aside className="live-tools" aria-label="เครื่องมือวาดบนกราฟ">
-      <button type="button" aria-label="เคอร์เซอร์เลือกวัตถุ" title="เคอร์เซอร์เลือกวัตถุ · แตะเส้นเพื่อเลือกหรือลากแก้ไข"
+    <aside className="live-tools" aria-label="แถบเครื่องมือกราฟ">
+      {props.mobileStart}
+      <button className="live-desktop-tool" type="button" aria-label="เคอร์เซอร์เลือกวัตถุ" title="เคอร์เซอร์เลือกวัตถุ · แตะเส้นเพื่อเลือกหรือลากแก้ไข"
         aria-pressed={!props.mode} onClick={props.onSelect}><MousePointer2 size={19}/><span>เลือก</span></button>
-      <button type="button" aria-label="เครื่องมือวาดทั้งหมด" title="เครื่องมือวาดทั้งหมด · ค้นหาตามชื่อหรือเปิดทุกหมวด"
-        aria-haspopup="dialog" onClick={() => setPicker('all')}><PencilRuler size={19}/><span>เครื่องมือ</span></button>
-      <button type="button" aria-label={currentTool.name} title={currentTool.name + ' · ' + currentTool.help}
+      <button className="live-open-drawings" data-drawing={Boolean(props.mode)} type="button" aria-label="เครื่องมือวาดทั้งหมด" title="เครื่องมือวาดทั้งหมด · ค้นหาตามชื่อหรือเปิดทุกหมวด"
+        aria-haspopup="dialog" onClick={() => setPicker('all')}><PencilRuler size={19}/><span>วาด</span></button>
+      <button className="live-desktop-tool" type="button" aria-label={currentTool.name} title={currentTool.name + ' · ' + currentTool.help}
         aria-pressed={props.mode === current} disabled={!props.enabled}
         onClick={() => props.mode === current ? props.onSelect() : pick(current)}><CurrentIcon size={19}/><span>ด่วน</span></button>
-      {props.navigation}
+      {props.desktopAction}
+      {props.mobileEnd}
       <div className="live-tool-groups" role="group" aria-label="หมวดเครื่องมือ">
         {groups.map(group => {
           const Icon = groupIcons[group];
@@ -215,7 +217,17 @@ export default function LiveDrawingToolbar(props: Props) {
       <DrawingActions props={props}/>
     </aside>
     {props.favorites.length > 0 && <FavoriteBar props={props} pick={pick}/>}
-    {picker && <DrawingPicker group={picker} enabled={props.enabled} actions={<DrawingActions props={props} inPicker/>}
+    {picker && <DrawingPicker group={picker} enabled={props.enabled} actions={<>
+        <div className="live-picker-shortcuts" role="group" aria-label="ทางลัดเครื่องมือ">
+          <button type="button" onClick={() => { setPicker(null); props.onSelect(); }}>
+            <MousePointer2 size={16}/>เลือกวัตถุ
+          </button>
+          <button type="button" disabled={!props.enabled} onClick={() => pick(current)}>
+            <CurrentIcon size={16}/>ใช้ล่าสุด · {currentTool.name}
+          </button>
+        </div>
+        <DrawingActions props={props} inPicker/>
+      </>}
       favorites={props.favorites} toggleFavorite={props.onFavorite}
       onClose={() => setPicker(null)} onPick={pick}/>}
   </>;

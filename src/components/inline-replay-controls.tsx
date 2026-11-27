@@ -50,7 +50,7 @@ export default function InlineReplayControls({replay,asOf,waiting,onStart,onResu
         </select>
         <button type="button" title="เลือกจุดเริ่มใหม่" aria-label="เลือกจุดเริ่มใหม่" disabled={replay.loading} onClick={replay.pick}><Target size={17}/></button>
         {replay.atEnd&&replay.hasMore&&<button type="button" disabled={replay.loading} onClick={()=>void replay.more()}>โหลดต่อ</button>}
-        <button type="button" onClick={onExit}><ArrowLeft size={16}/><span>กลับ Live</span></button>
+        <button className="inline-replay-exit" type="button" onClick={onExit}><ArrowLeft size={16}/><span>กลับ Live</span></button>
       </div>
     </>}
     {replay.picking&&showDate&&<form className="inline-replay-date" onSubmit={submit}>
