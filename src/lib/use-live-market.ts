@@ -2,6 +2,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {Bar} from './engine';
 import {historyPage, requestMarket as request} from './live-feed';
 import {historyCatalog, loadBefore, loadWindow} from './history';
+import {focusBarCount} from './focused-indicators';
 import {
   candleWindow, candlesFromMinutes, candlesWithBid, mergeClosedBars, minutePollSize, periods, recordBidMinute,
   prependOlderBars, readBars, readHistoryPages, readQuote, recentBarsSize, olderPageSize, type Period, type Quote,
@@ -154,7 +155,8 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
         if (checkWindow && anchorTime !== null && rows[0].time > anchorTime) {
           try {
             const before = Math.min(serverNow(), anchorTime + seconds * 128);
-            const past = await historyPage(period, before, serverNow(), signal);
+            const {bars: past} = await readHistoryPages(before, focusBarCount + 128, signal,
+              edge => historyPage(period, edge, serverNow(), signal));
             if (!past.length || past[0].time > anchorTime) {
               throw Error('ช่วงนี้ไม่มีแท่งราคาที่ขอ');
             }
@@ -169,7 +171,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
               const source = (await historyCatalog()).find(d => d.calendar === 'eightcap'
                 && d.timeframe === seconds && d.start <= anchorTime && d.end >= anchorTime);
               if (source) {
-                const {bars} = await loadWindow(source.id, anchorTime, olderPageSize, 128);
+                const {bars} = await loadWindow(source.id, anchorTime, focusBarCount, 128);
                 archive = true;
                 checkWindow = false;
                 apply(state => ({...state, closed: bars, archive: true, findingWindow: false, barError: false}));
@@ -272,16 +274,14 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
     }
   }, [key, period, seconds, view.closed, view.historyStatus, serverNow]);
 
-  const warmed = useRef(new Set<Period>());
-  const canWarm = enabled && warm && anchorTime === null && !view.archive &&
-    view.closed.length >= recentBarsSize && view.closed.length < recentBarsSize + 2 * olderPageSize;
-  const shouldWarm = canWarm && view.historyStatus === 'ready' && !warmed.current.has(period);
+  const canWarm = enabled && warm && !view.findingWindow && !view.archive &&
+    view.closed.length > 0 && view.closed.length < focusBarCount;
+  const shouldWarm = canWarm && view.historyStatus === 'ready';
   const warmingHistory = shouldWarm || canWarm && view.historyStatus === 'loading';
   useEffect(() => {
     if (!shouldWarm) return;
-    warmed.current.add(period);
-    void loadOlder(false, 2 * olderPageSize);
-  }, [shouldWarm, period, loadOlder]);
+    void loadOlder(false, focusBarCount - view.closed.length);
+  }, [shouldWarm, loadOlder, view.closed.length]);
 
   return {...view, bars, studyBars, warmingHistory, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
     serverNow, loadOlder, progress: progress?.key === key ? progress : null,

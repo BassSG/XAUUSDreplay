@@ -2,6 +2,7 @@ import {historyCatalog,loadBefore,loadWindow} from './history';
 import {historyPage} from './live-feed';
 import {candleWindow,periods,readHistoryPages,type Period} from './live-market';
 import type {ReplayTape} from './inline-replay';
+import {focusBarCount} from './focused-indicators';
 
 const pagePeriods=Object.keys(periods) as Period[];
 const warmBars=3600;
@@ -43,8 +44,8 @@ export async function replayPrefix(tape: ReplayTape,period: Period,now:number,si
   const archive=(await historyCatalog().catch(()=>[])).find(d=>d.calendar==='eightcap'&&d.timeframe===seconds&&
     d.start<before&&d.end+seconds>=first.open);
   signal.throwIfAborted();
-  if (archive) return loadBefore(archive.id,before,1800);
-  const history=await readHistoryPages(before,1800,signal,edge=>historyPage(period,edge,now,signal));
+  if (archive) return loadBefore(archive.id,before,focusBarCount);
+  const history=await readHistoryPages(before,focusBarCount,signal,edge=>historyPage(period,edge,now,signal));
   return history.bars;
 }
 

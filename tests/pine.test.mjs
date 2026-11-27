@@ -13,7 +13,7 @@ globalThis.self={postMessage:value=>{
 }};
 await import('../src/lib/pine.worker.ts');
 const base=Array.from({length:2400},(_,i)=>({time:1700000100+i*60,open:2000+Math.sin(i/8)*3+i/100,high:2004+Math.sin(i/8)*3+i/100,low:1996+Math.sin(i/8)*3+i/100,close:2000.4+Math.sin(i/8)*3+i/100,volume:10+(i%7)}));
-async function run(source,{bars=base,baseBars=bars,seconds=60,scripts,plotLimit}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds:60,calendar:'utc',scripts,plotLimit}})});}
+async function run(source,{bars=base,baseBars=bars,seconds=60,baseSeconds=60,scripts,plotLimit}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds,calendar:'utc',scripts,plotLimit}})});}
 const assertGood=r=>assert.deepEqual(r.errors,[],r.errors.join(' | '));
 test('Live publishes a finished study before it evaluates the next script',async()=>{
  const events=[];
@@ -273,19 +273,20 @@ test('inline Replay Pine uses revealed minutes when a higher chart requests a fo
  assert.ok(lower.every(bar=>bar.openTime<asOf*1000));
 });
 
-test('the shipped Focus pair loads with bounded drawing output and keeps the oscillator pane',async()=>{
+test('the shipped Focus pair calculates 3,000 Replay bars with bounded drawing output',async()=>{
  const scripts=[
   {id:'focus-all',builtinId:'ebw-focus-all-indy',name:'All Indy Focus',file:'all-indy-ebw-focus.pine'},
   {id:'focus-fibo',builtinId:'ebw-focus-fibo',name:'EBW Fibo Focus',file:'ebw-fibo-focus.pine'},
  ].map(({file,...job})=>({...job,source:fs.readFileSync(new URL('../src/indicators/'+file,import.meta.url),'utf8')}));
- const minutes=base.slice(0,480);
- const bars=aggregate(minutes,300);
- const result=await run('',{scripts,bars,baseBars:minutes,seconds:300});
+ for(const script of scripts)assert.match(script.source,/calc_bars_count=3000/);
+ const bars=Array.from({length:3050},(_,i)=>({...base[i%base.length],time:1700000100+i*300}));
+ const result=await run('',{scripts,bars,seconds:300,baseSeconds:300,plotLimit:2000});
  assertGood(result);
  assert.deepEqual(result.studies.map(study=>study.id),['focus-all','focus-fibo']);
  const osc=result.plots.filter(p=>p.indicatorId==='focus-all'&&p.style!=='hline');
  assert.equal(osc.length,3);
  assert.ok(osc.every(p=>!p.overlay&&p.data.some(point=>point.value!==null)));
+ assert.ok(osc.every(p=>p.data.length===3000&&p.data[0].time===bars[50].time));
  assert.ok(result.drawings.filter(d=>d.kind==='box'&&d.indicatorId==='focus-all').length<=8);
  assert.equal(result.tables.length,0);
 });

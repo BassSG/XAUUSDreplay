@@ -1,6 +1,6 @@
 //@version=6
 // EBW Focus · EBW-Fibo-1.10.22 → EBW-Fibo-1.10.32 Basic
-indicator("EBW-Fibo 1.10.32 · Basic · EBW Focus", "EBW FIBO · FOCUS", overlay=true, max_lines_count=35, max_labels_count=42, max_boxes_count=1, calc_bars_count=1200, dynamic_requests=true)
+indicator("EBW-Fibo 1.10.32 · Basic · EBW Focus", "EBW FIBO · FOCUS", overlay=true, max_lines_count=35, max_labels_count=42, max_boxes_count=1, calc_bars_count=3000, dynamic_requests=true)
 // Chart-timeframe calculation. Confirmed Stochastic/RSI geometry and target lifecycle.
 const string G_CONTEXT = "00 · Fibo หลาย TF บนกราฟ"
 bool showParent = input.bool(true, "แสดง TF ใหญ่ 1", inline="parent", group=G_CONTEXT, display=display.none)

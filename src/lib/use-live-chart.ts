@@ -6,6 +6,7 @@ import {candleWindow, periods, type Period} from './live-market';
 import type {useLiveMarket} from './use-live-market';
 import {usePine} from './use-pine';
 import type {ScriptJob} from './pine.worker';
+import {focusBarCount} from './focused-indicators';
 
 const emptyBars: Bar[] = [];
 type Market = ReturnType<typeof useLiveMarket>;
@@ -22,7 +23,7 @@ export function useLiveBars(period: Period, market: Market, retry: number, ancho
         const datasets = await historyCatalog();
         const dataset = datasets.filter(d => d.timeframe === periods[period] && d.id.startsWith('eightcap-'))
           .sort((a, b) => b.end - a.end)[0];
-        const bars = dataset ? await loadBefore(dataset.id, dataset.end + 1, 1500) : [];
+        const bars = dataset ? await loadBefore(dataset.id, dataset.end + 1, focusBarCount) : [];
         if (active) setBackup({period, bars, failed: !bars.length});
       } catch {
         if (active) setBackup({period, bars: [], failed: true});

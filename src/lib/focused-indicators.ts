@@ -1,6 +1,7 @@
 import type {Bar,IndicatorSpec} from './engine.ts';
 import {sourceHash} from './builtin-indicators.ts';
 
+export const focusBarCount=3000;
 export const focusIds=['ebw-focus-all-indy','ebw-focus-fibo'] as const;
 
 export function isFocusedIndicator(id?:string): boolean {
@@ -29,12 +30,11 @@ export async function installFocusedIndicators(saved:IndicatorSpec[],defaults:re
 // Keep a warm chart window per Focus script. Preserve its opening bar on
 // incremental updates until the runtime needs to release older history.
 export function focusedChartBars(bars:Bar[],previous?:Bar[]):Bar[] {
-  const warm=1200;
-  if(bars.length<=warm)return bars;
-  if(previous&&previous.length>=warm) {
+  if(bars.length<=focusBarCount)return bars;
+  if(previous&&previous.length>=focusBarCount) {
     const index=bars.findIndex(bar=>bar.time===previous[0].time);
-    if(index>=0&&bars.length-index>=warm&&bars.length-index<=warm+240)
+    if(index>=0&&bars.length-index>=focusBarCount&&bars.length-index<=focusBarCount+240)
       return index===0?bars:bars.slice(index);
   }
-  return bars.slice(-warm);
+  return bars.slice(-focusBarCount);
 }

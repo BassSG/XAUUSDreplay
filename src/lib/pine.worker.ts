@@ -5,7 +5,7 @@ import {periodEnd,replayProvider} from './pine-data.ts';
 import {installReplaySnapshots} from './pine-stream.ts';
 import {checkPineIndicator,type LivePineFrame,type PineHistoryLoader} from './live-pine.ts';
 import {sameMarketBar} from './live-market.ts';
-import {focusedChartBars,isFocusedIndicator} from './focused-indicators.ts';
+import {focusBarCount,focusedChartBars,isFocusedIndicator} from './focused-indicators.ts';
 import {readPineBand,type PineBand} from './pine-bands.ts';
 installReplaySnapshots();
 const secondaryRun=PineTS.prototype.runPretranspiled;
@@ -60,9 +60,6 @@ context.onmessage=async(event:MessageEvent)=>{
   return;
  }
  const {id,key,source,bars,baseBars=bars,seconds,baseSeconds=seconds,calendar='utc',scripts,bundled=false,history,plotLimit,live}=event.data as Payload;
- // Keep the full runtime history for TA and MTF requests; transfer only the
- // chart's drawable window. This reduces worker serialization at high speeds.
- const outputFrom=plotLimit&&plotLimit>0?(bars[Math.max(0,bars.length-Math.floor(plotLimit))]?.time??0):0;
  const cacheKey=key?key+'|output:'+(plotLimit||'all'):undefined;
  if(cacheKey&&results.has(cacheKey)){context.postMessage({...results.get(cacheKey),id});return;}
  const jobs=(scripts?.length?scripts:[{id:'legacy',name:'Pine',source:source||''}]).slice().sort((a,b)=>Number(b.source.includes('indicator("All Indy (EBW) V10.4.4'))-Number(a.source.includes('indicator("All Indy (EBW) V10.4.4')));
@@ -106,6 +103,9 @@ context.onmessage=async(event:MessageEvent)=>{
    context.postMessage({id,progress:job.name,metadata:study});
    const prior=item.runtime;
    const focused=isFocusedIndicator(job.builtinId);
+   // Retain runtime history while sending only the drawable window.
+   const outputLimit=focused?focusBarCount:plotLimit;
+   const outputFrom=outputLimit&&outputLimit>0?(bars[Math.max(0,bars.length-Math.floor(outputLimit))]?.time??0):0;
    const chartBars=focused?focusedChartBars(bars,prior?.bars):bars;
    const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars:chartBars},live?.minutes,liveHistory,live?.replay);
    const settings=JSON.stringify([seconds,baseSeconds,calendar,bundled,job.inputs,focused]);

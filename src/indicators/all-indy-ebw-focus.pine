@@ -1,6 +1,6 @@
 //@version=6
 // EBW Focus · All-Indy-1.4.20 → All-Indy-1.4.33 Basic
-indicator("All Indy 1.4.33 · Basic · EBW Focus", "ALL INDY · EBW", overlay=false, calc_bars_count=1200, max_boxes_count=8, dynamic_requests=true)
+indicator("All Indy 1.4.33 · Basic · EBW Focus", "ALL INDY · EBW", overlay=false, calc_bars_count=3000, max_boxes_count=8, dynamic_requests=true)
 
 string boxText = input.string("ตัวย่อ", "ข้อความบนกล่อง", options=["ไม่แสดง", "ตัวย่อ", "เต็ม"], tooltip="ตัวย่อ: D = Demand, S = Supply, SB = STRUCT BUY, SS = STRUCT SELL")
 bool showBoxText = boxText != "ไม่แสดง"

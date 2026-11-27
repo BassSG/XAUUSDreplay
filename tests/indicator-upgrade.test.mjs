@@ -24,13 +24,13 @@ test('EBW Focus is installed once, preserves its settings, and keeps previous sc
 });
 
 test('Focus retains the warmup origin across updates and bounds cold calculation',()=>{
- const bars=Array.from({length:3000},(_,time)=>({time,open:1,high:1,low:1,close:1,volume:1}));
+ const bars=Array.from({length:3300},(_,time)=>({time,open:1,high:1,low:1,close:1,volume:1}));
  const first=focusedChartBars(bars);
- assert.equal(first.length,1200);
- assert.equal(first[0].time,1800);
- const grown=[...bars,{...bars.at(-1),time:3000}];
- assert.equal(focusedChartBars(grown,first)[0].time,1800);
- const next=bars.concat(bars.slice(0,250).map(bar=>({...bar,time:bar.time+3000})));
- assert.equal(focusedChartBars(next,first).length,1200);
- assert.equal(focusedChartBars(next,first)[0].time,2050);
+ assert.equal(first.length,3000);
+ assert.equal(first[0].time,300);
+ const grown=[...bars,{...bars.at(-1),time:3300}];
+ assert.equal(focusedChartBars(grown,first)[0].time,300);
+ const next=bars.concat(bars.slice(0,250).map(bar=>({...bar,time:bar.time+3300})));
+ assert.equal(focusedChartBars(next,first).length,3000);
+ assert.equal(focusedChartBars(next,first)[0].time,550);
 });
