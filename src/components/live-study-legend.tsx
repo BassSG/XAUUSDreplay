@@ -23,8 +23,8 @@ export default function LiveStudyLegend({badges, onOpen, details, onDetails, sho
     ? badges.map(badge => badge.label + ' · ' + (hiddenStudies.includes(badge.id) ? 'ซ่อนอยู่' : studyStateLabel[badge.state])).join('\n')
     : summary;
   const firstHidden = hiddenStudies.includes(first.id);
-  return <div className="live-study-legend" role="group" aria-label="อินดิเคเตอร์ที่ใช้งาน">
-    <button type="button" className="live-study-chip" data-study-state={state} data-status-only={!showTitles || undefined} title={title}
+  return <div className="live-study-legend" role="group" aria-label="อินดิเคเตอร์ที่ใช้งาน" data-status-only={!showTitles || undefined}>
+    <button type="button" className="live-study-chip" data-study-state={state} title={title}
       aria-haspopup="dialog" aria-label={'จัดการอินดิเคเตอร์ที่ใช้งาน · ' + summary} onClick={onOpen}>
       <i className="live-study-dot" aria-hidden="true"/>
       {showTitles && <><span className="live-study-name" data-hidden={firstHidden}>{first.label}</span>
