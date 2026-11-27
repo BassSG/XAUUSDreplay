@@ -435,7 +435,12 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   }
   function toggleStudy(study: LiveStudy) {
     setWorkspace(value => ({...value, studies: value.studies.includes(study)
-      ? value.studies.filter(s => s !== study) : [...value.studies, study]}));
+      ? value.studies.filter(s => s !== study) : [...value.studies, study],
+      hiddenStudies: value.hiddenStudies.filter(id => id !== 'live-' + study)}));
+  }
+  function toggleStudyVisibility(id: string) {
+    setWorkspace(value => ({...value, hiddenStudies: value.hiddenStudies.includes(id)
+      ? value.hiddenStudies.filter(hidden => hidden !== id) : [...value.hiddenStudies, id]}));
   }
   function loadAtChartEdge() {
     if (replaying||!market.closed.length) return;
@@ -468,7 +473,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setSnapshot({busy:true, message:'กำลังสร้างภาพกราฟ…'});
     try {
       await (action === 'copy' ? current.copyPng() : current.exportPng());
-      setSnapshot({busy:false, message:action === 'copy' ? 'คัดลอกรูปกราฟแล้ว นำไปวางในแชตได้' : 'เริ่มดาวน์โหลด PNG แล้ว'});
+      setSnapshot({busy:false, message:action === 'download' ? 'เริ่มดาวน์โหลด PNG แล้ว' : ''});
+      if (action === 'copy') setPanel(previous => previous === 'view' ? null : previous);
     } catch (error) {
       setSnapshot({busy:false, error:true, message:error instanceof Error ? error.message : 'สร้างภาพกราฟไม่สำเร็จ'});
     }
@@ -568,7 +574,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         drawings={visibleDrawings} drawingMode={replay.picking?null:mode} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={toggleMagnet} hiddenDrawings={hiddenDrawings}
         selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingEdit={editDrawing} onDrawingRemove={id=>saveDrawings(drawings.filter(d=>d.id!==id))} onDrawingCancel={cancelDrawing}
         liveSelection={drawingToolsOverlay} liveStudyBadges={badges}
+        hiddenStudies={workspace.hiddenStudies} onToggleStudy={toggleStudyVisibility}
         liveLegend={<LiveStudyLegend badges={badges} onOpen={() => setPanel('studies')}
+          hiddenStudies={workspace.hiddenStudies} onToggleStudy={toggleStudyVisibility}
           details={pine.error || pine.warnings.join(' · ')} onDetails={() => setPanel('pine')}/>}
         onDrawing={drawing => {
           const plan = replaying?null:forwardPlan(drawing);
@@ -725,6 +733,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
             available={!replaying||!replay.base||periods[tf]>=periods[replay.base]} onSelect={() => selectPeriod(tf)} onExpand={() => changeChartLayout('single', tf)}>
             {tf === period ? primaryChart : <LiveOverviewChart period={tf} frame={timeframes[tf]} onRetry={reconnect}
               workspace={workspace} layoutVersion={layoutVersion} replayPicker={replayPicker}
+              onOpenStudies={() => setPanel('studies')} onToggleStudy={toggleStudyVisibility}
               replay={replaying?{frame:replayFrames[tf],asOf:replayAsOf??0,session:replay.id!}:undefined}/>}
           </LiveChartTile>)}
         </div> : primaryChart}
@@ -921,6 +930,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         onRetry={pine.retry} onShowChart={closePanel}/>
     </LivePanel>}
     {panel === 'studies' && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy}
+      hiddenStudies={workspace.hiddenStudies} onToggleVisibility={toggleStudyVisibility}
       message={editorMessage || (editorError ? 'Pine · ' + editorError : '')}
       scripts={mergeScripts(library.map(script => ({...script, enabled: false})), proposedScripts)} evaluations={pine.studies}
       pendingId={trial?.id} pendingStatus={pine.status} onCancelApply={() => { setTrial(null); setPanel('pine'); }}

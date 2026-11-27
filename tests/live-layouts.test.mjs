@@ -17,6 +17,7 @@ test('a saved layout restores the migrated workspace, styling, camera, drawings 
   workspace.appearance.background = '#ffffff';
   workspace.scripts.push({id: crypto.randomUUID(), name: 'Custom',
     source: '//@version=6\nindicator("Custom")\nplot(close)', enabled: true, inputs: {in_0: 14}});
+  workspace.hiddenStudies = ['live-rsi14', workspace.scripts[0].id];
   const view = {...defaultChartView, follow: false, viewport: {time: 1700000200, span: 77}, priceRange: {from: 1980, to: 2040}};
   const file = makeLayoutFile('กราฟทอง', workspace, view);
   const saved = await saveLiveLayout(file);
@@ -28,7 +29,9 @@ test('a saved layout restores the migrated workspace, styling, camera, drawings 
   assert.equal(restored.workspace.favoriteCollapsed, true);
   assert.equal(restored.workspace.favoriteSize, 'large');
   assert.deepEqual(restored.workspace.favoriteTools, ['hline', 'fib']);
-  const {chartLayout, favoriteCollapsed, favoriteSize, ...legacyWorkspace} = restored.workspace;
+  const {chartLayout, favoriteCollapsed, favoriteSize, hiddenStudies, ...legacyWorkspace} = restored.workspace;
+  assert.deepEqual(hiddenStudies, ['live-rsi14', restored.workspace.scripts[0].id]);
+  assert.deepEqual(readLayoutFile({...restored, workspace: legacyWorkspace}).workspace.hiddenStudies, []);
   assert.equal(readLayoutFile({...restored, workspace: legacyWorkspace}).workspace.favoriteCollapsed, false);
   assert.equal(readLayoutFile({...restored, workspace: legacyWorkspace}).workspace.favoriteSize, 'medium');
   assert.equal(readLayoutFile({...restored, workspace: legacyWorkspace}).workspace.chartLayout, 'single');

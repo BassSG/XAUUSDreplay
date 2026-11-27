@@ -9,11 +9,14 @@ import {useDialog} from '../lib/use-dialog';
 import type {IndicatorSpec} from '../lib/engine';
 import type {StudyStatus} from '../lib/use-pine';
 import PineInputs from './pine-inputs';
+import {StudyVisibilityButton} from './live-study-legend';
 
 type Props = {
   selected: LiveStudy[];
   lengths: LiveStudyLengths;
   onToggle: (study: LiveStudy) => void;
+  hiddenStudies: readonly string[];
+  onToggleVisibility: (id: string) => void;
   onLength: (study: LiveStudy, length: number) => void;
   onClose: () => void;
   onPine: () => void;
@@ -36,7 +39,7 @@ const icons: Record<LiveStudy, LucideIcon> = {
 };
 
 export default function LiveStudyPanel({
-  selected, lengths, onToggle, onLength, onClose, onPine, message, scripts, evaluations,
+  selected, lengths, onToggle, hiddenStudies, onToggleVisibility, onLength, onClose, onPine, message, scripts, evaluations,
   pendingId, pendingStatus, onCancelApply, onEdit, onScriptChange,
 }: Props) {
   const [query, setQuery] = useState('');
@@ -74,6 +77,8 @@ export default function LiveStudyPanel({
                   onChange={() => onScriptChange({...script, enabled: !script.enabled})}/>
                 <Code2 size={17} aria-hidden="true"/><span>{script.name}{isFocusedIndicator(script.builtinId)&&<small> · พื้นฐาน</small>}</span>
               </label>
+              {script.enabled && !pending && <StudyVisibilityButton label={script.name} hidden={hiddenStudies.includes(script.id)}
+                onToggle={() => onToggleVisibility(script.id)}/>}
               <button className="live-icon" type="button" aria-label={'ตั้งค่า ' + script.name}
                 aria-expanded={inputsFor === script.id} title="ตั้งค่าพารามิเตอร์"
                 disabled={pending || (!evaluation?.inputs.length && !script.enabled)}
@@ -115,6 +120,8 @@ export default function LiveStudyPanel({
                   if (next !== null && next !== length) onLength(study, next);
                 }}/>
             </label>}
+            {selected.includes(study) && <StudyVisibilityButton label={label} hidden={hiddenStudies.includes('live-' + study)}
+              onToggle={() => onToggleVisibility('live-' + study)}/>}
             <button className="live-icon live-study-help" type="button" aria-label={'วิธีใช้ ' + label}
               title={description} aria-expanded={help === study} aria-controls={'study-help-' + study}
               onClick={() => setHelp(help === study ? null : study)}><CircleHelp size={17}/></button>

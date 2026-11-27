@@ -378,6 +378,21 @@
 .live-chart .live-ohlc[data-up=true] [data-price=close] { color: var(--chart-up); }
 .live-chart .live-study-legend button { background: var(--chart-bg); color: var(--chart-ink); border-color: color-mix(in srgb, var(--chart-ink) 35%, transparent); }
 .live-study-legend { display: flex; flex-wrap: wrap; gap: 4px; }
+.live-study-eye { flex: none; }
+.live-chart .live-study-legend .live-study-eye {
+  align-self: stretch;
+  min-width: 32px;
+  padding-inline: 6px;
+}
+.live-chart .live-pane-title .live-study-eye {
+  pointer-events: auto;
+  color: var(--chart-ink);
+  min-width: 28px;
+  min-height: 24px;
+  padding: 2px;
+  border-radius: 4px;
+  background: transparent;
+}
 .live-workspace .live-panel-wide { width: min(700px, 100%); }
 .chart-appearance, .layout-manager, .live-script-editor { display: grid; gap: 13px; }
 .chart-appearance fieldset { min-width: 0; margin: 0; border: 0; border-top: 1px solid var(--live-border); padding: 6px 0 0; }
@@ -537,7 +552,7 @@
   align-items: center;
   gap: 6px;
   min-height: 24px;
-  max-width: 100%;
+  max-width: calc(100% - 36px);
   padding: 3px 7px;
   border: 1px solid color-mix(in srgb, var(--chart-ink) 28%, transparent);
   border-radius: 4px;
@@ -545,6 +560,13 @@
   font-size: 11px;
 }
 .live-study-chip > span { color: inherit; opacity: .8; }
+.live-study-chip .live-study-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-study-chip .live-study-name[data-hidden=true] { color: var(--chart-ink); opacity: .75; }
+@media (max-width: 720px), (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .live-chart .live-study-legend .live-study-eye,
+  .live-chart .live-pane-title .live-study-eye { min-width: 40px; min-height: 36px; }
+  .live-chart .live-study-legend .live-study-chip { max-width: calc(100% - 44px); }
+}
 .live-chart [data-study-state=loading] { --indicator-status: #f4c95b; }
 .live-chart [data-study-state=ready] { --indicator-status: #65d7a4; }
 .live-chart [data-study-state=error] { --indicator-status: #ff9ca7; }

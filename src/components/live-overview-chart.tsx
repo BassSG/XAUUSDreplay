@@ -33,11 +33,13 @@ export function LiveChartTile({period, active, onSelect, onExpand, children, ava
   </article>;
 }
 
-export default function LiveOverviewChart({period, frame, onRetry, workspace, layoutVersion, replay, replayPicker}: {
+export default function LiveOverviewChart({period, frame, onRetry, workspace, layoutVersion, replay, replayPicker, onOpenStudies, onToggleStudy}: {
   period: Period; frame: LiveTimeframe; onRetry: () => void;
   workspace: LiveWorkspaceState; layoutVersion: number;
   replay?:{frame:InlineReplayChartFrame;asOf:number;session:number};
   replayPicker?:{time:number|null;onPick:(time:number)=>void};
+  onOpenStudies: () => void;
+  onToggleStudy: (id: string) => void;
 }) {
   const {drawings, hiddenDrawings, appearance} = workspace;
   const {market,historical,needsBackup,backupFailed}=frame;
@@ -61,8 +63,9 @@ export default function LiveOverviewChart({period, frame, onRetry, workspace, la
     plots={plots} fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables}
     calculating={pine.calculating} drawings={visibleDrawings} hiddenDrawings={hiddenDrawings}
     follow={follow} onLeaveLatest={() => setFollow(false)} onHistoryEdge={() => { if(!replay)void market.loadOlder(false); }}
-    liveStudyBadges={badges}
-    liveLegend={<><LiveStudyLegend badges={badges}/>{(message || !follow || pine.error) && <div className="live-tile-feedback">
+    liveStudyBadges={badges} hiddenStudies={workspace.hiddenStudies} onToggleStudy={onToggleStudy}
+    liveLegend={<><LiveStudyLegend badges={badges} hiddenStudies={workspace.hiddenStudies}
+      onOpen={onOpenStudies} onToggleStudy={onToggleStudy}/>{(message || !follow || pine.error) && <div className="live-tile-feedback">
       {message && <small title={pine.error || undefined}>{message}</small>}
       {pine.error && <button type="button" onClick={pine.retry}>ลองคำนวณใหม่</button>}
       {!follow && <button type="button" onClick={() => {
