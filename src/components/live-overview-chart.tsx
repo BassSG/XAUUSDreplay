@@ -3,11 +3,10 @@ import {Maximize2, RefreshCw} from 'lucide-react';
 import ChartBoundary from './chart-boundary';
 import LiveStudyLegend from './live-study-legend';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
-import type {IndicatorSpec, Trade} from '../lib/engine';
+import type {Trade} from '../lib/engine';
 import type {LiveWorkspaceState} from '../lib/live-layouts';
 import {periods, type Period} from '../lib/live-market';
-import {useLiveBars, useLiveStudies} from '../lib/use-live-chart';
-import {useLiveMarket, type LiveFeed} from '../lib/use-live-market';
+import type {LiveTimeframe} from '../lib/use-live-timeframes';
 
 const noTrades: Trade[] = [];
 
@@ -33,14 +32,12 @@ export function LiveChartTile({period, active, onSelect, onExpand, children}: {
   </article>;
 }
 
-export default function LiveOverviewChart({period, feed, retry, onRetry, workspace, scripts, layoutVersion}: {
-  period: Period; feed: LiveFeed; retry: number; onRetry: () => void;
-  workspace: LiveWorkspaceState; scripts: IndicatorSpec[]; layoutVersion: number;
+export default function LiveOverviewChart({period, frame, onRetry, workspace, layoutVersion}: {
+  period: Period; frame: LiveTimeframe; onRetry: () => void;
+  workspace: LiveWorkspaceState; layoutVersion: number;
 }) {
-  const {studies, lengths, drawings, hiddenDrawings, appearance} = workspace;
-  const market = useLiveMarket(period, retry, feed, null, false);
-  const {bars, historical, needsBackup, backupFailed} = useLiveBars(period, market, retry);
-  const {pine, plots, badges} = useLiveStudies(period, market, historical, studies, lengths, scripts);
+  const {drawings, hiddenDrawings, appearance} = workspace;
+  const {market,bars,historical,needsBackup,backupFailed,pine,plots,badges} = frame;
   const visibleDrawings = useMemo(() => drawings.filter(d => (d.scope!=='chart'||d.chartPeriod===period) && (!d.visiblePeriods || d.visiblePeriods.includes(period))), [drawings, period]);
   const [follow, setFollow] = useState(true);
   const chart = useRef<LiveChartActions>(null);

@@ -1,3 +1,4 @@
+import {nextBackground} from '../src/lib/live-study-schedule.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -193,4 +194,20 @@ test('a slow native timeframe uses covered broker minutes and never substitutes 
   assert.equal(candlesWithBid(derived,undefined,minutes.at(-1).time,sample,900).at(-1).close,4010);
   assert.deepEqual(candlesWithBid([],undefined,undefined,sample,900),
     [{time:openTime,open:4010,high:4010,low:4010,close:4010,volume:0}]);
+});
+
+test('Pine preparation prioritizes the selected timeframe and only queues one background timeframe', () => {
+  const work=Object.fromEntries(['1m','5m','15m','1h','4h','1d'].map(period=>[period,{ready:false,stale:false}]));
+  assert.equal(nextBackground('1h',work,false,null),null);
+  work['1h']={ready:true,stale:false,settledKey:'hour'};
+  const first=nextBackground('1h',work,false,null);
+  assert.equal(first.period,'1m');
+  assert.equal(nextBackground('1h',work,false,first),first);
+  assert.equal(nextBackground('15m',work,false,first),null);
+  work['1m']={ready:true,stale:false,settledKey:'minute'};
+  assert.equal(nextBackground('1h',work,false,first).period,'5m');
+  for(const period of Object.keys(work)) work[period]={ready:true,stale:false};
+  work['1m']={ready:true,stale:true,settledKey:'minute'};
+  assert.equal(nextBackground('1h',work,false,null),null);
+  assert.equal(nextBackground('1h',work,true,null).period,'1m');
 });

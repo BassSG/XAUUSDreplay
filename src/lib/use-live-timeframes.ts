@@ -1,0 +1,66 @@
+import {useEffect, useRef, useState} from 'react';
+import type {LiveStudy} from './live-indicators';
+import type {Period} from './live-market';
+import {useLiveBars, useLiveStudies} from './use-live-chart';
+import {useLiveMarket, type LiveFeed} from './use-live-market';
+import {nextBackground, type BackgroundWork} from './live-study-schedule';
+import type {ScriptJob} from './pine.worker';
+
+type Settings = {
+  period: Period; anchor: number | null; retry: number; feed: LiveFeed; grid: boolean;
+  studies: LiveStudy[]; lengths: Partial<Record<LiveStudy, number>>; jobs: ScriptJob[];
+  testingScript: boolean;
+};
+
+function useTimeframe(period: Period, settings: Settings, target?: Period) {
+  const selected = settings.period === period;
+  const run = selected || target === period;
+  const anchor = selected ? settings.anchor : null;
+  const loaded = useRef(false);
+  const fetch = run || settings.grid && loaded.current;
+  const market = useLiveMarket(period, settings.retry, settings.feed, anchor, run, fetch);
+  const prices = useLiveBars(period, market, settings.retry, anchor !== null, fetch);
+  const waitingForNative = period !== '1m' && !market.closed.length && !market.barError;
+  const result = useLiveStudies(period, market, prices.historical, settings.studies, settings.lengths,
+    settings.jobs, !run || waitingForNative || !selected && market.warmingHistory);
+  const hasData = !waitingForNative && !market.findingWindow && Boolean(market.studyBars.length || prices.historical.length);
+  const failed = prices.backupFailed || (anchor !== null && (market.barError || market.windowUnavailable) && !hasData);
+  const ready = failed || hasData && (selected || !market.warmingHistory) && (!settings.jobs.length || result.pine.settled ||
+    Boolean(result.pine.error && !result.pine.calculating));
+  const stale = Boolean(hasData && settings.jobs.length && result.pine.settled &&
+    !result.pine.error && result.pine.settledKey !== result.pine.requestedKey);
+  useEffect(() => {
+    if (hasData && ready) loaded.current = true;
+  }, [hasData, ready]);
+
+  return {market, ...prices, ...result, ready, stale, settledKey:result.pine.settledKey};
+}
+
+export type LiveTimeframe = ReturnType<typeof useTimeframe>;
+
+export function useLiveTimeframes(settings: Settings) {
+  type Plan = {period: Period; retry: number; jobs: ScriptJob[]; work: BackgroundWork};
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const canPrepare = !settings.testingScript && (settings.grid || settings.jobs.length > 0 || settings.studies.length > 0);
+  const current = canPrepare && plan?.period === settings.period && plan.retry === settings.retry &&
+    plan.jobs === settings.jobs ? plan.work : null;
+  const background = current?.period;
+
+  // Each timeframe owns one Pine session. Changing the selected chart only changes
+  // scheduling and rendering, so both chart layouts consume the same cached output.
+  const frames = {
+    '1m': useTimeframe('1m', settings, background),
+    '5m': useTimeframe('5m', settings, background),
+    '15m': useTimeframe('15m', settings, background),
+    '1h': useTimeframe('1h', settings, background),
+    '4h': useTimeframe('4h', settings, background),
+    '1d': useTimeframe('1d', settings, background),
+  };
+  useEffect(() => {
+    const work = canPrepare ? nextBackground(settings.period, frames, settings.grid, current) : null;
+    if (work === current && (current || !plan)) return;
+    setPlan(work ? {period:settings.period,retry:settings.retry,jobs:settings.jobs,work} : null);
+  });
+
+  return frames;
+}

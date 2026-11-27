@@ -19,7 +19,7 @@ import LiveLayoutPanel, {type ActiveLayout} from './live-layout-panel';
 import LivePineEditor, {newScriptDraft, type ScriptDraft} from './live-pine-editor';
 import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readChartView, workspaceKey} from '../lib/live-layouts';
 import {saveLiveAutoSave, saveLiveLayout, type SavedLayout} from '../lib/storage';
-import {useLiveBars, useLiveStudies} from '../lib/use-live-chart';
+import {useLiveTimeframes} from '../lib/use-live-timeframes';
 import type {LiveViewport} from '../lib/chart-tools';
 import {drawingTools} from '../lib/drawing-definitions';
 import {positionMetrics} from '../lib/drawing-geometry';
@@ -27,7 +27,7 @@ import {forwardPlan, forwardQuoteMaxAge, isFreshForwardQuote, matchesForwardPlan
 import type {Drawing, DrawingKind, IndicatorSpec, Trade} from '../lib/engine';
 import {olderPageSize, periods, type Period} from '../lib/live-market';
 import type {LiveStudy} from '../lib/live-indicators';
-import {useLiveFeed, useLiveMarket} from '../lib/use-live-market';
+import {useLiveFeed} from '../lib/use-live-market';
 import {useDialog} from '../lib/use-dialog';
 import {alertText, usePriceAlerts} from '../lib/use-price-alerts';
 import './live-workspace.css';
@@ -155,8 +155,12 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     });
   }, [liveQuote]);
 
-  const market = useLiveMarket(period, retry, feed, viewport?.time ?? null);
-  const {bars, historical, needsBackup, backupFailed} = useLiveBars(period, market, retry, Boolean(viewport));
+  const proposedScripts = useMemo(() => !trial ? scripts : scripts.some(s => s.id === trial.id)
+    ? scripts.map(s => s.id === trial.id ? trial : s) : [...scripts, trial], [scripts, trial]);
+  const jobs = useMemo(() => proposedScripts.filter(s => s.enabled), [proposedScripts]);
+  const timeframes = useLiveTimeframes({period, anchor:viewport?.time ?? null, retry, feed, grid:sixCharts,
+    studies,lengths,jobs,testingScript:Boolean(trial)});
+  const {market,bars,historical,needsBackup,backupFailed,pine,plots,through,minuteBased,badges} = timeframes[period];
 
   useEffect(() => {
     if (!focusMode || mode || selected || panel) return;
@@ -231,9 +235,6 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     };
   }, []);
 
-  const proposedScripts = useMemo(() => !trial ? scripts : scripts.some(s => s.id === trial.id)
-    ? scripts.map(s => s.id === trial.id ? trial : s) : [...scripts, trial], [scripts, trial]);
-  const jobs = useMemo(() => proposedScripts.filter(s => s.enabled), [proposedScripts]);
   const visibleDrawings = useMemo(() => drawings.filter(d => (d.scope!=='chart'||d.chartPeriod===period) && (!d.visiblePeriods || d.visiblePeriods.includes(period))), [drawings, period]);
   const activeDrawing = visibleDrawings.find(d => d.id === selected);
   const drawingToEdit = editingDrawing ? drawings.find(d => d.id === editingDrawing) : undefined;
@@ -249,7 +250,6 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     : market.historyStatus === 'error' ? 'โหลดแท่งเก่าไม่สำเร็จ'
     : market.historyStatus === 'end' ? 'ถึงข้อมูลเก่าสุดที่ Eightcap ส่งมาแล้ว' : '';
   const liveNow = follow && !market.archive && !historical.length && quote?.status === 'live' && !market.quoteError;
-  const {pine, plots, through, minuteBased, badges} = useLiveStudies(period, market, historical, studies, lengths, jobs);
   const enabledScripts = useMemo(() => scripts.filter(s => s.enabled), [scripts]);
   const totalStudies = studies.length + enabledScripts.length;
   useEffect(() => {
@@ -596,8 +596,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         {sixCharts ? <div className="live-chart-grid" aria-label="XAUUSD 6 ไทม์เฟรม">
           {periodList.map(tf => <LiveChartTile key={tf} period={tf} active={tf === period}
             onSelect={() => selectPeriod(tf)} onExpand={() => changeChartLayout('single', tf)}>
-            {tf === period ? primaryChart : <LiveOverviewChart period={tf} feed={feed} retry={retry} onRetry={reconnect}
-              workspace={workspace} scripts={enabledScripts} layoutVersion={layoutVersion}/>}
+            {tf === period ? primaryChart : <LiveOverviewChart period={tf} frame={timeframes[tf]} onRetry={reconnect}
+              workspace={workspace} layoutVersion={layoutVersion}/>}
           </LiveChartTile>)}
         </div> : primaryChart}
       </div>

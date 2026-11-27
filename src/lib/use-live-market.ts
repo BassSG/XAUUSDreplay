@@ -107,15 +107,21 @@ export function useLiveFeed(retry: number) {
 
 export type LiveFeed = ReturnType<typeof useLiveFeed>;
 
-export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anchorTime: number | null = null, warm = true) {
+export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anchorTime: number | null = null, warm = true, enabled = true) {
   const key = period + ':' + (anchorTime ?? 'latest');
   const seconds = periods[period];
-  const {quote, quoteError, sampled, rows: minutes, minuteError, minuteCache, serverNow, historyCache: cache} = feed;
+  const {quote, quoteError, sampled: liveSampled, rows: liveMinutes, minuteError, minuteCache, serverNow, historyCache: cache} = feed;
+  const retained = useRef({minutes:liveMinutes, sampled:liveSampled});
+  if (enabled && (retained.current.minutes !== liveMinutes || retained.current.sampled !== liveSampled)) {
+    retained.current = {minutes:liveMinutes,sampled:liveSampled};
+  }
+  const {minutes, sampled} = retained.current;
   const [data, setData] = useState(() => restoreHistory(key, period, anchorTime, cache.current.get(period)));
   const [progress, setProgress] = useState<{key: string; loaded: number} | null>(null);
   const currentData = useRef(data);
   currentData.current = data;
   const active = useRef<FeedRun | null>(null);
+  const lastPoll = useRef<{key:string;retry:number;at:number} | undefined>(undefined);
 
   useEffect(() => {
     if (!data.archive && data.closed.length) {
@@ -125,6 +131,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
   }, [data.period, data.closed, data.historyStatus, data.archive]);
 
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     const {signal} = controller;
     const run: FeedRun = {key, signal, backfill: null};
@@ -179,27 +186,34 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
       } catch {
         apply(state => ({...state, barError: true, findingWindow: false}));
       } finally {
+        if (!signal.aborted) lastPoll.current = {key,retry,at:performance.now()};
         if (!signal.aborted && !archive && (period !== '1m' || checkWindow)) timer = setTimeout(pollBars, 15000);
       }
     }
 
-    if (!archive && (period !== '1m' || checkWindow)) void pollBars();
+    if (!archive && (period !== '1m' || checkWindow)) {
+      const previous = lastPoll.current;
+      const delay = !checkWindow && previous?.key === key && previous.retry === retry
+        ? 15000 - (performance.now() - previous.at) : 0;
+      if (delay > 0) timer = setTimeout(pollBars,delay);
+      else void pollBars();
+    }
     return () => {
       controller.abort();
       if (active.current === run) active.current = null;
       clearTimeout(timer);
     };
-  }, [key, period, seconds, retry, anchorTime, minuteCache, serverNow]);
+  }, [key, period, seconds, retry, anchorTime, minuteCache, serverNow, enabled]);
 
   useEffect(() => {
-    if (period !== '1m') return;
+    if (!enabled || period !== '1m') return;
     setData(state => {
       if (state.key !== key || state.archive || state.findingWindow) return state;
       const closed = mergeClosedBars(state.closed, minutes, Infinity);
       return closed === state.closed && minuteError === state.barError
         ? state : {...state, closed, barError: minuteError};
     });
-  }, [key, period, minutes, minuteError, data.findingWindow]);
+  }, [key, period, minutes, minuteError, data.findingWindow, enabled]);
 
   const view = data.key === key ? data : restoreHistory(key, period, anchorTime, cache.current.get(period));
   const useArchiveBars = view.archive || view.findingWindow;
@@ -259,14 +273,17 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
   }, [key, period, seconds, view.closed, view.historyStatus, serverNow]);
 
   const warmed = useRef(new Set<Period>());
+  const canWarm = enabled && warm && anchorTime === null && !view.archive &&
+    view.closed.length >= recentBarsSize && view.closed.length < recentBarsSize + 2 * olderPageSize;
+  const shouldWarm = canWarm && view.historyStatus === 'ready' && !warmed.current.has(period);
+  const warmingHistory = shouldWarm || canWarm && view.historyStatus === 'loading';
   useEffect(() => {
-    if (!warm || anchorTime !== null || view.archive || view.closed.length < recentBarsSize ||
-        view.historyStatus !== 'ready' || warmed.current.has(period)) return;
+    if (!shouldWarm) return;
     warmed.current.add(period);
-    if (view.closed.length < recentBarsSize + 2 * olderPageSize) void loadOlder(false, 2 * olderPageSize);
-  }, [warm, anchorTime, period, view.archive, view.closed.length, view.historyStatus, loadOlder]);
+    void loadOlder(false, 2 * olderPageSize);
+  }, [shouldWarm, period, loadOlder]);
 
-  return {...view, bars, studyBars, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
+  return {...view, bars, studyBars, warmingHistory, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
     serverNow, loadOlder, progress: progress?.key === key ? progress : null,
     stopHistory: () => active.current?.backfill?.abort()};
 }
