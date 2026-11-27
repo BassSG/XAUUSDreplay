@@ -4,7 +4,7 @@ import {
   ChartColumnIncreasing, ChartLine, ChartNoAxesCombined, ChevronLeft, Circle, CornerUpRight, Crosshair,
   Diamond, Ellipsis, Eye, EyeOff, Fan, Flag, GitFork, Grid2X2, Highlighter, Info,
   ListTree, Magnet, MessageSquare, Minus, MousePointer2, MoveHorizontal, MoveUpRight,
-  MoveVertical, PanelsLeftBottom, PencilRuler, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
+  MoveVertical, PanelsLeftBottom, PencilRuler, Plus, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
   StickyNote, Tag, Trash2, TrendingDown, TrendingUp, Triangle, TriangleRight, Type,
   GripVertical, Repeat, Star, Undo2, Waypoints, Workflow, X, type LucideIcon,
 } from 'lucide-react';
@@ -121,6 +121,7 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
   const position = preview ?? props.favoritePosition;
   const clamp = (n: number) => Math.min(1, Math.max(0, n));
   const dragged = useRef(false);
+  const touchToggle = useRef(-Infinity);
   const positionHandle: Pick<HTMLAttributes<HTMLButtonElement>,
     'onPointerDown' | 'onPointerMove' | 'onPointerUp' | 'onPointerCancel' | 'onLostPointerCapture' | 'onKeyDown'> = {
     onPointerDown: event => {
@@ -165,9 +166,18 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
       <button type="button" className="live-favorite-toggle" aria-expanded={!props.favoriteCollapsed}
         aria-label={props.favoriteCollapsed ? 'ขยายแถบเครื่องมือโปรด' : 'พับแถบเครื่องมือโปรด'}
         title={props.favoriteCollapsed ? 'ขยายแถบเครื่องมือโปรด' : 'พับแถบเครื่องมือโปรด'}
-        {...(props.favoriteCollapsed ? positionHandle : {})}
+        {...positionHandle}
+        onPointerUp={event => {
+          const tapped = event.pointerType === 'touch' && drag.current?.id === event.pointerId && !dragged.current;
+          positionHandle.onPointerUp?.(event);
+          if (tapped) {
+            touchToggle.current = performance.now();
+            props.onToggleFavorites();
+          }
+        }}
         onClick={event => {
-          if (props.favoriteCollapsed && event.detail !== 0 && dragged.current) { dragged.current = false; return; }
+          if (event.detail !== 0 && performance.now() - touchToggle.current < 500) return;
+          if (event.detail !== 0 && dragged.current) { dragged.current = false; return; }
           props.onToggleFavorites();
         }}>{props.favoriteCollapsed ? <Star size={17}/> : <ChevronLeft size={17}/>}</button>
       {!props.favoriteCollapsed && <><button type="button" className="live-favorite-grip" title="ลากเพื่อย้ายแถบเครื่องมือโปรด"
@@ -178,6 +188,12 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
         <option value="medium">กลาง</option>
         <option value="large">ใหญ่</option>
       </select>
+      <div className="live-favorite-size-actions" role="group" aria-label="ขนาดแถบเครื่องมือโปรด">
+        {props.favoriteSize !== 'small' && <button type="button" aria-label="ย่อแถบเครื่องมือโปรด"
+          onClick={() => props.onResizeFavorites('small')}><Minus size={14}/>ย่อ</button>}
+        {props.favoriteSize !== 'large' && <button type="button" aria-label="เพิ่มขนาดแถบเครื่องมือโปรด"
+          onClick={() => props.onResizeFavorites(props.favoriteSize === 'small' ? 'medium' : 'large')}><Plus size={14}/></button>}
+      </div>
       <div className="live-favorite-list">
         {props.favorites.map(kind => {
           const Icon = icons[kind] ?? groupIcons[groups.find(group => drawingGroups[group].tools.includes(kind as never)) ?? "shapes"];
