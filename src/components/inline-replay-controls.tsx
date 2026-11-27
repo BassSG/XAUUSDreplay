@@ -6,8 +6,8 @@ import {timeframeName} from './live-overview-chart';
 const dateTime=new Intl.DateTimeFormat('th-TH',{timeZone:'Asia/Bangkok',dateStyle:'medium',timeStyle:'short'});
 const date=(time:number)=>dateTime.format(time*1000);
 
-export default function InlineReplayControls({replay,asOf,waiting,onStart,onResume,onRecenter,onPickDate,onRandom,onExit,onJournal}:{
-  replay:InlineReplay;asOf?:number;waiting:boolean;onStart:()=>void;onResume:()=>void;onRecenter:()=>void;
+export default function InlineReplayControls({replay,asOf,waiting,studyError,onStart,onResume,onRecenter,onPickDate,onRandom,onExit,onJournal}:{
+  replay:InlineReplay;asOf?:number;waiting:boolean;studyError?:string;onStart:()=>void;onResume:()=>void;onRecenter:()=>void;
   onPickDate:(time:number)=>void;onRandom:()=>void;onExit:()=>void;onJournal:()=>void;
 }){
   const [showDate,setShowDate]=useState(false);
@@ -57,8 +57,12 @@ export default function InlineReplayControls({replay,asOf,waiting,onStart,onResu
       <label>วันที่กรุงเทพฯ <input aria-label="วันที่เริ่ม Replay" type="date" value={day} required onChange={event=>setDay(event.target.value)}/></label>
       <button type="submit">ไปวันที่</button>
     </form>}
-    {(replay.loading||replay.error||waiting||replay.atEnd&&!replay.hasMore)&&<span className="inline-replay-feedback" role="status">
-      {replay.error|| (replay.loading?'กำลังโหลดข้อมูล Replay…':replay.atEnd&&!replay.hasMore?'ถึงท้ายข้อมูลชุดนี้':'กำลังคำนวณอินดิเคเตอร์ตามเวลา Replay…')}
+    {(replay.loading||replay.error||waiting||studyError||replay.atEnd&&!replay.hasMore)&&<span className="inline-replay-feedback" role="status" title={studyError}>
+      {replay.error || (replay.loading ? 'กำลังโหลดข้อมูล Replay…'
+        : replay.atEnd&&!replay.hasMore ? 'ถึงท้ายข้อมูลชุดนี้'
+        : studyError ? 'อินดิเคเตอร์บางตัวคำนวณไม่สำเร็จ'
+        : replay.playing ? 'กำลังเล่น · อินดิเคเตอร์กำลังอัปเดตตาม'
+        : 'กำลังคำนวณอินดิเคเตอร์ ณ จุดที่หยุด…')}
     </span>}
     {!replay.picking&&<button type="button" className="inline-replay-journal" onClick={onJournal}>สมุดฝึกรอบเต็ม</button>}
   </section>;

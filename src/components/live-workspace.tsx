@@ -188,13 +188,13 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const {bars,pine,plots,badges}=replaying?replayFrames[period]:liveFrame;
   const {advance,setPlaying}=replay;
   useEffect(()=>{
-    if(!replaying||!replay.playing||replay.loading||pine.calculating)return;
-    if(replay.atEnd||pine.error){setPlaying(false);return;}
+    if(!replaying||!replay.playing||replay.loading)return;
+    if(replay.atEnd){setPlaying(false);return;}
     const count=replayBatch(replay.speed,replay.remaining);
     const timer=setTimeout(()=>advance(count,replay.cursor),count*1000/replay.speed);
     return ()=>clearTimeout(timer);
   },[replaying,replay.playing,replay.loading,replay.atEnd,replay.speed,replay.remaining,replay.cursor,
-    period,pine.calculating,pine.error,advance,setPlaying]);
+    advance,setPlaying]);
 
   useEffect(() => {
     if (!focusMode || mode || selected || panel) return;
@@ -732,7 +732,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     </section>
 
     {(replay.active||replay.picking)&&<InlineReplayControls replay={replay} asOf={replayAsOf}
-      waiting={replaying&&pine.calculating} onStart={()=>{if(replay.candidate!==null)startReplay(replay.candidate)}}
+      waiting={replaying&&pine.calculating} studyError={replaying?pine.error:undefined} onStart={()=>{if(replay.candidate!==null)startReplay(replay.candidate)}}
       onResume={()=>{if(replay.resume)startReplay(replay.resume.time,replay.resume.period,replay.resume.base)}}
       onRecenter={recenterReplay} onExit={exitReplay} onJournal={()=>{saveCamera.current();onReplay()}}
       onRandom={()=>{
