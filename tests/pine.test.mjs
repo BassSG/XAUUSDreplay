@@ -16,7 +16,7 @@ globalThis.self={postMessage:value=>{
 }};
 await import('../src/lib/pine.worker.ts');
 const base=Array.from({length:2400},(_,i)=>({time:1700000100+i*60,open:2000+Math.sin(i/8)*3+i/100,high:2004+Math.sin(i/8)*3+i/100,low:1996+Math.sin(i/8)*3+i/100,close:2000.4+Math.sin(i/8)*3+i/100,volume:10+(i%7)}));
-async function run(source,{bars=base,baseBars=bars,seconds=60,baseSeconds=60,scripts,plotLimit}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds,calendar:'utc',scripts,plotLimit}})});}
+async function run(source,{bars=base,baseBars=bars,seconds=60,baseSeconds=60,scripts,plotLimit,live}={}){return new Promise(resolve=>{callback=resolve;self.onmessage({data:{id:++sequence,source,bars,baseBars,seconds,baseSeconds,calendar:'utc',scripts,plotLimit,live}})});}
 const assertGood=r=>assert.deepEqual(r.errors,[],r.errors.join(' | '));
 test('Live publishes a finished study before it evaluates the next script',async()=>{
  const events=[];
@@ -332,4 +332,97 @@ test('Focus overrides change the chart window and draw the selected zone and Fib
  assert.ok(targets.length>0);
  assert.ok(targets.every(target=>!target.text.includes('161.8%')));
  assert.equal(result.tables.filter(table=>table.indicatorId==='fibo-options').length,1);
+});
+
+const focusZoneSource=fs.readFileSync(new URL('../src/indicators/all-indy-ebw-focus.pine',import.meta.url),'utf8');
+async function chartZoneBoxes(bars,inputs={},seconds=60,asOf) {
+ const live=asOf===undefined?undefined:{asOf,minutes:[]};
+ const result=await run('',{bars,seconds,baseSeconds:seconds,live,scripts:[{id:'chart-zones',builtinId:'ebw-focus-all-indy',name:'All Indy',
+   source:focusZoneSource,inputs:{scanAll:false,showParent:false,showStruct:false,showLiquidity:false,showStatus:true,...inputs}}]});
+ assertGood(result);
+ return result.drawings.filter(d=>d.kind==='box');
+}
+
+test('Focus draws the whole compact base only after departure and counts separate visits on either side',async()=>{
+ const warm=Array.from({length:42},()=>[99.2,101,99,100.8]);
+ const baseCandles=[[100,100.9,99.8,100.3],[100.3,100.75,99.95,100.05],[100,100.6,99.7,100.1]];
+ const departure=[100.1,103.2,100,103];
+ const firstVisit=[102,102.2,100.8,101.5], stay=[101.5,101.7,100.7,101.4], away=[101.4,102.8,101.2,102.6];
+ for(const side of [1,-1]){
+   const bars=([...warm,...baseCandles,departure,firstVisit,stay,away,firstVisit]).map(([open,high,low,close],i)=>({
+     time:1700000100+i*60,volume:10,open:side===1?open:200-open,close:side===1?close:200-close,
+     high:side===1?high:200-low,low:side===1?low:200-high,
+   }));
+   const start=warm.length,cut=start+baseCandles.length;
+   const boxesAt=async n=>(await chartZoneBoxes(bars.slice(0,n))).filter(b=>b.text.includes(side===1?' · D ·':' · S ·'));
+   assert.equal((await boxesAt(cut)).length,0);
+   const confirming=bars.slice(0,cut+1);
+   assert.equal((await chartZoneBoxes(confirming,{},60,bars[cut].time+59)).length,0,'a forming departure cannot create the zone');
+   const [box]=await boxesAt(cut+1);
+   assert.ok(box,'a confirmed departure creates the zone');
+   assert.deepEqual([box.left,box.top,box.bottom],[bars[start].time*1000,side===1?100.9:200-99.7,side===1?99.7:200-100.9]);
+   assert.match(box.text,/Fresh$/);
+   assert.equal((await chartZoneBoxes(confirming,{sdBaseLimit:2})).length,0,'a three-bar base must not be truncated to two bars');
+   const wickHeavy={...bars[cut],[side===1?'high':'low']:side===1?110:90};
+   assert.equal((await chartZoneBoxes([...confirming.slice(0,-1),wickHeavy])).length,0,'a wick-dominated departure does not qualify');
+   assert.match((await boxesAt(cut+3))[0]?.text??'',/Tested$/);
+   assert.equal((await boxesAt(cut+5)).length,0);
+   assert.equal((await chartZoneBoxes(confirming,{sdBaseLimit:2})).length,0,'an overlong base must not be truncated to its last candles');
+   const wick={...bars[cut],high:side===1?110:bars[cut].high,low:side===1?bars[cut].low:90};
+   assert.equal((await chartZoneBoxes([...confirming.slice(0,-1),wick])).length,0,'a long rejection wick is a weak departure');
+ }
+});
+
+test('Focus preserves both timeframe zones at a one-tick overlap and merges their shared half',async()=>{
+ const warm5=[[103.8,104,103,103.1],[103.1,103.2,102.3,102.4],[102.4,102.5,101.6,101.7],[101.7,101.8,100.9,101],[101,101.1,99.8,100.2]];
+ const base5=Array.from({length:5},()=>[100.4,101,100,100.6]);
+ const depart5=Array.from({length:5},(_,i)=>[100.6+i*1.08,101.78+i*1.08,100.5+i*1.08,101.68+i*1.08]);
+ const prefix=[...Array.from({length:30},()=>warm5).flat(),...base5,...depart5,
+   [106,106.2,105.8,106],[106,106.15,105.7,105.8],[105.8,105.9,103.9,104],[104,104.1,101.55,101.65]];
+ for(const [edge,threshold,expected] of [
+   [100.99,50,[[100,101],[100.99,102]]],
+   [100.5,50,[[100.5,101]]],
+   [100.5,75,[[100,101],[100.5,102]]],
+ ]){
+   const rows=[...prefix,[101.65,102,edge,101.7],[101.7,104.1,101.6,104],...Array.from({length:9},()=>[104,104.5,103.8,104.1])];
+   const bars=rows.map(([open,high,low,close],i)=>({time:1700000100+i*60,volume:10,open,high,low,close}));
+   const boxes=await chartZoneBoxes(bars,{showParent:true,sdBoxLimit:8,mergeOverlapPct:threshold});
+   const demand=boxes.filter(b=>b.text.includes(' · D ·')).sort((a,b)=>a.bottom-b.bottom);
+   assert.deepEqual(demand.map(b=>[b.bottom,b.top]),expected);
+   if(demand.length===1){
+     assert.equal(demand[0].text,'1m+5m · D · Tested');
+     assert.equal(demand[0].left,bars[prefix.length].time*1000);
+   }
+ }
+});
+
+test('Focus STRUCT zones follow the confirmed source swing, its origin and the selected evidence filter',async()=>{
+ const warm=Array.from({length:30},(_,i)=>{const c=110-0.25*i;return [c+0.1,c+0.56,c-0.56,c];});
+ const swing=[
+   [102.75,102.85,100.8,101.15],[101.15,102.65,101,102.4],[102.4,104.3,102.3,104],[104,106.15,103.9,105.8],
+   [105.8,105.95,104.7,104.9],[104.9,105,104,104.3],[104.3,104.45,103.7,103.9],
+ ];
+ const departure=[[103.9,104.65,103.85,104.6],[104.6,105.5,104.55,105.45],[105.45,107.3,105.4,107.2]];
+ const noGap=[[103.9,105.2,103.85,104.4],[104.4,105.5,104,105.45],[105.45,107.3,105.05,107.2]];
+ const visits=[[107.2,107.4,106.5,106.8],[106.8,106.9,104.2,104.35],[104.35,105.5,104.3,105.3],[105.3,105.4,103,103.1]];
+ for(const buy of [true,false]){
+   const boxes=async(tail,structScope='ทั้งหมด')=>{
+     const bars=[...warm,...swing,...tail].map(([o,h,l,c],i)=>({time:1700000100+i*300,volume:20,
+       open:buy?o:220-o,high:buy?h:220-l,low:buy?l:220-h,close:buy?c:220-c}));
+     return chartZoneBoxes(bars,{showSD:false,showStruct:true,z_swingLen:2,structScope},300);
+   };
+   assert.equal((await boxes(departure.slice(0,2))).length,0,'pending swing cannot draw a STRUCT box');
+   const [zone]=await boxes(departure,'สวิงหลัก + FVG');
+   assert.ok(zone);
+   assert.deepEqual([zone.left,zone.top,zone.bottom],[(1700000100+36*300)*1000,buy?104.45:220-103.7,buy?103.7:220-104.45]);
+   assert.equal(zone.text,`5m · ${buy?'SB':'SS'} · Fresh`);
+   assert.match((await boxes([...departure,...visits.slice(0,2)]))[0]?.text??'',/Tested$/);
+   assert.match((await boxes([...departure,...visits.slice(0,3)]))[0]?.text??'',/Defended$/);
+   assert.equal((await boxes([...departure,...visits])).length,0);
+   assert.equal((await boxes(noGap,'สวิงหลัก')).length,1);
+   assert.equal((await boxes(noGap,'สวิงหลัก + FVG')).length,0,'a close through the swing alone is insufficient for this filter');
+   const changedSwing=[...departure,[107.2,107.3,103.62,103.65]];
+   assert.equal((await boxes(changedSwing)).length,1,'zone remains inside its ATR break tolerance');
+   assert.equal((await boxes(changedSwing,'สวิงหลัก')).length,0,'the original protected swing has reversed');
+ }
 });
