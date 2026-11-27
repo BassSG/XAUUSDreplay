@@ -1,3 +1,4 @@
+import {focusIds,focusedChartBars,installFocusedIndicators} from '../src/lib/focused-indicators.ts';
 import fs from 'node:fs';import {gunzipSync} from 'node:zlib';import assert from 'node:assert/strict';import test from 'node:test';import {builtinIndicators,sourceHash,upgradeBundledIndicators} from '../src/lib/builtin-indicators.ts';
 const legacy=id=>gunzipSync(fs.readFileSync(new URL('./fixtures/'+id+'-legacy.pine.gz',import.meta.url))).toString();const full=item=>fs.readFileSync(new URL('../public/'+item.file,import.meta.url),'utf8');const spec=(source,id='study')=>({id,name:'My indicator',source,enabled:false,inputs:{test:1}});
 test('recognized shipped truncations upgrade to exact full source while keeping IDs and settings',async()=>{
@@ -7,3 +8,29 @@ test('custom edits and already complete sources are never overwritten by automat
  const item=builtinIndicators[0],input=[spec(legacy(item.id)+'\n// my edits','custom'),spec(full(item),'full')];let requests=0;const r=await upgradeBundledIndicators(input,async()=>{requests++;throw Error('must not load')});assert.equal(r.changed,false);assert.equal(requests,0);assert.deepEqual(r.indicators,input);
 });
 test('offline migration preserves the saved script and explains how to retry',async()=>{const input=[spec(legacy(builtinIndicators[0].id))];const r=await upgradeBundledIndicators(input,async()=>{throw Error('offline')});assert.equal(r.changed,false);assert.deepEqual(r.indicators,input);assert.match(r.errors[0],/Indicators/);});
+
+test('EBW Focus is installed once, preserves its settings, and keeps previous scripts available',async()=>{
+ const defaults=[{...spec('focused A','focus-a'),builtinId:focusIds[0],enabled:true},{...spec('focused B','focus-b'),builtinId:focusIds[1],enabled:true}];
+ const previous=spec('known source','old');
+ previous.enabled=true;
+ const customized={...previous,id:'custom',source:'known source\n// user settings'};
+ const saved=[{...defaults[0],enabled:false,inputs:{in_0:true}},previous,customized];
+ const matched=new Set([await sourceHash(previous.source)]);
+ const result=await installFocusedIndicators(saved,defaults,matched);
+ assert.deepEqual(result.map(i=>[i.id,i.enabled]),[['focus-a',false],['focus-b',true],['old',false],['custom',true]]);
+ assert.deepEqual(result[0].inputs,{in_0:true});
+ assert.equal(result[2].source,previous.source);
+ assert.deepEqual(await installFocusedIndicators(result,defaults,matched),result);
+});
+
+test('Focus retains the warmup origin across updates and bounds cold calculation',()=>{
+ const bars=Array.from({length:3000},(_,time)=>({time,open:1,high:1,low:1,close:1,volume:1}));
+ const first=focusedChartBars(bars);
+ assert.equal(first.length,1200);
+ assert.equal(first[0].time,1800);
+ const grown=[...bars,{...bars.at(-1),time:3000}];
+ assert.equal(focusedChartBars(grown,first)[0].time,1800);
+ const next=bars.concat(bars.slice(0,250).map(bar=>({...bar,time:bar.time+3000})));
+ assert.equal(focusedChartBars(next,first).length,1200);
+ assert.equal(focusedChartBars(next,first)[0].time,2050);
+});

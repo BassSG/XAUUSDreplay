@@ -5,6 +5,7 @@ import {periodEnd,replayProvider} from './pine-data.ts';
 import {installReplaySnapshots} from './pine-stream.ts';
 import {checkPineIndicator,type LivePineFrame,type PineHistoryLoader} from './live-pine.ts';
 import {sameMarketBar} from './live-market.ts';
+import {focusedChartBars,isFocusedIndicator} from './focused-indicators.ts';
 import {readPineBand,type PineBand} from './pine-bands.ts';
 installReplaySnapshots();
 const secondaryRun=PineTS.prototype.runPretranspiled;
@@ -103,19 +104,22 @@ context.onmessage=async(event:MessageEvent)=>{
    item.indicator.inputs={...job.inputs};item.bridge=bridge;study.inputs=item.meta;
    study.bridge=src.includes('indicator("EBW-Fibo 1.9')&&bridge.size===17;
    context.postMessage({id,progress:job.name,metadata:study});
-   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars},live?.minutes,liveHistory,live?.replay);
-   const settings=JSON.stringify([seconds,baseSeconds,calendar,bundled,job.inputs]);const prior=item.runtime;
+   const prior=item.runtime;
+   const focused=isFocusedIndicator(job.builtinId);
+   const chartBars=focused?focusedChartBars(bars,prior?.bars):bars;
+   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars:chartBars},live?.minutes,liveHistory,live?.replay);
+   const settings=JSON.stringify([seconds,baseSeconds,calendar,bundled,job.inputs,focused]);
    const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>sameMarketBar(b,next[i]));
    let raw:any;
-   if(prior&&prior.settings===settings&&prefix(prior.bars,bars)&&prefix(prior.baseBars,baseBars)&&unchangedMinutes(prior.minutes,live?.minutes)){
+   if(prior&&prior.settings===settings&&prefix(prior.bars,chartBars)&&prefix(prior.baseBars,baseBars)&&unchangedMinutes(prior.minutes,live?.minutes)){
     study.mode='incremental';
     prior.provider.current=dataSource;prior.pine.eDate=asOf*1000;prior.raw.eDate=asOf*1000;
-    await prior.pine.updateTail(prior.raw);raw=prior.raw;prior.bars=bars;prior.baseBars=baseBars;prior.minutes=live?.minutes;
+    await prior.pine.updateTail(prior.raw);raw=prior.raw;prior.bars=chartBars;prior.baseBars=baseBars;prior.minutes=live?.minutes;
    }else{
     const provider={current:dataSource};const liveProvider={configure(){},getMarketData:(...args:any[])=>(provider.current.getMarketData as any)(...args),getSymbolInfo:()=>provider.current.getSymbolInfo()};
-    const pine=new PineTS(liveProvider as any,'XAUUSD',timeframe,undefined,bars[0]?.time*1000,asOf*1000);
+    const pine=new PineTS(liveProvider as any,'XAUUSD',timeframe,undefined,chartBars[0]?.time*1000,asOf*1000);
     pine.setMaxLoops(100000);pine.setTimezone('Asia/Bangkok');raw=await pine.run(item.indicator) as any;
-    item.runtime={pine,raw,provider,bars,baseBars,minutes:live?.minutes,settings};
+    item.runtime={pine,raw,provider,bars:chartBars,baseBars,minutes:live?.minutes,settings};
    }
    if(src.includes('indicator("All Indy (EBW) V10.4.4')){
     bridge=new Map(Object.entries(raw.plots??{}).filter(([key,p]:any)=>/^ZB \d\d /.test(p.title||key)).map(([key,p]:any)=>[p.title||key,new Map<number,number>(p.data.map((d:any)=>[Math.floor(d.time/1000),Number(d.value)]))]));

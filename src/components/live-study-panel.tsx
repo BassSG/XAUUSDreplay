@@ -1,3 +1,4 @@
+import {isFocusedIndicator} from '../lib/focused-indicators';
 import {useState} from 'react';
 import {
   Activity, BarChart3, ChartArea, ChartLine, ChartSpline, ChevronUp, CircleHelp, Gauge,
@@ -71,14 +72,14 @@ export default function LiveStudyPanel({
               <label className="live-study-toggle">
                 <input type="checkbox" checked={script.enabled} disabled={Boolean(pendingId)}
                   onChange={() => onScriptChange({...script, enabled: !script.enabled})}/>
-                <Code2 size={17} aria-hidden="true"/><span>{script.name}</span>
+                <Code2 size={17} aria-hidden="true"/><span>{script.name}{isFocusedIndicator(script.builtinId)&&<small> · พื้นฐาน</small>}</span>
               </label>
               <button className="live-icon" type="button" aria-label={'ตั้งค่า ' + script.name}
                 aria-expanded={inputsFor === script.id} title="ตั้งค่าพารามิเตอร์"
                 disabled={pending || (!evaluation?.inputs.length && !script.enabled)}
                 onClick={() => setInputsFor(inputsFor === script.id ? null : script.id)}><SlidersHorizontal size={16}/></button>
-              <button className="live-icon" type="button" aria-label={'แก้ไขโค้ด ' + script.name}
-                disabled={Boolean(pendingId)} title="แก้ไขโค้ด" onClick={() => onEdit(script)}><Pencil size={16}/></button>
+              {!isFocusedIndicator(script.builtinId)&&<button className="live-icon" type="button" aria-label={'แก้ไขโค้ด ' + script.name}
+                disabled={Boolean(pendingId)} title="แก้ไขโค้ด" onClick={() => onEdit(script)}><Pencil size={16}/></button>}
             </div>
             {pending && <div className="live-custom-progress">
               <span role="status">{pendingStatus || 'กำลังคำนวณสคริปต์'}</span><button type="button" onClick={onCancelApply}>ยกเลิก</button>

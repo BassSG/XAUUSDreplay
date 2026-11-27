@@ -1,3 +1,4 @@
+import {isFocusedIndicator} from '../lib/focused-indicators';
 import {useRef, useState} from 'react';
 import {Code2, FileUp, Pencil, Play, Plus, SlidersHorizontal, Trash2} from 'lucide-react';
 import {pineExamples} from '../lib/pine-examples';
@@ -43,12 +44,12 @@ export default function LivePineEditor({scripts, studies, draft, setDraft, pendi
           <div className="script-row">
             <label title={'แสดง ' + s.name}><input type="checkbox" checked={s.enabled} disabled={pending}
               onChange={() => onChange(scripts.map(row => row.id === s.id ? {...row, enabled: !row.enabled} : row))}/>{s.name}</label>
-            <button className="live-icon" disabled={pending} aria-label={'แก้ไข ' + s.name} title="แก้ไขซอร์ส"
-              onClick={() => edit({id: s.id, name: s.name, source: s.source})}><Pencil size={15}/></button>
+            {!isFocusedIndicator(s.builtinId)&&<button className="live-icon" disabled={pending} aria-label={'แก้ไข ' + s.name} title="แก้ไขซอร์ส"
+              onClick={() => edit({id: s.id, name: s.name, source: s.source})}><Pencil size={15}/></button>}
             <button className="live-icon" disabled={!s.enabled || !study?.inputs.length || pending} aria-label={'ตั้งค่า ' + s.name} title="ตั้งค่าพารามิเตอร์"
               aria-expanded={inputsFor === s.id} onClick={() => setInputsFor(inputsFor === s.id ? '' : s.id)}><SlidersHorizontal size={15}/></button>
-            <button className="live-icon" disabled={pending} aria-label={'ถอด ' + s.name} title="ถอดจากกราฟ"
-              onClick={() => { onChange(scripts.filter(row => row.id !== s.id)); if (draft.id === s.id) edit({...newScriptDraft, source: s.source, name: s.name}); }}><Trash2 size={15}/></button>
+            {!isFocusedIndicator(s.builtinId)&&<button className="live-icon" disabled={pending} aria-label={'ถอด ' + s.name} title="ถอดจากกราฟ"
+              onClick={() => { onChange(scripts.filter(row => row.id !== s.id)); if (draft.id === s.id) edit({...newScriptDraft, source: s.source, name: s.name}); }}><Trash2 size={15}/></button>}
           </div>
           {inputsFor === s.id && s.enabled && <PineInputs study={study} values={s.inputs ?? {}}
             onChange={inputs => onChange(scripts.map(row => row.id === s.id ? {...row, inputs} : row))}/>}

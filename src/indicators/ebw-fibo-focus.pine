@@ -1,0 +1,867 @@
+//@version=6
+// EBW Focus · EBW-Fibo-1.10.22 → EBW-Fibo-1.10.32 Basic
+indicator("EBW-Fibo 1.10.32 · Basic · EBW Focus", "EBW FIBO · FOCUS", overlay=true, max_lines_count=35, max_labels_count=42, max_boxes_count=1, calc_bars_count=1200, dynamic_requests=true)
+// Chart-timeframe calculation. Confirmed Stochastic/RSI geometry and target lifecycle.
+const string G_CONTEXT = "00 · Fibo หลาย TF บนกราฟ"
+bool showParent = input.bool(true, "แสดง TF ใหญ่ 1", inline="parent", group=G_CONTEXT, display=display.none)
+string parentInput = input.timeframe("", "TF", inline="parent", group=G_CONTEXT, active=showParent, tooltip="ค่าเริ่มต้นเลือก TF ใหญ่ถัดไปอัตโนมัติ · เลือกได้เฉพาะ TF ที่ใหญ่กว่ากราฟ", display=display.none)
+bool showSecond = input.bool(true, "แสดง TF ใหญ่ 2", inline="second", group=G_CONTEXT, display=display.none)
+string secondInput = input.timeframe("", "TF", inline="second", group=G_CONTEXT, active=showSecond, tooltip="ค่าเริ่มต้นขยับจาก TF ใหญ่ระดับแรกขึ้นอีกหนึ่งขั้น", display=display.none)
+const string G1 = "01 · สวิงและ Break"
+const string G4 = "02 · การแสดงผล"
+int rLen = input.int(14, "RSI", minval = 2, maxval = 100, group = G1, display = display.none)
+int kLen = input.int(9, "Stochastic length", minval = 2, maxval = 100, group = G1, display = display.none)
+int kSmooth = input.int(3, "Smooth K", minval = 1, maxval = 20, group = G1, display = display.none)
+float rOS = input.float(30, "RSI OS", minval = 1, maxval = 49, group = G1, display = display.none)
+float rOB = input.float(70, "RSI OB", minval = 51, maxval = 99, group = G1, display = display.none)
+float kOS = input.float(20, "Stochastic OS", minval = 1, maxval = 49, group = G1, display = display.none)
+float kOB = input.float(80, "Stochastic OB", minval = 51, maxval = 99, group = G1, display = display.none)
+string breakMode = input.string("Wick ของแท่งปิด", "Break กรอบ", options = ["Wick ของแท่งปิด", "Close ของแท่งปิด"], group = G1, display = display.none)
+bool allowNeck = input.bool(true, "กรอบหักคอ: ต้องมี Regular divergence ในรอบ", group = G1, display = display.none)
+int divLen = input.int(3, "ยืนยัน pivot สำหรับ Divergence เท่านั้น", minval = 1, maxval = 20, group = G1, display = display.none)
+int reach = input.int(8, "ระยะป้ายไปทางขวา (แท่ง)", minval = 1, maxval = 100, group = G4, display = display.none)
+bool uiLabels = input.bool(true, "ราคา / ป้ายระดับ", group = G4, display = display.none)
+bool showAnchorMarks = input.bool(true, "แสดงจุด B / C", group=G4, display=display.none)
+bool showPendingFrame = input.bool(true, "แสดงกรอบรอ Break", group=G4, display=display.none)
+bool showReference = input.bool(true, "แสดงเส้นอ้างอิง 0% / 100%", group=G4, tooltip="แสดงเฉพาะชุดหลักด้วยเส้นบาง", display=display.none)
+bool showPreviousMain = input.bool(false, "เป้าค้างของชุดหลักเดิม · TF กราฟ", group=G4, tooltip="แสดงเป้าถัดไปหนึ่งระดับจากชุดหลักเดิมล่าสุดที่ยังมีผล", display=display.none)
+bool showAllPending = input.bool(false, "แสดงเป้าที่เหลือทั้งหมด", group=G4, display=display.none)
+max_bars_back(high, 2001)
+max_bars_back(low, 2001)
+max_bars_back(time, 2001)
+max_bars_back(time_close, 2001)
+
+type Point
+    int kind = 0
+    float p = na
+    float r = na
+    int t = na
+    int i = na
+    float trigger = na
+    int closeT = na
+    int cycle = na
+    bool confirmed = false
+
+// Candidate price geometry only; never mutate Point objects stored in seq.
+type SwingSet
+    bool valid = false
+    Point a
+    Point b
+    Point c
+
+type Episode
+    int kind = 0
+    float p = na
+    float r = na
+    int t = na
+    int i = na
+    float trigger = na
+    int closeT = na
+
+type Frame
+    int side = 0
+    int stage = 0
+    bool neck = false
+    int role = 0
+    Point a
+    Point b
+    Point c
+    int known = na
+    int mainId = na
+
+// A target keeps its frozen anchor coordinates and confirmed lifecycle.
+type BookTarget
+    int side = 0
+    int method = 0
+    float zero = na
+    float span = na
+    int id = na
+    int zeroT = na
+    int born = na
+    int bornEnd = na
+    float pa = na
+    float pb = na
+    int pat = na
+    int pbt = na
+    int paEnd = na
+    int pbEnd = na
+    int pcEnd = na
+    bool neck = false
+    int role = 0
+    float rootPrice = na
+    int rootId = na
+    int hit1618 = na
+    int hit2000 = na
+    int hit2618 = na
+    int hit3500 = na
+    int hit4236 = na
+    int hit5472 = na
+    int closedT = na
+    int closedKind = 0
+    int mainId = na
+
+type BookRoot
+    bool valid = false
+    int side = 0
+    float origin = na
+    int id = na
+    int known = na
+    bool neck = false
+
+// Source-engine-only family metadata. Never widen this frozen main Form range.
+// The admission root above retains its original, independent lifecycle.
+type BookFamily
+    bool valid = false
+    int side = 0
+    int id = na
+    int aCycle = na
+    int cCycle = na
+    float a = na
+    float b = na
+    float c = na
+    float lo = na
+    float hi = na
+    int known = na
+    int breakT = na
+
+f_copy(Point p) =>
+    Point.new(p.kind, p.p, p.r, p.t, p.i, p.trigger, p.closeT, p.cycle, p.confirmed)
+
+// The episode is a zone visit, not an arbitrary Zigzag pivot.
+method step(Episode e, float osc, float os, float ob, float rr) =>
+    var Point emptyEvent = Point.new()
+    Point event = emptyEvent
+    int zone = osc <= os ? -1 : osc >= ob ? 1 : 0
+    if e.kind != 0
+        bool newExtreme = e.kind == -1 ? low < e.p : high > e.p
+        if newExtreme
+            e.p := e.kind == -1 ? low : high
+            e.r := rr
+            e.t := time
+            e.i := bar_index
+            e.trigger := e.kind == -1 ? high[1] : low[1]
+            e.closeT := time_close
+        if zone != e.kind
+            event := Point.new(e.kind, e.p, e.r, e.t, e.i, e.trigger, e.closeT)
+            e.kind := 0
+    if e.kind == 0 and zone != 0
+        e.kind := zone
+        e.p := zone == -1 ? low : high
+        e.r := rr
+        e.t := time
+        e.i := bar_index
+        e.trigger := zone == -1 ? high[1] : low[1]
+        e.closeT := time_close
+    event
+
+// A Stochastic head starts in OS/OB and ends BEFORE the first opposite-zone
+// candle. Neutral-zone price extremes still belong to this developing head.
+// Its first exit confirms one point for Form/TS; later price refinements only
+// update the sequence for FUTURE Forms. Copied Frame/plan anchors never move.
+// Re-entering the same zone is not a fresh cycle and cannot resurrect a Form.
+type SwingHead
+    int kind = 0
+    float p = na
+    float r = na
+    int t = na
+    int i = na
+    float trigger = na
+    int closeT = na
+    int cycle = na
+    bool announced = false
+
+method track(SwingHead head, float osc, float os, float ob, float rr) =>
+    var Point emptyEvent = Point.new()
+    Point event = emptyEvent
+    bool ready = not na(osc) and not na(high) and not na(low)
+    int zone = not ready ? 0 : osc <= os ? -1 : osc >= ob ? 1 : 0
+    if ready
+        bool opposite = head.kind != 0 and zone == -head.kind
+        if opposite and not head.announced
+            // A direct OB->OS / OS->OB jump confirms the previous head once.
+            // Never put BOTH extrema on the transition candle: OHLC has no order.
+            event := Point.new(head.kind, head.p, head.r, head.t, head.i, head.trigger, head.closeT, head.cycle, true)
+        if head.kind == 0 or opposite
+            if zone != 0
+                head.kind := zone
+                head.p := zone == -1 ? low : high
+                head.r := rr
+                head.t := time
+                head.i := bar_index
+                head.trigger := zone == -1 ? high[1] : low[1]
+                head.closeT := time_close
+                head.cycle := time
+                head.announced := false
+        else
+            bool newExtreme = head.kind == -1 ? low < head.p : high > head.p
+            if newExtreme
+                head.p := head.kind == -1 ? low : high
+                head.r := rr
+                head.t := time
+                head.i := bar_index
+                head.trigger := head.kind == -1 ? high[1] : low[1]
+                head.closeT := time_close
+            bool firstExit = not head.announced and zone == 0
+            if firstExit or (head.announced and newExtreme)
+                event := Point.new(head.kind, head.p, head.r, head.t, head.i, head.trigger, head.closeT, head.cycle, firstExit)
+            if firstExit
+                head.announced := true
+    event
+
+f_push(array<Point> seq, Point event, int maxPoints = 6) =>
+    bool changed = false
+    if event.kind != 0
+        int n = seq.size()
+        if n > 0 and seq.get(n - 1).kind == event.kind
+            Point old = seq.get(n - 1)
+            bool better = event.kind == -1 ? event.p < old.p : event.p > old.p
+            if better
+                seq.set(n - 1, f_copy(event))
+                changed := true
+        else
+            seq.push(f_copy(event))
+            if seq.size() > maxPoints
+                seq.shift()
+            changed := true
+    changed
+
+// Read source-TF candle wicks, not the oscillator value at a different candle.
+// RSI is assigned by f_engine, whose rr series is evaluated on every bar.
+method capture(Point point, float price, int historyOffset) =>
+    point.p := price
+    point.r := na
+    point.t := time[historyOffset]
+    point.i := bar_index - historyOffset
+    point.trigger := point.kind == -1 ? high[historyOffset + 1] : low[historyOffset + 1]
+    point.closeT := time_close[historyOffset]
+    point
+
+f_pick_set(array<Point> seq) =>
+    SwingSet picked = SwingSet.new()
+    int count = seq.size()
+    if count >= 3
+        Point lastHead = seq.get(count - 1)
+        int side = lastHead.kind == -1 ? 1 : -1
+        int rootSlot = count - 3
+        bool intactRoot = false
+        bool rootTooOld = false
+        // Prefer the NEAREST same-kind root that C has not broken. An inner
+        // higher high/lower low does not replace the still-intact outer set.
+        // If none exists, retain the original three-point neck candidate;
+        // its RSI-divergence/context checks remain in f_engine.
+        for hop = 0 to int((count - 3) / 2)
+            int slot = count - 3 - hop * 2
+            Point root = seq.get(slot)
+            if not na(root.i) and root.kind == lastHead.kind and root.i < lastHead.i and side * (lastHead.p - root.p) >= 0
+                if bar_index - root.i < 1999
+                    rootSlot := slot
+                    intactRoot := true
+                else
+                    // Missing the outer window is NOT permission to fall back
+                    // to the very same tiny neck that this revision removes.
+                    rootTooOld := true
+                break
+        Point firstHead = seq.get(rootSlot)
+        Point counterHead = seq.get(rootSlot + 1)
+        bool bounded = not rootTooOld and not na(firstHead.i) and not na(lastHead.i) and firstHead.i >= 0 and firstHead.i < lastHead.i and lastHead.i <= bar_index and bar_index - firstHead.i < 1999
+        if bounded
+            Point a = f_copy(firstHead)
+            Point b = Point.new(kind = counterHead.kind, cycle = counterHead.cycle, confirmed = true)
+            Point c = Point.new(kind = lastHead.kind, cycle = lastHead.cycle, confirmed = true)
+            bool historyKnown = true
+            // Closed interval A..C only. NEVER scan into the post-C target leg.
+            // One chronological pass keeps the true outer wick and resets B/C
+            // when A extends, or C when B extends. Equal prices keep first time.
+            for candleIndex = firstHead.i to lastHead.i
+                int offset = bar_index - candleIndex
+                if na(high[offset]) or na(low[offset]) or na(time[offset]) or na(time_close[offset])
+                    historyKnown := false
+                    break
+                float headPrice = lastHead.kind == 1 ? high[offset] : low[offset]
+                float counterPrice = counterHead.kind == 1 ? high[offset] : low[offset]
+                bool rootExtends = intactRoot and (lastHead.kind == 1 ? headPrice > a.p : headPrice < a.p)
+                if rootExtends
+                    a.capture(headPrice, offset)
+                    b.p := na
+                    c.p := na
+                bool counterExtends = na(b.p) or (counterHead.kind == 1 ? counterPrice > b.p : counterPrice < b.p)
+                if counterExtends
+                    b.capture(counterPrice, offset)
+                    c.capture(headPrice, offset)
+                else if na(c.p) or (lastHead.kind == 1 ? headPrice > c.p : headPrice < c.p)
+                    c.capture(headPrice, offset)
+            bool alternating = a.kind == c.kind and b.kind == -c.kind
+            bool ordered = not na(b.i) and not na(c.i) and a.i < b.i and b.i < c.i and a.t < b.t and b.t < c.t
+            bool geometry = side * (b.p - a.p) > 0 and side * (b.p - c.p) > 0
+            if historyKnown and alternating and ordered and geometry
+                picked := SwingSet.new(true, a, b, c)
+    picked
+
+f_breached(int side, float zero) =>
+    side == 1 ? low < zero : side == -1 ? high > zero : false
+
+f_break(int side, float boundary) =>
+    float observed = breakMode == "Close ของแท่งปิด" ? close : side == 1 ? high : low
+    side == 1 ? observed > boundary : observed < boundary
+
+f_method(Frame frame) =>
+    // E/N differ only in structural classification, both measure B->C.
+    frame.neck ? 3 : 1
+
+// BEGIN BOOK LIFECYCLE
+f_bookDead(int side, float boundary) =>
+    not na(boundary) and (side == 1 ? low < boundary : side == -1 ? high > boundary : false)
+
+// Hit times are recognition times, not inferred tick times. All fields are scalars.
+// Completion is a display/target lifecycle, NOT an Elliott/RSI cycle-end claim.
+f_bookActive(BookTarget p) =>
+    not na(p) and p.side != 0 and na(p.closedT)
+
+f_bookHitTime(BookTarget p, float ratio) =>
+    switch ratio
+        1.618 => p.hit1618
+        2.0 => p.hit2000
+        2.618 => p.hit2618
+        3.5 => p.hit3500
+        4.236 => p.hit4236
+        5.472 => p.hit5472
+        => int(na)
+
+f_bookPending(BookTarget p, float ratio) =>
+    f_bookActive(p) and ratio > 1 and na(f_bookHitTime(p, ratio))
+
+f_bookAdvance(BookTarget p, float extreme, int known) =>
+    if f_bookActive(p) and not na(extreme) and not na(known)
+        if p.side * (extreme - (p.zero + p.span * 1.618)) >= 0 and na(p.hit1618)
+            p.hit1618 := known
+        if p.side * (extreme - (p.zero + p.span * 2.0)) >= 0 and na(p.hit2000)
+            p.hit2000 := known
+        if p.side * (extreme - (p.zero + p.span * 2.618)) >= 0 and na(p.hit2618)
+            p.hit2618 := known
+        if p.side * (extreme - (p.zero + p.span * 3.5)) >= 0 and na(p.hit3500)
+            p.hit3500 := known
+        if p.side * (extreme - (p.zero + p.span * 4.236)) >= 0 and na(p.hit4236)
+            p.hit4236 := known
+        if p.side * (extreme - (p.zero + p.span * 5.472)) >= 0
+            p.hit5472 := na(p.hit5472) ? known : p.hit5472
+            p.closedT := known
+            p.closedKind := 1
+    true
+
+f_bookRoot(Point a, Point c, int side, bool neck) =>
+    BookRoot.new(valid = true, side = side, origin = neck ? c.p : a.p, id = neck ? c.t : a.t, known = time_close, neck = neck)
+
+f_familySeed(BookFamily m, Point a, Point b, Point c, int side) =>
+    m.valid := true
+    m.side := side
+    m.id := c.t
+    m.aCycle := a.cycle
+    m.cCycle := c.cycle
+    m.a := a.p
+    m.b := b.p
+    m.c := c.p
+    m.lo := math.min(math.min(a.p, b.p), c.p)
+    m.hi := math.max(math.max(a.p, b.p), c.p)
+    m.known := time_close
+    m.breakT := na
+    true
+
+f_familySame(BookFamily m, Point a, Point c) =>
+    m.valid and m.side == -c.kind and (c.t == m.id or (a.cycle == m.aCycle and c.cycle == m.cCycle))
+
+// 0=main Form, 1=joint formed inside its frozen range before/on its Break,
+// 2=later continuation after its Break. Neck remains an independent flag.
+f_familyRole(BookFamily m, Point a, Point b, Point c, bool neck) =>
+    bool known = m.valid and m.side == -c.kind and not na(m.known) and m.known <= time_close
+    bool next = known and not f_familySame(m, a, c) and c.cycle > m.cCycle and c.t > m.id
+    bool sequence = next and a.cycle >= m.cCycle and a.cycle < b.cycle and b.cycle < c.cycle and a.t >= m.id
+    bool inside = math.min(math.min(a.p, b.p), c.p) >= m.lo and math.max(math.max(a.p, b.p), c.p) <= m.hi
+    bool preBreak = na(m.breakT) or time_close <= m.breakT
+    bool joint = sequence and inside and preBreak
+    neck or not next ? 0 : joint ? 1 : not na(m.breakT) and m.breakT <= time_close ? 2 : 0
+
+f_familyAdvance(BookFamily m) =>
+    if m.valid and time_close > m.known
+        if f_bookDead(m.side, m.c) or f_bookDead(m.side, m.a)
+            m.valid := false
+        else
+            if na(m.breakT) and f_break(m.side, m.b)
+                m.breakT := time_close
+            float lastTarget = m.c + (m.b - m.c) * 5.472
+            if not na(m.breakT) and m.side * ((m.side == 1 ? high : low) - lastTarget) >= 0
+                m.valid := false
+    m.valid
+
+f_bookCapture(Frame frame, BookRoot root) =>
+    // Capture the frozen Frame directly; do not build two full temporary Views.
+    BookTarget captured = BookTarget.new(side = frame.side, method = f_method(frame), zero = frame.c.p, span = frame.b.p - frame.c.p, id = frame.c.t, zeroT = frame.c.t, born = time, bornEnd = time_close, pa = frame.a.p, pb = frame.b.p, pat = frame.a.t, pbt = frame.b.t, paEnd = frame.a.closeT, pbEnd = frame.b.closeT, pcEnd = frame.c.closeT, neck = frame.neck, role = frame.role, mainId = frame.mainId, rootPrice = root.origin, rootId = root.id)
+
+    f_bookAdvance(captured, captured.side == 1 ? high : low, time_close)
+    captured
+
+f_bookAdd(array<BookTarget> records, BookTarget fresh) =>
+    bool duplicate = false
+    if records.size() > 0
+        for i = 0 to records.size() - 1
+            BookTarget old = records.get(i)
+            duplicate := duplicate or (old.side == fresh.side and old.id == fresh.id)
+    if not duplicate
+        records.push(fresh)
+        if records.size() > 3
+            // Evict archived records first; protected roots have a separate lifetime.
+            int discard = 1
+            bool archived = false
+            for i = 0 to records.size() - 2
+                if not f_bookActive(records.get(i))
+                    discard := i
+                    archived := true
+                    break
+            if not archived
+                for i = 0 to records.size() - 2
+                    if records.get(i).role != 0
+                        discard := i
+                        break
+            records.remove(discard)
+    records.size()
+
+f_previousMain(array<BookTarget> records, int latestBorn) =>
+    BookTarget result = na
+    if records.size() > 0
+        for i = records.size() - 1 to 0
+            BookTarget p = records.get(i)
+            if f_bookActive(p) and p.born < latestBorn and p.role == 0 and not p.neck
+                result := p
+                break
+    result
+
+type BasicState
+    BookTarget activeSet
+    Frame currentFrame
+    BookTarget previousMain
+
+f_update(BasicState state, float rr, float kk, simple bool includePrevious = false) =>
+    var Episode re = Episode.new()
+    var SwingHead ke = SwingHead.new()
+    var array<Point> rseq = array.new<Point>()
+    var array<Point> kseq = array.new<Point>()
+    var Frame bull = Frame.new(a = Point.new(), b = Point.new(), c = Point.new())
+    var Frame bear = Frame.new(a = Point.new(), b = Point.new(), c = Point.new())
+    var int rBias = 0
+    var int lastROS = na
+    var int lastROB = na
+    var float rLowPrice = na
+    var float rHighPrice = na
+    var int divState = 0
+    var float divR = na
+    var float divRef = na
+    var Point prevLow = Point.new()
+    var Point prevHigh = Point.new()
+    var int usedBull = na
+    var int usedBear = na
+    // Immutable empty sentinels. No consumer writes fields into them.
+    var int latestTargetBorn = na
+    var array<BookTarget> bookRecords = array.new<BookTarget>()
+    var BookRoot bookUp = BookRoot.new()
+    var BookRoot bookDn = BookRoot.new()
+    var BookFamily familyUp = BookFamily.new()
+    var BookFamily familyDn = BookFamily.new()
+
+    Point rp = re.step(rr, rOS, rOB, rr)
+    bool rc = f_push(rseq, rp)
+    if rp.kind == -1
+        lastROS := rp.t
+        rLowPrice := rp.p
+    if rp.kind == 1
+        lastROB := rp.t
+        rHighPrice := rp.p
+    if rc and rseq.size() >= 3
+        Point ra = rseq.get(rseq.size() - 3)
+        Point rb = rseq.get(rseq.size() - 2)
+        Point rz = rseq.get(rseq.size() - 1)
+        rBias := rz.kind == -1 and rz.p >= ra.p ? 1 : rz.kind == 1 and rz.p <= ra.p ? -1 : 0
+    if rBias == 1 and low < rLowPrice or rBias == -1 and high > rHighPrice
+        rBias := 0
+
+    // Divergence only: confirmed price pivots, with RSI at the same candle.
+    float pl = ta.pivotlow(low, divLen, divLen)
+    float ph = ta.pivothigh(high, divLen, divLen)
+    if not na(pl)
+        Point p = Point.new(-1, pl, rr[divLen], time[divLen], bar_index - divLen, high[divLen + 1])
+        bool separated = not na(lastROB) and lastROB > prevLow.t
+        bool regular = not na(prevLow.p) and not separated and p.p < prevLow.p and p.r > prevLow.r
+        bool hidden = not na(prevLow.p) and not separated and p.p > prevLow.p and p.r < prevLow.r
+        if regular or hidden
+            divState := regular ? 1 : 2
+            divR := p.r
+            divRef := prevLow.p
+        prevLow := p
+    if not na(ph)
+        Point p = Point.new(1, ph, rr[divLen], time[divLen], bar_index - divLen, low[divLen + 1])
+        bool separated = not na(lastROS) and lastROS > prevHigh.t
+        bool regular = not na(prevHigh.p) and not separated and p.p > prevHigh.p and p.r < prevHigh.r
+        bool hidden = not na(prevHigh.p) and not separated and p.p < prevHigh.p and p.r > prevHigh.r
+        if regular or hidden
+            divState := regular ? -1 : -2
+            divR := p.r
+            divRef := prevHigh.p
+        prevHigh := p
+    bool clearBull = divState == 1 and (rr <= rOS and rr < divR or kk >= kOB)
+    bool clearBear = divState == -1 and (rr >= rOB and rr > divR or kk <= kOS)
+    bool clearHB = divState == 2 and (low < divRef or rr >= rOB)
+    bool clearHS = divState == -2 and (high > divRef or rr <= rOS)
+    if clearBull or clearBear or clearHB or clearHS
+        divState := 0
+
+    // Each target dies at its own zero OR its protected root; no anchor is moved.
+    // A failed C does not kill the larger A-root that can host a NEW confirmed Form.
+    f_familyAdvance(familyUp)
+    f_familyAdvance(familyDn)
+    if bookUp.valid and f_bookDead(1, bookUp.origin)
+        bookUp := BookRoot.new()
+    if bookDn.valid and f_bookDead(-1, bookDn.origin)
+        bookDn := BookRoot.new()
+    if bookRecords.size() > 0
+        for i = bookRecords.size() - 1 to 0
+            BookTarget old = bookRecords.get(i)
+            if f_bookDead(old.side, old.zero) or f_bookDead(old.side, old.rootPrice)
+                bookRecords.remove(i)
+            else if f_bookActive(old)
+                if time > old.born
+                    float extreme = old.side == 1 ? high : low
+                    f_bookAdvance(old, extreme, time_close)
+    if bull.stage > 0 and f_bookDead(1, bull.c.p)
+        usedBull := bull.c.cycle
+        bull.stage := 0
+    if bear.stage > 0 and f_bookDead(-1, bear.c.p)
+        usedBear := bear.c.cycle
+        bear.stage := 0
+    Point kp = ke.track(kk, kOS, kOB, rr)
+    bool kc = f_push(kseq, kp, 64)
+    // Refinements feed later heads, but never recreate or move this Form.
+    if kc and kp.confirmed
+        int n = kseq.size()
+        if n >= 3
+            Point head = kseq.get(n - 1)
+            int side = head.kind == -1 ? 1 : -1
+            SwingSet picked = f_pick_set(kseq)
+            if picked.valid
+                Point a = picked.a
+                Point b = picked.b
+                Point c = picked.c
+                a.r := rr[bar_index - a.i]
+                b.r := rr[bar_index - b.i]
+                c.r := rr[bar_index - c.i]
+                bool held = side * (c.p - a.p) >= 0
+                bool sameRSI = side == 1 ? na(lastROB) or lastROB < a.t : na(lastROS) or lastROS < a.t
+                bool neck = not held and sameRSI and side * (c.r - a.r) > 0
+                bool initialContext = side == 1 ? a.r <= rOS or rBias == 1 or divState == 1 : a.r >= rOB or rBias == -1 or divState == -1
+                BookRoot root = side == 1 ? bookUp : bookDn
+                bool rootContext = root.valid and a.t >= root.id and side * (c.p - root.origin) >= 0
+                BookFamily family = side == 1 ? familyUp : familyDn
+                int role = 0
+                int mainId = na
+                bool candidate = not f_breached(side, c.p) and ((held and (initialContext or rootContext)) or (allowNeck and neck))
+                if candidate
+                    int priorRole = -1
+                    if bookRecords.size() > 0
+                        for old in bookRecords
+                            if old.side == side and old.id == c.t
+                                priorRole := old.role
+                                mainId := old.mainId
+                                break
+                    if priorRole >= 0
+                        role := priorRole
+                    else
+                        role := f_familyRole(family, a, b, c, neck)
+                        if not neck
+                            if not family.valid or (role == 0 and (not f_familySame(family, a, c) or na(family.breakT) and family.id != c.t))
+                                f_familySeed(family, a, b, c, side)
+                            mainId := family.id
+                            if side == 1
+                                familyUp := family
+                            else
+                                familyDn := family
+                    if not rootContext or (root.neck and not neck)
+                        root := f_bookRoot(a, c, side, neck)
+                    if side == 1
+                        bookUp := root
+                    else
+                        bookDn := root
+                int usedCycle = side == 1 ? usedBull : usedBear
+                if candidate and (na(usedCycle) or c.cycle != usedCycle)
+                    Frame formed = Frame.new(side, 1, neck, role, f_copy(a), f_copy(b), f_copy(c), time, mainId)
+                    if side == 1
+                        bull := formed
+                    else
+                        bear := formed
+
+    // Invalidate before break; reject bars touching both boundaries.
+    bool bullBreak = bull.stage == 1 and time > bull.c.t and not f_breached(1, bull.c.p) and f_break(1, bull.b.p)
+    bool bearBreak = bear.stage == 1 and time > bear.c.t and not f_breached(-1, bear.c.p) and f_break(-1, bear.b.p)
+    if bullBreak and bearBreak
+        bull.stage := 0
+        bear.stage := 0
+        usedBull := bull.c.cycle
+        usedBear := bear.c.cycle
+        bullBreak := false
+        bearBreak := false
+    if bullBreak or bearBreak
+        Frame chosen = bullBreak ? bull : bear
+        int method = f_method(chosen)
+        int side = chosen.side
+        chosen.stage := 2
+        if side == 1
+            usedBull := chosen.c.cycle
+        else
+            usedBear := chosen.c.cycle
+        // Every valid broken Form uses B->C; Gauge never changes the method.
+        if method != 0 and side != 0
+            // A later same-source A/B/C with confirmed opposite Break can take over.
+            // Pending Form, first-target touch or an oscillator cross alone cannot.
+            if bookRecords.size() > 0
+                for old in bookRecords
+                    float firstTarget = old.method == 3 ? 1.618 : 2.618
+                    bool laterLeg = chosen.a.t >= old.born and chosen.b.t > chosen.a.t and chosen.c.t > chosen.b.t
+                    if f_bookActive(old) and old.side == -side and not na(f_bookHitTime(old, firstTarget)) and laterLeg
+                        old.closedT := time_close
+                        old.closedKind := 2
+                        if old.side == 1 and old.id == familyUp.id
+                            familyUp.valid := false
+                        if old.side == -1 and old.id == familyDn.id
+                            familyDn.valid := false
+            BookRoot root = side == 1 ? bookUp : bookDn
+            BookFamily family = side == 1 ? familyUp : familyDn
+            if family.valid and chosen.role == 0 and chosen.mainId == family.id and na(family.breakT)
+                family.breakT := time_close
+            f_bookAdd(bookRecords, f_bookCapture(chosen, root))
+            // Display metadata only: remember the latest ACCEPTED set, even after removal.
+            // A duplicate ID rejected by f_bookAdd must not create a phantom birth.
+            latestTargetBorn := na(latestTargetBorn) ? bookRecords.last().born : math.max(latestTargetBorn, bookRecords.last().born)
+    // The latest accepted set owns the display until it completes or is invalidated.
+    BookTarget latest = bookRecords.size() > 0 ? bookRecords.last() : na
+    BookTarget active = f_bookActive(latest) and latest.born == latestTargetBorn ? latest : na
+    bool useBull = bull.stage > 0 and (bear.stage == 0 or na(bear.known) or bull.known >= bear.known)
+    Frame waiting = useBull ? bull : bear.stage > 0 ? bear : na
+    state.activeSet := active
+    state.currentFrame := waiting
+    if includePrevious and (barstate.islastconfirmedhistory or barstate.islast)
+        state.previousMain := f_previousMain(bookRecords, latestTargetBorn)
+    true
+
+const color GOLD = #E6C06A
+const color INK = #9EABC0
+const color PANEL = #131C27
+var array<float> targetRatios = array.from(1.618, 2.0, 2.618, 3.5, 4.236, 5.472)
+
+// Allocate drawing objects only when the latest confirmed state is displayed.
+var array<line> drawnLines = array.new<line>()
+var array<label> drawnLabels = array.new<label>()
+var box drawnFrame = na
+
+f_level(string caption, float price, int startT, int endT, color tint, int weight, string pattern, bool secondary = false, bool individualLabel = true, string detail = "") =>
+    drawnLines.push(line.new(startT, price, endT, price, xloc=xloc.bar_time, color=tint, width=weight, style=pattern))
+    if uiLabels and individualLabel
+        string value = str.tostring(price, format.mintick)
+        drawnLabels.push(label.new(endT, price, secondary ? caption : caption + "  " + value, xloc=xloc.bar_time, style=label.style_label_left, color=color.new(PANEL, secondary ? 65 : 15), textcolor=tint, size=secondary ? size.tiny : size.small, tooltip=(detail == "" ? caption : detail) + "  " + value))
+
+f_tfCaption(simple string tf) =>
+    int seconds = timeframe.in_seconds(tf)
+    seconds < 60 ? str.tostring(seconds) + "s" : seconds < 3600 ? str.tostring(seconds / 60) + "m" : seconds < 86400 ? str.tostring(seconds / 3600) + "H" : tf
+
+f_parentTF(simple int seconds) =>
+    seconds < 300 ? "5" : seconds < 900 ? "15" : seconds < 3600 ? "60" : seconds < 14400 ? "240" : seconds < 86400 ? "1D" : seconds < 604800 ? "1W" : "1M"
+
+f_nextTarget(BookTarget plan) =>
+    na(plan.hit1618) ? 0 : na(plan.hit2000) ? 1 : na(plan.hit2618) ? 2 : na(plan.hit3500) ? 3 : na(plan.hit4236) ? 4 : 5
+
+f_anchorMarks(string prefix, int direction, float zero, float span, int bTime, int cTime, color tint, color cTint, int role) =>
+    if showAnchorMarks
+        drawnLabels.push(label.new(bTime, zero + span, "B", xloc=xloc.bar_time, style=direction == 1 ? label.style_label_down : label.style_label_up, color=PANEL, textcolor=tint, size=size.tiny, tooltip=prefix + "B · 100%  " + str.tostring(zero + span, format.mintick)))
+        string roleName = role == 3 ? "หักคอ" : role == 1 ? "ข้อต่อ" : role == 2 ? "ต่อ" : "หลัก"
+        drawnLabels.push(label.new(cTime, zero, "C", xloc=xloc.bar_time, style=direction == 1 ? label.style_label_up : label.style_label_down, color=PANEL, textcolor=cTint, size=size.tiny, tooltip=prefix + "C · " + roleName + " · 0%  " + str.tostring(zero, format.mintick)))
+
+f_drawTargets(string prefix, int direction, float zero, float span, int bTime, int cTime, int role, int nextTarget, int rightT, color tint, string pattern, bool overlap = false) =>
+    string targetPrefix = prefix + (direction == 1 ? "↑ " : "↓ ")
+    if role == 0 and showReference
+        color referenceTint = color.new(INK, 50)
+        f_level("0%", zero, cTime, rightT, referenceTint, 1, pattern, true, not showAnchorMarks, targetPrefix + "0%")
+        f_level("100%", zero + span, bTime, rightT, referenceTint, 1, pattern, true, not showAnchorMarks, targetPrefix + "100%")
+    int finalTarget = showAllPending ? targetRatios.size() - 1 : nextTarget
+    for j = nextTarget to finalTarget
+        float ratio = targetRatios.get(j)
+        bool isNext = j == nextTarget
+        bool highlighted = isNext and overlap
+        color levelTint = highlighted ? #FFD88A : isNext ? tint : color.new(tint, 62)
+        string percent = str.tostring(ratio * 100, "#.###") + "%"
+        string detail = targetPrefix + percent + (isNext ? " · เป้าถัดไป" : "")
+        f_level(isNext ? targetPrefix + percent : percent, zero + span * ratio, cTime, rightT, levelTint, highlighted ? 3 : isNext ? 2 : 1, pattern, not isNext, not highlighted, detail)
+    color cTint = role == 3 ? #BF92DC : role == 1 ? #79BDD5 : role == 2 ? INK : tint
+    f_anchorMarks(prefix, direction, zero, span, bTime, cTime, tint, cTint, role)
+
+// Transmit only primitive fields from the preceding, closed source candle.
+f_confirmedLevels(simple int lag = 1) =>
+    float sourceRSI = ta.rsi(close, rLen)
+    float sourceK = ta.sma(ta.stoch(close, high, low, kLen), kSmooth)
+    max_bars_back(sourceRSI, 240)
+    var BasicState source = BasicState.new()
+    f_update(source, sourceRSI, sourceK)
+    BookTarget plan = source.activeSet
+    Frame frame = source.currentFrame
+    bool active = f_bookActive(plan)
+    bool pending = not active and not na(frame) and frame.stage == 1
+    int phase = active ? 2 : pending ? 1 : 0
+    int direction = active ? plan.side : pending ? frame.side : 0
+    float zero = active ? plan.zero : pending ? frame.c.p : na
+    float span = active ? plan.span : pending ? frame.b.p - frame.c.p : na
+    int bTime = active ? plan.pbt : pending ? frame.b.t : na
+    int cTime = active ? plan.zeroT : pending ? frame.c.t : na
+    int role = active ? (plan.neck ? 3 : plan.role) : 0
+    int nextTarget = active ? f_nextTarget(plan) : 0
+    int bEnd = active ? plan.pbEnd : pending ? frame.b.closeT : na
+    int cEnd = active ? plan.pcEnd : pending ? frame.c.closeT : na
+    [phase[lag], direction[lag], zero[lag], span[lag], bTime[lag], cTime[lag], role[lag], nextTarget[lag], bEnd[lag], cEnd[lag]]
+
+type DisplaySet
+    int phase = 0
+    int direction = 0
+    float zero = na
+    float span = na
+    int bTime = na
+    int cTime = na
+    int role = 0
+    int nextTarget = 0
+    int bEnd = na
+    int cEnd = na
+
+// Display only. An HTF candle is stamped at its open even when its wick
+// occurred on a later chart bar. Find the first matching wick in that candle.
+f_alignAnchor(int opened, int ended, float price, bool isHigh) =>
+    int displayed = opened
+    if not na(opened) and not na(ended) and not na(price) and time >= opened
+        int oldest = math.min(bar_index, 1999)
+        int newest = 0
+        while newest < oldest
+            int mid = int(math.ceil((newest + oldest) / 2.0))
+            if not na(time[mid]) and time[mid] >= opened
+                newest := mid
+            else
+                oldest := mid - 1
+        for offset = newest to 0
+            if time[offset] >= ended
+                break
+            if time[offset] >= opened and time_close[offset] <= ended
+                float wick = isHigh ? high[offset] : low[offset]
+                if math.abs(wick - price) < syminfo.mintick * 0.5
+                    displayed := time[offset]
+                    break
+    displayed
+
+// Compare only the next live target from each selected TF. Keep each line
+// at its original price and keep opposite-direction targets independent.
+f_lowerSet() =>
+    [phase, side, zero, span, bt, ct, role, target, bEnd, cEnd] = f_confirmedLevels(0)
+    DisplaySet.new(phase, side, zero, span, bt, ct, role, target)
+
+f_nextPrice(DisplaySet s) =>
+    s.zero + s.span * targetRatios.get(s.nextTarget)
+
+f_overlap(DisplaySet a, DisplaySet b, float atr) =>
+    bool match = false
+    if a.phase == 2 and b.phase == 2 and a.direction == b.direction
+        float band = math.max(syminfo.mintick, math.min(nz(atr) * 0.15, math.min(math.abs(a.span), math.abs(b.span)) * 0.02))
+        match := math.abs(f_nextPrice(a) - f_nextPrice(b)) <= band + syminfo.mintick * 0.000001
+    match
+
+f_clusterRow(DisplaySet s, string tf) =>
+    "\n" + tf + " · " + str.tostring(targetRatios.get(s.nextTarget) * 100, "#.###") + "%  " + str.tostring(f_nextPrice(s), format.mintick)
+
+f_drawSource(DisplaySet source, string name, color tint, string pattern, int rightT, bool overlap = false, bool align = false) =>
+    if source.phase == 2
+        int bTime = align and (showAnchorMarks or (source.role == 0 and showReference)) ? f_alignAnchor(source.bTime, source.bEnd, source.zero + source.span, source.direction == 1) : source.bTime
+        int cTime = align ? f_alignAnchor(source.cTime, source.cEnd, source.zero, source.direction == -1) : source.cTime
+        f_drawTargets(name + " ", source.direction, source.zero, source.span, bTime, cTime, source.role, source.nextTarget, rightT, tint, pattern, overlap)
+    else if showPendingFrame and source.phase == 1
+        string caption = name + " · รอ Break" + (source.direction == 1 ? " ↑" : " ↓")
+        int bTime = align ? f_alignAnchor(source.bTime, source.bEnd, source.zero + source.span, source.direction == 1) : source.bTime
+        f_level(caption, source.zero + source.span, bTime, rightT, color.new(tint, 25), 1, pattern)
+
+simple string autoFirst = f_parentTF(timeframe.in_seconds())
+simple string parentTF = parentInput == "" ? autoFirst : parentInput
+bool parentHigher = timeframe.in_seconds(parentTF) >= 300 and timeframe.in_seconds(parentTF) > timeframe.in_seconds()
+simple string autoSecond = f_parentTF(timeframe.in_seconds(parentHigher ? parentTF : autoFirst))
+simple string secondTF = secondInput == "" ? autoSecond : secondInput
+bool useParent = showParent and parentHigher
+bool useSecond = showSecond and timeframe.in_seconds(secondTF) >= 300 and timeframe.in_seconds(secondTF) > timeframe.in_seconds() and (not useParent or timeframe.in_seconds(secondTF) != timeframe.in_seconds(parentTF))
+var DisplaySet parent = DisplaySet.new()
+var DisplaySet second = DisplaySet.new()
+if useParent
+    [phase, direction, zero, span, bTime, cTime, role, target, bEnd, cEnd] = request.security(syminfo.tickerid, parentTF, f_confirmedLevels(), lookahead=barmerge.lookahead_on, calc_bars_count=240)
+    if barstate.islast
+        parent := DisplaySet.new(phase, direction, zero, span, bTime, cTime, role, target, bEnd, cEnd)
+if useSecond
+    [phase, direction, zero, span, bTime, cTime, role, target, bEnd, cEnd] = request.security(syminfo.tickerid, secondTF, f_confirmedLevels(), lookahead=barmerge.lookahead_on, calc_bars_count=240)
+    if barstate.islast
+        second := DisplaySet.new(phase, direction, zero, span, bTime, cTime, role, target, bEnd, cEnd)
+
+float chartAtr = ta.atr(14)
+float rsi = ta.rsi(close, rLen)
+float stochastic = ta.sma(ta.stoch(close, high, low, kLen), kSmooth)
+max_bars_back(rsi, 2001)
+var BasicState state = BasicState.new()
+if timeframe.in_seconds() >= 300 and barstate.isconfirmed
+    f_update(state, rsi, stochastic, showPreviousMain)
+BookTarget activeSet = state.activeSet
+Frame currentFrame = state.currentFrame
+
+if barstate.islast
+    for previousLine in drawnLines
+        line.delete(previousLine)
+    drawnLines.clear()
+    for previousLabel in drawnLabels
+        label.delete(previousLabel)
+    drawnLabels.clear()
+    box.delete(drawnFrame)
+    drawnFrame := na
+    int barDuration = int(timeframe.in_seconds() * 1000)
+    int rightT = time + barDuration * reach
+    bool chartActive = not na(activeSet) and not f_bookDead(activeSet.side, activeSet.zero) and not f_bookDead(activeSet.side, activeSet.rootPrice)
+    DisplaySet current = DisplaySet.new()
+    if chartActive
+        current := DisplaySet.new(2, activeSet.side, activeSet.zero, activeSet.span, activeSet.pbt, activeSet.zeroT, activeSet.neck ? 3 : activeSet.role, f_nextTarget(activeSet))
+    string chartName = f_tfCaption(timeframe.period)
+    string firstName = f_tfCaption(parentTF)
+    string secondName = f_tfCaption(secondTF)
+    float stableAtr = barstate.isconfirmed ? chartAtr : chartAtr[1]
+    bool chartParent = useParent and f_overlap(current, parent, stableAtr)
+    bool chartSecond = useSecond and f_overlap(current, second, stableAtr)
+    bool bothHigher = useParent and useSecond and f_overlap(parent, second, stableAtr)
+    bool markChart = chartParent or chartSecond
+    bool markParent = chartParent or bothHigher
+    bool markSecond = chartSecond or bothHigher
+    f_drawSource(current, chartName, GOLD, line.style_solid, rightT, markChart)
+    BookTarget previous = state.previousMain
+    if showPreviousMain and f_bookActive(previous) and not f_bookDead(previous.side, previous.zero) and not f_bookDead(previous.side, previous.rootPrice)
+        float ratio = targetRatios.get(f_nextTarget(previous))
+        string priorCaption = chartName + (previous.side == 1 ? " ↑" : " ↓") + " · หลักเดิม · " + str.tostring(ratio * 100, "#.###") + "%"
+        f_level(chartName + (previous.side == 1 ? " ↑" : " ↓") + " เดิม", previous.zero + previous.span * ratio, previous.zeroT, rightT + barDuration * 9, color.new(INK, 25), 1, line.style_dashed, true, true, priorCaption)
+    if showPendingFrame and not na(currentFrame) and currentFrame.stage == 1 and not f_bookDead(currentFrame.side, currentFrame.c.p)
+        float frameTop = math.max(currentFrame.a.p, currentFrame.b.p, currentFrame.c.p)
+        float frameBottom = math.min(currentFrame.a.p, currentFrame.b.p, currentFrame.c.p)
+        drawnFrame := box.new(currentFrame.a.t, frameTop, rightT, frameBottom, xloc=xloc.bar_time, border_color=color.new(INK, 65), border_style=line.style_dotted, bgcolor=color.new(INK, 98))
+        drawnLabels.push(label.new(currentFrame.a.t, frameBottom, f_tfCaption(timeframe.period) + " · รอ Break" + (currentFrame.side == 1 ? " ↑" : " ↓"), xloc=xloc.bar_time, style=label.style_label_upper_left, color=PANEL, textcolor=INK, size=size.tiny))
+
+    if useParent
+        f_drawSource(parent, firstName, #82B8DD, line.style_dashed, rightT + barDuration * 3, markParent, true)
+    if useSecond
+        f_drawSource(second, secondName, #C7B6E7, line.style_dotted, rightT + barDuration * 6, markSecond, true)
+    if uiLabels and (markChart or bothHigher)
+        // In a three-way chain, anchor to the TF that directly matches both others.
+        DisplaySet anchor = chartParent and chartSecond ? current : chartParent and bothHigher ? parent : markSecond ? second : parent
+        string caption = (anchor.direction == 1 ? "↑" : "↓") + " เป้าถัดไปซ้อน TF"
+        caption += markChart ? f_clusterRow(current, chartName) : ""
+        caption += markParent ? f_clusterRow(parent, firstName) : ""
+        caption += markSecond ? f_clusterRow(second, secondName) : ""
+        int labelT = rightT + barDuration * (markSecond ? 6 : 3)
+        string names = (markChart ? chartName : "") + (markParent ? (markChart ? "+" : "") + firstName : "") + (markSecond ? "+" + secondName : "")
+        string compact = names + (anchor.direction == 1 ? " ↑ " : " ↓ ") + str.tostring(f_nextPrice(anchor), format.mintick)
+        drawnLabels.push(label.new(labelT, f_nextPrice(anchor), compact, xloc=xloc.bar_time, style=label.style_label_left, color=PANEL, textcolor=#FFD88A, size=size.small, tooltip=caption))

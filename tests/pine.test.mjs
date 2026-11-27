@@ -272,3 +272,20 @@ test('inline Replay Pine uses revealed minutes when a higher chart requests a fo
  assert.equal(lower.at(-1).close,2027);
  assert.ok(lower.every(bar=>bar.openTime<asOf*1000));
 });
+
+test('the shipped Focus pair loads with bounded drawing output and keeps the oscillator pane',async()=>{
+ const scripts=[
+  {id:'focus-all',builtinId:'ebw-focus-all-indy',name:'All Indy Focus',file:'all-indy-ebw-focus.pine'},
+  {id:'focus-fibo',builtinId:'ebw-focus-fibo',name:'EBW Fibo Focus',file:'ebw-fibo-focus.pine'},
+ ].map(({file,...job})=>({...job,source:fs.readFileSync(new URL('../src/indicators/'+file,import.meta.url),'utf8')}));
+ const minutes=base.slice(0,480);
+ const bars=aggregate(minutes,300);
+ const result=await run('',{scripts,bars,baseBars:minutes,seconds:300});
+ assertGood(result);
+ assert.deepEqual(result.studies.map(study=>study.id),['focus-all','focus-fibo']);
+ const osc=result.plots.filter(p=>p.indicatorId==='focus-all'&&p.style!=='hline');
+ assert.equal(osc.length,3);
+ assert.ok(osc.every(p=>!p.overlay&&p.data.some(point=>point.value!==null)));
+ assert.ok(result.drawings.filter(d=>d.kind==='box'&&d.indicatorId==='focus-all').length<=8);
+ assert.equal(result.tables.length,0);
+});

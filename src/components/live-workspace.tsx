@@ -1,4 +1,5 @@
 import DrawingObjects from './drawing-objects';
+import {prepareFocusedIndicators} from '../lib/focused-defaults';
 import InlineReplayControls from './inline-replay-controls';
 import {useInlineReplay} from '../lib/use-inline-replay';
 import {useReplayChartFrames} from '../lib/use-inline-replay-studies';
@@ -40,6 +41,7 @@ const cameraKey = workspaceKey + '-camera';
 // Discard the too-wide saved viewport once after changing the live framing.
 const cameraVersion = 2;
 const noTrades: Trade[] = [];
+const noIndicators:IndicatorSpec[]=[];
 const price = new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const clock = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short',
@@ -76,7 +78,7 @@ function readWorkingChart() {
     raw = JSON.parse(localStorage.getItem(workspaceKey) ?? 'null');
     camera = JSON.parse(localStorage.getItem(cameraKey) ?? 'null');
   } catch { /* A fresh or private browser can still open the chart. */ }
-  const workspace = loadLiveWorkspace(raw);
+  const workspace = loadLiveWorkspace(raw ?? {studies:[]});
   const library = mergeScripts(workspace.scripts, loadLiveWorkspace({scripts: raw?.library}).scripts);
   const link = raw?.activeLayout;
   const active: ActiveLayout | null = link && typeof link.id === 'string' && typeof link.name === 'string'
@@ -90,6 +92,16 @@ function readWorkingChart() {
 export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [initial] = useState(readWorkingChart);
   const [workspace, setWorkspace] = useState(initial.workspace);
+  const [indicatorBoot,setIndicatorBoot]=useState(true);
+  useEffect(()=>{
+    let active=true;
+    void prepareFocusedIndicators(initial.workspace.scripts).then(scripts=>{
+      if(!active)return;
+      setWorkspace(current=>({...current,scripts}));
+      setIndicatorBoot(false);
+    });
+    return ()=>{active=false;};
+  },[initial]);
   const [library, setLibrary] = useState(initial.library);
   const {period:livePeriod, chartLayout, studies, lengths, drawings, magnet, strongMagnet, hiddenDrawings, stayInDrawingMode, appearance, scripts} = workspace;
   const [activeLayout, setActiveLayout] = useState(initial.active);
@@ -166,7 +178,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
 
   const proposedScripts = useMemo(() => !trial ? scripts : scripts.some(s => s.id === trial.id)
     ? scripts.map(s => s.id === trial.id ? trial : s) : [...scripts, trial], [scripts, trial]);
-  const jobs = useMemo(() => proposedScripts.filter(s => s.enabled), [proposedScripts]);
+  const jobs = useMemo(() => indicatorBoot?noIndicators:proposedScripts.filter(s => s.enabled), [indicatorBoot,proposedScripts]);
   const timeframes = useLiveTimeframes({period:replaying?livePeriod:period, anchor:viewport?.time ?? null, retry, feed, grid:sixCharts&&!replaying,
     studies,lengths,jobs,testingScript:Boolean(trial),replay:replaying});
   const replayFrames=useReplayChartFrames({replay,period,grid:sixCharts,studies,lengths,jobs,testing:Boolean(trial)});
@@ -307,8 +319,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   function rememberLayout(row: SavedLayout | null) {
     setActiveLayout(row ? {id: row.id, name: row.file.name, revision: row.revision} : null);
   }
-  function openLayout(row: SavedLayout) {
-    if(replay.active||replay.picking)replay.end();
+  async function openLayout(row: SavedLayout) {
     const next=row.file.workspace;
     const globals=new Map(next.drawings.filter(d=>d.scope==='global').map(d=>[d.id,d]));
     for (const d of drawings) if(d.scope==='global') globals.set(d.id,d);
@@ -318,8 +329,10 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     if (combined.length>500) {
       setSaveError('เลย์เอาต์รวมกับวัตถุที่แชร์แล้วเกิน 500 ชิ้น กรุณาลดวัตถุก่อนเปิด');return;
     }
+    const scripts=await prepareFocusedIndicators(next.scripts);
+    if(replay.active||replay.picking)replay.end();
     previousForwardQuote.current = null;
-    setWorkspace({...next,removedGlobal,drawings:combined});
+    setWorkspace({...next,removedGlobal,drawings:combined,scripts});
     setLibrary(saved => mergeScripts(saved, row.file.library ?? row.file.workspace.scripts));
     setFollow(row.file.view.follow);
     setViewport(row.file.view.follow ? null : row.file.view.viewport);
