@@ -542,7 +542,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
      </div>}
      {liveLegend}
     </div>
-    {plotTop!==undefined&&livePanes&&paneStudies.map(([id,plot],index)=>{
+    {appearance?.studyTitles!==false&&plotTop!==undefined&&livePanes&&paneStudies.map(([id,plot],index)=>{
      const row=livePanes[index+1]?.getHTMLElement();
      const badge=liveStudyBadges?.find(item=>item.id===id);
      return row&&<span className="live-pane-title" key={id} data-study-state={badge?.state}

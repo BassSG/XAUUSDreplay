@@ -64,7 +64,7 @@ export default function LiveOverviewChart({period, frame, onRetry, workspace, la
     calculating={pine.calculating} drawings={visibleDrawings} hiddenDrawings={hiddenDrawings}
     follow={follow} onLeaveLatest={() => setFollow(false)} onHistoryEdge={() => { if(!replay)void market.loadOlder(false); }}
     liveStudyBadges={badges} hiddenStudies={workspace.hiddenStudies} onToggleStudy={onToggleStudy}
-    liveLegend={<><LiveStudyLegend badges={badges} hiddenStudies={workspace.hiddenStudies}
+    liveLegend={<><LiveStudyLegend badges={badges} showTitles={appearance.studyTitles} hiddenStudies={workspace.hiddenStudies}
       onOpen={onOpenStudies} onToggleStudy={onToggleStudy}/>{(message || !follow || pine.error) && <div className="live-tile-feedback">
       {message && <small title={pine.error || undefined}>{message}</small>}
       {pine.error && <button type="button" onClick={pine.retry}>ลองคำนวณใหม่</button>}

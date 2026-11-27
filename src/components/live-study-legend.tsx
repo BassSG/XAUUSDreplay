@@ -8,10 +8,12 @@ export function StudyVisibilityButton({label, hidden, onToggle}: {label: string;
     aria-label={action} onClick={onToggle}><Icon size={16} aria-hidden="true"/></button>;
 }
 
-export default function LiveStudyLegend({badges, onOpen, details, onDetails, hiddenStudies, onToggleStudy}: {
+export default function LiveStudyLegend({badges, onOpen, details, onDetails, showTitles, hiddenStudies, onToggleStudy}: {
   badges: LiveStudyBadge[]; onOpen: () => void; details?: string; onDetails?: () => void;
-  hiddenStudies: readonly string[]; onToggleStudy: (id: string) => void;
+  showTitles: boolean; hiddenStudies: readonly string[]; onToggleStudy: (id: string) => void;
 }) {
+  const message = details && onDetails && <button type="button" onClick={onDetails} title={details}>ดูข้อความ Pine</button>;
+  if (!showTitles) return message ? <div className="live-study-legend">{message}</div> : null;
   const first = badges[0];
   if (!first) return null;
   const visible = badges.filter(badge => !hiddenStudies.includes(badge.id));
@@ -26,6 +28,6 @@ export default function LiveStudyLegend({badges, onOpen, details, onDetails, hid
     <button type="button" className="live-study-chip" data-study-state={state} title={title}
       aria-haspopup="dialog" aria-label={'จัดการอินดิเคเตอร์ที่ใช้งาน · ' + summary} onClick={onOpen}>{label}</button>
     <StudyVisibilityButton label={first.label} hidden={firstHidden} onToggle={() => onToggleStudy(first.id)}/>
-    {details && onDetails && <button type="button" onClick={onDetails} title={details}>ดูข้อความ Pine</button>}
+    {message}
   </div>;
 }

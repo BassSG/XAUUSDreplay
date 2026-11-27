@@ -576,6 +576,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         liveSelection={drawingToolsOverlay} liveStudyBadges={badges}
         hiddenStudies={workspace.hiddenStudies} onToggleStudy={toggleStudyVisibility}
         liveLegend={<LiveStudyLegend badges={badges} onOpen={() => setPanel('studies')}
+          showTitles={appearance.studyTitles}
           hiddenStudies={workspace.hiddenStudies} onToggleStudy={toggleStudyVisibility}
           details={pine.error || pine.warnings.join(' · ')} onDetails={() => setPanel('pine')}/>}
         onDrawing={drawing => {
@@ -930,6 +931,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         onRetry={pine.retry} onShowChart={closePanel}/>
     </LivePanel>}
     {panel === 'studies' && <LiveStudyPanel selected={studies} lengths={lengths} onToggle={toggleStudy}
+      showTitles={appearance.studyTitles}
+      onShowTitles={studyTitles => setWorkspace(value => ({...value, appearance: {...value.appearance, studyTitles}}))}
       hiddenStudies={workspace.hiddenStudies} onToggleVisibility={toggleStudyVisibility}
       message={editorMessage || (editorError ? 'Pine · ' + editorError : '')}
       scripts={mergeScripts(library.map(script => ({...script, enabled: false})), proposedScripts)} evaluations={pine.studies}

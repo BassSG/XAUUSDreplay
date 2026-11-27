@@ -14,7 +14,9 @@ test('a saved layout restores the migrated workspace, styling, camera, drawings 
   workspace.favoriteSize = 'large';
   workspace.favoriteTools = ['hline', 'fib'];
   assert.equal(workspace.appearance.background, '#0d141e');
+  assert.equal(workspace.appearance.studyTitles, true);
   workspace.appearance.background = '#ffffff';
+  workspace.appearance.studyTitles = false;
   workspace.scripts.push({id: crypto.randomUUID(), name: 'Custom',
     source: '//@version=6\nindicator("Custom")\nplot(close)', enabled: true, inputs: {in_0: 14}});
   workspace.hiddenStudies = ['live-rsi14', workspace.scripts[0].id];
@@ -37,6 +39,11 @@ test('a saved layout restores the migrated workspace, styling, camera, drawings 
   assert.equal(readLayoutFile({...restored, workspace: legacyWorkspace}).workspace.chartLayout, 'single');
   assert.deepEqual(restored.workspace.drawings, [drawing]);
   assert.equal(restored.workspace.appearance.background, '#ffffff');
+  assert.equal(restored.workspace.appearance.studyTitles, false);
+  const {studyTitles, ...legacyAppearance} = restored.workspace.appearance;
+  const oldLayout = readLayoutFile({...restored, workspace: {...legacyWorkspace, appearance: legacyAppearance}});
+  assert.equal(oldLayout.workspace.appearance.studyTitles, true);
+  assert.equal(oldLayout.workspace.appearance.background, '#ffffff');
   assert.equal(restored.workspace.scripts[0].inputs.in_0, 14);
   assert.equal(restored.workspace.lengths.rsi14, 9);
   assert.deepEqual(restored.view, view);

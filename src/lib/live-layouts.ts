@@ -12,14 +12,14 @@ const appearanceSchema = z.object({
   background: color, text: color, grid: color, verticalGrid: z.boolean(), horizontalGrid: z.boolean(),
   upColor: color, downColor: color, wickUpColor: color, wickDownColor: color,
   borderUpColor: color, borderDownColor: color, wickVisible: z.boolean(), borderVisible: z.boolean(),
-  pineText: z.boolean(), pineTables: z.boolean(),
+  pineText: z.boolean(), pineTables: z.boolean(), studyTitles: z.boolean().default(true),
 });
 export type ChartAppearance = z.infer<typeof appearanceSchema>;
 export const defaultAppearance: ChartAppearance = {
   background: '#0d141e', text: '#93a4ba', grid: '#1a2635', verticalGrid: true, horizontalGrid: true,
   upColor: '#35c4a0', downColor: '#ef6b79', wickUpColor: '#35c4a0', wickDownColor: '#ef6b79',
   borderUpColor: '#35c4a0', borderDownColor: '#ef6b79', wickVisible: true, borderVisible: false,
-  pineText: true, pineTables: true,
+  pineText: true, pineTables: true, studyTitles: true,
 };
 export const appearancePresets = {
   'กลางคืน': defaultAppearance,

@@ -15,6 +15,8 @@ type Props = {
   selected: LiveStudy[];
   lengths: LiveStudyLengths;
   onToggle: (study: LiveStudy) => void;
+  showTitles: boolean;
+  onShowTitles: (show: boolean) => void;
   hiddenStudies: readonly string[];
   onToggleVisibility: (id: string) => void;
   onLength: (study: LiveStudy, length: number) => void;
@@ -39,7 +41,7 @@ const icons: Record<LiveStudy, LucideIcon> = {
 };
 
 export default function LiveStudyPanel({
-  selected, lengths, onToggle, hiddenStudies, onToggleVisibility, onLength, onClose, onPine, message, scripts, evaluations,
+  selected, lengths, onToggle, showTitles, onShowTitles, hiddenStudies, onToggleVisibility, onLength, onClose, onPine, message, scripts, evaluations,
   pendingId, pendingStatus, onCancelApply, onEdit, onScriptChange,
 }: Props) {
   const [query, setQuery] = useState('');
@@ -58,6 +60,10 @@ export default function LiveStudyPanel({
         <h2 id="live-indicator-title">อินดิเคเตอร์</h2>
         <button type="button" className="live-icon" aria-label="ปิดอินดิเคเตอร์" onClick={onClose}><X size={18}/></button>
       </header>
+      <label className="chart-check">
+        <input type="checkbox" checked={showTitles} onChange={event => onShowTitles(event.currentTarget.checked)}/>
+        แสดงชื่ออินดิเคเตอร์บนกราฟ
+      </label>
       <button className="study-pine-entry" type="button" disabled={Boolean(pendingId)} onClick={onPine}><Code2 size={19}/><span><strong>Pine Editor</strong><small>วางสคริปต์หรือนำเข้าไฟล์ .pine</small></span></button>
       {message && <p className="chart-feedback" role="status">{message}</p>}
       <div className="live-picker-search">

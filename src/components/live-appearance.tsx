@@ -18,7 +18,7 @@ export default function LiveAppearance({value, onChange}: {value: ChartAppearanc
   return <div className="chart-appearance">
     <div className="chart-themes" aria-label="ชุดสีกราฟ">
       {Object.entries(appearancePresets).map(([name, preset]) => <button key={name} type="button"
-        onClick={() => onChange({...preset, pineText: value.pineText, pineTables: value.pineTables})}>
+        onClick={() => onChange({...preset, pineText: value.pineText, pineTables: value.pineTables, studyTitles: value.studyTitles})}>
         <i style={{background: preset.background, borderColor: preset.text}}/>{name}
       </button>)}
     </div>
