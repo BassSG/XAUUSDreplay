@@ -17,7 +17,7 @@ const groupIcons: Record<ToolGroup, LucideIcon> = {
   lines: TrendingUp, channels: PanelsLeftBottom, levels: ListTree, shapes: Shapes,
   patterns: Waypoints, measure: Ruler, annotations: Type,
 };
-const icons: Record<DrawingKind, LucideIcon> = {
+const icons: Partial<Record<DrawingKind, LucideIcon>> = {
   trend: MoveUpRight, ray: CornerUpRight, extended: Slash, arrow: ArrowUpRight, info: Info,
   hline: Minus, hray: ArrowRight, vline: MoveVertical, cross: Crosshair, channel: PanelsLeftBottom,
   regression: ChartNoAxesCombined, pitchfork: GitFork, fib: ListTree, fibExtension: ChartColumnIncreasing,
@@ -42,10 +42,10 @@ const keywords: Partial<Record<DrawingKind, string>> = {
   short: 'risk reward rr sell',
 };
 
-function DrawingPicker({group, enabled, actions, onClose, onPick, favorites, toggleFavorite}: {
-  group: ToolGroup | 'all'; enabled: boolean; actions: ReactNode;
+export function DrawingPicker({group, enabled, actions, onClose, onPick, favorites = [], toggleFavorite}: {
+  group: ToolGroup | 'all'; enabled: boolean; actions?: ReactNode;
   onClose: () => void; onPick: (kind: DrawingKind) => void;
-  favorites: DrawingKind[]; toggleFavorite: (kind: DrawingKind) => void;
+  favorites?: DrawingKind[]; toggleFavorite?: (kind: DrawingKind) => void;
 }) {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState(group);
@@ -77,7 +77,7 @@ function DrawingPicker({group, enabled, actions, onClose, onPick, favorites, tog
             {(scope === 'all' || filter) && <h3>{drawingGroups[group].name}</h3>}
             <div className="live-picker-options">
               {tools.map(kind => {
-                const Icon = icons[kind];
+                const Icon = icons[kind] ?? groupIcons[groups.find(group => drawingGroups[group].tools.includes(kind as never)) ?? "shapes"];
                 const tool = drawingTools[kind];
                 return <div className="live-picker-item" key={kind}>
                 <button className="live-picker-option" type="button" title={tool.help} disabled={!enabled}
@@ -85,9 +85,9 @@ function DrawingPicker({group, enabled, actions, onClose, onPick, favorites, tog
                   <Icon size={19} aria-hidden="true"/>
                   <span><strong>{tool.name}</strong><small id={'drawing-help-' + kind}>{tool.help}</small></span>
                 </button>
-                <button type="button" className="live-favorite-star" aria-label={'รายการโปรด: ' + tool.name}
+                {toggleFavorite && <button type="button" className="live-favorite-star" aria-label={'รายการโปรด: ' + tool.name}
                   title={'ปักหมุด ' + tool.name} aria-pressed={favorites.includes(kind)}
-                  onClick={() => toggleFavorite(kind)}><Star size={17} fill={favorites.includes(kind) ? 'currentColor' : 'none'}/></button>
+                  onClick={() => toggleFavorite(kind)}><Star size={17} fill={favorites.includes(kind) ? 'currentColor' : 'none'}/></button>}
                 </div>;
               })}
             </div>
@@ -100,7 +100,7 @@ function DrawingPicker({group, enabled, actions, onClose, onPick, favorites, tog
 }
 
 type Props = {
-  mode: DrawingKind | null; enabled: boolean; magnet: boolean; hidden: boolean; stayInDrawingMode: boolean;
+  mode: DrawingKind | null; enabled: boolean; magnet: boolean; strongMagnet?:boolean; hidden: boolean; stayInDrawingMode: boolean;
   canUndo: boolean; canRedo: boolean; canDelete: boolean;
   navigation: ReactNode;
   favorites: DrawingKind[]; favoritePosition: {x: number; y: number};
@@ -151,7 +151,7 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
         }}><GripVertical size={17}/></button>
       <div className="live-favorite-list">
         {props.favorites.map(kind => {
-          const Icon = icons[kind];
+          const Icon = icons[kind] ?? groupIcons[groups.find(group => drawingGroups[group].tools.includes(kind as never)) ?? "shapes"];
           const tool = drawingTools[kind];
           return <button type="button" key={kind} title={tool.name + ' · ' + tool.help} aria-label={tool.name}
             aria-pressed={props.mode === kind} disabled={!props.enabled} onClick={() => pick(kind)}><Icon size={17}/></button>;
@@ -164,7 +164,7 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
 function DrawingActions({props, inPicker = false}: {props: Props; inPicker?: boolean}) {
   return <div className={'live-drawing-actions' + (inPicker ? ' live-picker-actions' : '')}
     role="group" aria-label="จัดการเส้นวาด">
-    <button type="button" aria-label="ดูดจุดเข้าหาราคาแท่ง" title="แม่เหล็ก · กด Ctrl ค้างเพื่อใช้ชั่วคราว"
+    <button type="button" aria-label="ดูดจุดเข้าหาราคาแท่ง" title={(props.magnet ? props.strongMagnet ? "แม่เหล็กแรง" : "แม่เหล็กอ่อน" : "ปิดแม่เหล็ก") + " · กดเพื่อเปลี่ยนโหมด หรือกด Ctrl ค้างเพื่อใช้ชั่วคราว"}
       aria-pressed={props.magnet} onClick={props.onMagnet}><Magnet size={17}/></button>
     <button type="button" aria-label={props.stayInDrawingMode ? 'ปิดวาดต่อเนื่อง' : 'วาดต่อเนื่อง'}
       title={props.stayInDrawingMode ? 'ปิดวาดต่อเนื่อง · หลังวาดเสร็จกลับไปเลือกวัตถุ' : 'วาดต่อเนื่อง · วาดวัตถุชิ้นถัดไปด้วยเครื่องมือเดิม'}
@@ -185,7 +185,7 @@ export default function LiveDrawingToolbar(props: Props) {
   const [picker, setPicker] = useState<ToolGroup | 'all' | null>(null);
   const [recent, setRecent] = useState<DrawingKind>('hline');
   const current = props.mode ?? recent;
-  const CurrentIcon = icons[current];
+  const CurrentIcon = icons[current] ?? groupIcons[groups.find(group => drawingGroups[group].tools.includes(current as never)) ?? "shapes"];
   const currentTool = drawingTools[current];
 
   function pick(kind: DrawingKind) {

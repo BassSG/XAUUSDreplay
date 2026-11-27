@@ -48,3 +48,13 @@ test('exported Live drawings preserve observed Forward Test times and leave old 
   const restored = readLayoutFile(JSON.parse(JSON.stringify(file)));
   assert.deepEqual(restored.workspace.drawings, [checked,older]);
 });
+
+test('saved drawings keep indicator pane coordinates, grouping, visibility and scope', () => {
+  const drawing = {id:'macd-level',kind:'hline',pane:'macd',scope:'chart',chartPeriod:'15m',
+    group:'Oscillators',hidden:true,points:[{time:1700000000,price:-.25}]};
+  const pinned = {id:'note',kind:'anchoredNote',scope:'global',text:'Review',
+    points:[{time:1700000000,price:2400,screen:{x:.28,y:.4}}]};
+  const workspace=loadLiveWorkspace({drawings:[drawing,pinned]});
+  const file=makeLayoutFile('Indicators',workspace,defaultChartView);
+  assert.deepEqual(readLayoutFile(JSON.parse(JSON.stringify(file))).workspace.drawings,[drawing,pinned]);
+});

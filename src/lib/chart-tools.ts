@@ -61,7 +61,7 @@ export function moveDrawing(drawing:Drawing,start:DrawingPoint,end:DrawingPoint,
  const delta=logicalAtTime(end.time,timeline,seconds)-logicalAtTime(start.time,timeline,seconds),price=end.price-start.price;
  const points=drawing.points.map(p=>({time:timeAtLogical(logicalAtTime(p.time,timeline,seconds)+delta,timeline,seconds),price:Math.round((p.price+price)*100)/100}));
  // A move is atomic. Do not distort the object at a data/price boundary.
- return points.every(p=>p.time>0&&p.price>0)?{...drawing,points}:drawing;
+ return points.every(p=>p.time>0&&(drawing.pane||p.price>0))?{...drawing,points}:drawing;
 }
 export function replayBatch(speed:number,remaining:number,pace?:{bars:number;ms:number}){
  if(speed<=20)return Math.max(0,Math.min(remaining,1));

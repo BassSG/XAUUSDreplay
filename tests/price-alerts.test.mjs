@@ -34,3 +34,15 @@ test('a rule created after a stale quote starts with the next fresh price as a b
   assert.equal(checkAlerts(first.state, 2359, 222).fired.length, 1);
   assert.throws(() => changeAlerts(state, {op:'add', level:-1, direction:'up', repeat:false}, 220000));
 });
+
+test('a zone alert detects an entry through either price boundary only during its time span', () => {
+  let state = checkAlerts(blankAlerts(), 2380, 100).state;
+  state = changeAlerts(state,{op:'add-drawing',level:2350,direction:'cross',repeat:true,drawing:{
+    kind:'zone',condition:'enter',from:{time:102,price:2350},to:{time:110,price:2360},
+  }},100000,'zone');
+  const before = checkAlerts(state, 2355, 101);
+  assert.equal(before.fired.length,0);
+  const entered = checkAlerts(before.state,2355,102);
+  assert.equal(entered.fired.length,1);
+  assert.equal(checkAlerts(entered.state,2356,103).fired.length,0);
+});

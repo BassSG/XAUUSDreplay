@@ -1,3 +1,4 @@
+import DrawingObjects from './drawing-objects';
 import {useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {
   ArrowLeft, Bell, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
@@ -87,7 +88,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const [initial] = useState(readWorkingChart);
   const [workspace, setWorkspace] = useState(initial.workspace);
   const [library, setLibrary] = useState(initial.library);
-  const {period, chartLayout, studies, lengths, drawings, magnet, hiddenDrawings, stayInDrawingMode, appearance, scripts} = workspace;
+  const {period, chartLayout, studies, lengths, drawings, magnet, strongMagnet, hiddenDrawings, stayInDrawingMode, appearance, scripts} = workspace;
   const [activeLayout, setActiveLayout] = useState(initial.active);
   const [saveState, setSaveState] = useState<'ready' | 'saving' | 'saved' | 'error'>('ready');
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -119,6 +120,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const sixCharts = chartLayout === 'six';
   const feed = useLiveFeed(retry);
   const liveQuote = feed.quoteError ? null : feed.quote;
+  const [alertDrawing,setAlertDrawing] = useState<Drawing>();
   const alerts = usePriceAlerts(liveQuote);
   const previousForwardQuote = useRef<number | null>(null);
   const armedAlerts = alerts.state.rules.filter(rule => rule.status === 'armed');
@@ -232,7 +234,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const proposedScripts = useMemo(() => !trial ? scripts : scripts.some(s => s.id === trial.id)
     ? scripts.map(s => s.id === trial.id ? trial : s) : [...scripts, trial], [scripts, trial]);
   const jobs = useMemo(() => proposedScripts.filter(s => s.enabled), [proposedScripts]);
-  const visibleDrawings = useMemo(() => drawings.filter(d => !d.visiblePeriods || d.visiblePeriods.includes(period)), [drawings, period]);
+  const visibleDrawings = useMemo(() => drawings.filter(d => (d.scope!=='chart'||d.chartPeriod===period) && (!d.visiblePeriods || d.visiblePeriods.includes(period))), [drawings, period]);
   const activeDrawing = visibleDrawings.find(d => d.id === selected);
   const drawingToEdit = editingDrawing ? drawings.find(d => d.id === editingDrawing) : undefined;
   const activeMetrics = activeDrawing?.kind === 'long' || activeDrawing?.kind === 'short'
@@ -283,8 +285,17 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setActiveLayout(row ? {id: row.id, name: row.file.name, revision: row.revision} : null);
   }
   function openLayout(row: SavedLayout) {
+    const next=row.file.workspace;
+    const globals=new Map(next.drawings.filter(d=>d.scope==='global').map(d=>[d.id,d]));
+    for (const d of drawings) if(d.scope==='global') globals.set(d.id,d);
+    const removedGlobal=[...new Set([...workspace.removedGlobal,...next.removedGlobal])].slice(-2000);
+    for (const id of removedGlobal) globals.delete(id);
+    const combined=[...next.drawings.filter(d=>d.scope!=='global'&&!globals.has(d.id)),...globals.values()];
+    if (combined.length>500) {
+      setSaveError('เลย์เอาต์รวมกับวัตถุที่แชร์แล้วเกิน 500 ชิ้น กรุณาลดวัตถุก่อนเปิด');return;
+    }
     previousForwardQuote.current = null;
-    setWorkspace(row.file.workspace);
+    setWorkspace({...next,removedGlobal,drawings:combined});
     setLibrary(saved => mergeScripts(saved, row.file.library ?? row.file.workspace.scripts));
     setFollow(row.file.view.follow);
     setViewport(row.file.view.follow ? null : row.file.view.viewport);
@@ -303,7 +314,11 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   function storeDrawings(next: Drawing[]) {
     setWorkspace(value => {
       const tracked = new Map(value.drawings.filter(drawing => drawing.forwardTest).map(drawing => [drawing.id, drawing.forwardTest]));
-      return {...value, drawings: next.map(drawing => {
+      const globalIds = new Set(next.filter(d=>d.scope==='global').map(d=>d.id));
+      const removedGlobal = [...new Set([...value.removedGlobal,
+        ...value.drawings.filter(d=>d.scope==='global'&&!globalIds.has(d.id)).map(d=>d.id)])]
+        .filter(id=>!globalIds.has(id)).slice(-2000);
+      return {...value, removedGlobal, drawings: next.map(drawing => {
         const run = tracked.get(drawing.id);
         return run && run !== drawing.forwardTest ? {...drawing, forwardTest: run} : drawing;
       })};
@@ -317,7 +332,11 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   function changeDrawing(drawing: Drawing) {
     undo.current = [...undo.current.slice(-99), drawings];
     redo.current = [];
-    setWorkspace(current => ({...current, drawings: current.drawings.map(previous => {
+    setWorkspace(current => ({...current,
+      removedGlobal:drawing.scope==='global' ? current.removedGlobal.filter(id=>id!==drawing.id)
+        : current.drawings.some(d=>d.id===drawing.id&&d.scope==='global')
+          ? [...new Set([...current.removedGlobal,drawing.id])].slice(-2000) : current.removedGlobal,
+      drawings: current.drawings.map(previous => {
       if (previous.id !== drawing.id) return previous;
       const run = previous.forwardTest;
       const plan = forwardPlan(drawing);
@@ -385,9 +404,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     setPanel(current => current === 'history' ? null : current);
   }
 
-  function closePanel() { setPanel(null); setEditingDrawing(null); setEditorMessage(''); }
+  function closePanel() { setAlertDrawing(undefined); setPanel(null); setEditingDrawing(null); setEditorMessage(''); }
   function toggleMagnet() {
-    setWorkspace(value => ({...value, magnet: !value.magnet}));
+    setWorkspace(value => ({...value, magnet: !value.magnet || !value.strongMagnet, strongMagnet:value.magnet && !value.strongMagnet}));
   }
   async function captureImage(action: 'copy' | 'download') {
     const current = chart.current;
@@ -424,6 +443,9 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
       <i className="live-object-swatch" style={{background: drawingInputColor(activeDrawing.color)}} aria-hidden="true"/></button>
     {activeMetrics && <span className="live-object-ratio">R/R {activeMetrics.ratio.toFixed(2)}</span>}
     <div className="live-object-actions">
+      {!activeDrawing.pane && ['trend','rect'].includes(activeDrawing.kind) && activeDrawing.points[0]?.time !== activeDrawing.points[1]?.time &&
+        <button type="button" className="live-icon" aria-label="แจ้งเตือนจากวัตถุ" title="แจ้งเตือนจากวัตถุ"
+          onClick={()=>{setAlertDrawing(activeDrawing);setPanel('alerts')}}><Bell size={16}/></button>}
       {activeMetrics && <button type="button" className="live-icon" aria-label="เปิด Forward Test" title="Forward Test"
         aria-haspopup="dialog" onClick={() => setPanel('forward')}><Target size={16}/></button>}
       <button type="button" className="live-icon" aria-label={activeDrawing.locked ? 'ปลดล็อกวัตถุ' : 'ล็อกวัตถุ'}
@@ -441,12 +463,12 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const primaryChart = bars.length
     ? <ChartBoundary resetKey={viewportKey}>
       <ReplayChart live compact={sixCharts} key={viewportKey} liveActions={chart}
-        alertLevels={[...new Set(armedAlerts.map(rule => rule.level))]}
+        alertLevels={[...new Set(armedAlerts.filter(rule=>!rule.drawing).map(rule => rule.level))]}
         liveViewport={viewport} initialView={initialView} appearance={appearance} liveBid={liveNow ? quote.bid : undefined} liveClock={market.serverNow}
         fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables} calculating={pine.calculating}
         bars={bars} trades={noTrades} plots={plots} follow={follow} seconds={periods[period]}
-        drawings={visibleDrawings} drawingMode={mode} magnet={magnet} onToggleMagnet={toggleMagnet} hiddenDrawings={hiddenDrawings}
-        selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingEdit={editDrawing} onDrawingCancel={cancelDrawing}
+        drawings={visibleDrawings} drawingMode={mode} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={toggleMagnet} hiddenDrawings={hiddenDrawings}
+        selectedDrawing={selected} onDrawingSelect={setSelected} onDrawingEdit={editDrawing} onDrawingRemove={id=>saveDrawings(drawings.filter(d=>d.id!==id))} onDrawingCancel={cancelDrawing}
         liveSelection={drawingToolsOverlay} liveStudyBadges={badges}
         liveLegend={<LiveStudyLegend badges={badges} onOpen={() => setPanel('studies')}
           details={pine.error || pine.warnings.join(' · ')} onDetails={() => setPanel('pine')}/>}
@@ -549,7 +571,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         onFavorite={kind => setWorkspace(value => ({...value, favoriteTools: value.favoriteTools.includes(kind)
           ? value.favoriteTools.filter(tool => tool !== kind) : [...value.favoriteTools, kind]}))}
         onMoveFavorites={position => setWorkspace(value => ({...value, favoritePosition: position}))}
-        magnet={magnet} hidden={hiddenDrawings} stayInDrawingMode={stayInDrawingMode}
+        magnet={magnet} strongMagnet={strongMagnet} hidden={hiddenDrawings} stayInDrawingMode={stayInDrawingMode}
         canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}
         canDelete={Boolean(activeDrawing && !activeDrawing.locked)}
         onPick={pickDrawing} onSelect={cancelDrawing}
@@ -602,7 +624,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     </LivePanel>}
 
     {panel === 'alerts' && <LivePanel title="แจ้งเตือนราคา XAUUSD" onClose={closePanel}>
-      <LiveAlertPanel alerts={alerts} bid={quote?.status === 'live' && !market.quoteError ? quote.bid : undefined}/>
+      <LiveAlertPanel alerts={alerts} drawing={alertDrawing} bid={quote?.status === 'live' && !market.quoteError ? quote.bid : undefined}/>
     </LivePanel>}
 
     {panel === 'quotes' && <LivePanel title="ราคา XAUUSD" onClose={closePanel}>
@@ -633,6 +655,16 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         <button type="button" disabled={!bars.length} onClick={() => {
           setInitialView(null); setFollow(true); setViewport(null); chart.current?.resetView(); closePanel();
         }}><ScanLine size={18}/><span>รีเซ็ตมุมมองกราฟ</span></button>
+        <label className="chart-field">เคอร์เซอร์และซูม
+          <select defaultValue="" onChange={event=>{
+            const tool=event.target.value as Parameters<LiveChartActions['utility']>[0];
+            if(tool){chart.current?.utility(tool);closePanel()}
+          }}>
+            <option value="" disabled>เลือกโหมด</option><option value="cross">กากบาท</option><option value="dot">จุด</option>
+            <option value="arrow">ลูกศร</option><option value="demo">นำเสนอ</option><option value="magic">เส้นเน้นสีม่วง</option>
+            <option value="erase">ยางลบ</option><option value="zoom">ลากกรอบซูม</option>
+          </select>
+        </label>
         <button type="button" disabled={!bars.length} onClick={() => { setFollow(false); chart.current?.fit(); closePanel(); }}>
           <ScanLine size={18}/><span>พอดีช่วงที่โหลด</span>
         </button>
@@ -681,18 +713,11 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     </LivePanel>}
 
     {panel === 'objects' && <LivePanel title="วัตถุบนกราฟ" onClose={closePanel}>
-      <div className="live-drawing-list">
-        {drawings.length === 0 && <p className="chart-hint">ยังไม่มีวัตถุที่วาด</p>}
-        {drawings.map(drawing => <button type="button" key={drawing.id} onClick={() => editDrawing(drawing.id)}>
-          {drawing.locked ? <LockKeyhole size={14}/> : <Pencil size={14}/>}
-          <span>{drawingTools[drawing.kind].name}{drawing.text?.trim() ? ' · ' + drawing.text.trim().slice(0, 90) : ''}
-            {drawing.visiblePeriods && !drawing.visiblePeriods.includes(period) ? ' · ซ่อนใน ' + period : ''}</span>
-        </button>)}
-      </div>
+      <DrawingObjects drawings={drawings} onChange={saveDrawings} onEdit={editDrawing}/>
     </LivePanel>}
 
     {panel === 'drawing' && drawingToEdit && <LivePanel title={drawingTools[drawingToEdit.kind].name} onClose={closePanel} wide>
-      <LiveDrawingSettings key={drawingToEdit.id} drawing={drawingToEdit} onSave={changeDrawing} onClose={closePanel}/>
+      <LiveDrawingSettings key={drawingToEdit.id} drawing={drawingToEdit} period={period} onSave={changeDrawing} onClose={closePanel}/>
     </LivePanel>}
 
     {panel === 'appearance' && <LivePanel title="รูปลักษณ์กราฟ" onClose={closePanel} previewChart>

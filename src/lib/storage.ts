@@ -49,7 +49,7 @@ const drawingColor = z.string().regex(/^#[0-9a-f]{6}$/i);
 const drawingStyle = z.object({
  width:z.number().int().min(1).max(8),line:z.enum(['solid','dashed','dotted']),
  opacity:z.number().min(0).max(1),fillOpacity:z.number().min(0).max(1),
- extendLeft:z.boolean(),extendRight:z.boolean(),middle:z.boolean(),
+ extendLeft:z.boolean(),extendRight:z.boolean(),middle:z.boolean(),closed:z.boolean(),
  showText:z.boolean(),textSize:z.number().int().min(8).max(30),
  textAlign:z.enum(['start','center','end']),bold:z.boolean(),italic:z.boolean(),
 }).partial();
@@ -71,9 +71,10 @@ const forwardTest = z.object({
  entry: seenPrice.nullable(), exit: seenPrice.extend({kind:z.enum(['tp','sl'])}).nullable(),
 }).refine(test => !test.exit || !!test.entry && test.exit.time > test.entry.time);
 export const drawingSchema=z.object({
- id:uuid,kind:z.enum(drawingKinds),points:z.array(z.object({time:z.number().int().positive(),price:z.number().positive()})).min(1).max(strokeMax),
- locked:z.boolean().optional(),text:z.string().max(1000).optional(),color:z.string().max(40).optional(),
+ id:uuid,kind:z.enum(drawingKinds),points:z.array(z.object({time:z.number().int().positive(),price:z.number().finite(),screen:z.object({x:z.number().min(0).max(1),y:z.number().min(0).max(1)}).optional()})).min(1).max(strokeMax),
+ locked:z.boolean().optional(),hidden:z.boolean().optional(),group:z.string().max(80).optional(),pane:z.string().max(128).optional(),scope:z.enum(['chart','layout','global']).optional(),chartPeriod:z.enum(['1m','5m','15m','1h','4h','1d']).optional(),image:z.string().max(40000).regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/).optional(),link:z.string().url().max(1000).optional(),text:z.string().max(1000).optional(),color:z.string().max(40).optional(),
  fillColor:drawingColor.optional(),textColor:drawingColor.optional(),style:drawingStyle.optional(),
+ size:z.object({lots:z.number().positive().max(1000),contract:z.number().positive().max(100000)}).optional(),
  visiblePeriods:z.array(z.enum(['1m','5m','15m','1h','4h','1d'])).max(6).optional(),fib:drawingFib.optional(),forwardTest:forwardTest.optional(),
 });
 const sessionSchema = z.object({
@@ -82,7 +83,7 @@ const sessionSchema = z.object({
  commands: z.array(commandSchema).max(10000), settings: settingsSchema, parent: uuid.optional(),
  notes: z.record(z.string().max(5000)).refine(v => Object.keys(v).length <= 10000), pine: z.string().max(250000),
  windowStart:z.number().int().positive().optional(),
- indicatorEnabled: z.boolean(), timeframe: z.number().int().min(60).max(86400), revision: z.number().int().min(0), engineVersion: z.literal(1), indicators:z.array(indicatorSchema).optional(), drawings:z.array(drawingSchema).max(500).optional(),
+ indicatorEnabled: z.boolean(), timeframe: z.number().int().min(60).max(86400), revision: z.number().int().min(0), engineVersion: z.literal(1), indicators:z.array(indicatorSchema).optional(), drawings:z.array(drawingSchema.refine(d=>Boolean(d.pane)||d.points.every(point=>point.price>0))).max(500).optional(),
 }).refine(s => s.cursor <= s.furthest, 'ตำแหน่ง Replay ไม่ถูกต้อง')
  .refine(s => new Set(s.commands.map(c => c.id)).size === s.commands.length, 'คำสั่งซ้ำ');
 type BundledDataset = z.infer<typeof bundledSchema>;

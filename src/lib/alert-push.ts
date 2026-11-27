@@ -35,9 +35,9 @@ export async function subscribeToAlerts(key: string) {
 export async function showLocalAlert(title: string, body: string, id: string) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   try {
-    new Notification(title, {body, tag: id, icon: base + 'icons/icon-192.png'});
+    new Notification(title, {body, tag: id, icon: base + 'icons/ebw-192.png'});
   } catch {
     const registration = await getAlertWorker();
-    await registration.showNotification(title, {body, tag: id, icon: base + 'icons/icon-192.png'});
+    await registration.showNotification(title, {body, tag: id, icon: base + 'icons/ebw-192.png'});
   }
 }

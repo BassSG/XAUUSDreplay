@@ -39,7 +39,7 @@
       "sha256": "d3ef0b265e9b805a8d1196651fd4cf44ebc39dda38985d850de5b6eda47076c1"
     },
     {
-      "file": "public/icons/icon-192.png",
+      "file": "public/icons/ebw-192.png",
       "width": 192,
       "height": 192,
       "alpha": false,
@@ -47,7 +47,7 @@
       "sha256": "4faf0c86d268fc28ec3792bb4b5588acb412e0fea5eb254958462e1a56964ab9"
     },
     {
-      "file": "public/icons/icon-512.png",
+      "file": "public/icons/ebw-512.png",
       "width": 512,
       "height": 512,
       "alpha": false,
@@ -55,7 +55,7 @@
       "sha256": "24e094ec4fd59bc7f5cb76cb8be01b52b41369e20b3347df3e4510104665e4fa"
     },
     {
-      "file": "public/icons/icon-maskable-512.png",
+      "file": "public/icons/ebw-maskable-512.png",
       "width": 512,
       "height": 512,
       "alpha": false,

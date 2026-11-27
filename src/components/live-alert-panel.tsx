@@ -1,6 +1,8 @@
 import {useState, type FormEvent} from 'react';
 import {Bell, BellRing, Check, CirclePause, History, Link2, Play, Plus, Smartphone, Trash2} from 'lucide-react';
-import type {AlertDirection} from '../lib/price-alerts';
+import type {Drawing} from '../lib/engine';
+import {drawingTools} from '../lib/drawing-definitions';
+import type {AlertDrawing, AlertDirection} from '../lib/price-alerts';
 import {enableAlertNotifications} from '../lib/alert-push';
 import {alertText, type usePriceAlerts} from '../lib/use-price-alerts';
 
@@ -8,10 +10,11 @@ const formatter = new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maxi
 const times = new Intl.DateTimeFormat('th-TH', {timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'medium'});
 const directions: Record<AlertDirection, string> = {cross: 'แตะหรือผ่านระดับ', up: 'ขึ้นแตะหรือทะลุ', down: 'ลงแตะหรือทะลุ'};
 
-export default function LiveAlertPanel({alerts, bid}: {alerts: ReturnType<typeof usePriceAlerts>; bid?: number}) {
+export default function LiveAlertPanel({alerts, bid, drawing}: {alerts: ReturnType<typeof usePriceAlerts>; bid?: number; drawing?: Drawing}) {
   const [tab, setTab] = useState<'rules' | 'history' | 'devices'>('rules');
   const [level, setLevel] = useState(() => bid?.toFixed(2) ?? '');
-  const [name, setName] = useState('');
+  const [name, setName] = useState(()=>drawing ? (drawing.text || drawingTools[drawing.kind].name).slice(0,64) : '');
+  const [zone, setZone] = useState<'enter'|'exit'>('enter');
   const [direction, setDirection] = useState<AlertDirection>('cross');
   const [repeat, setRepeat] = useState(false);
   const [server, setServer] = useState(alerts.defaultServer);
@@ -36,7 +39,16 @@ export default function LiveAlertPanel({alerts, bid}: {alerts: ReturnType<typeof
   function add(event: FormEvent) {
     event.preventDefault();
     void act(async () => {
-      await alerts.command({op: 'add', level: Number(level), label: name, direction, repeat});
+      if (drawing) {
+        const [from,to]=[...drawing.points].sort((a,b)=>a.time-b.time);
+        const extend={extendLeft:Boolean(drawing.style?.extendLeft),extendRight:Boolean(drawing.style?.extendRight)};
+        const target: AlertDrawing=drawing.kind==='rect'
+          ? {kind:'zone',from,to,condition:zone,...extend}
+          : {kind:'line',from,to,...extend};
+        await alerts.command({op:'add-drawing',drawing:target,level:from.price,label:name,direction,repeat});
+      } else {
+        await alerts.command({op:'add',level:Number(level),label:name,direction,repeat});
+      }
       setName('');
     }, 'บันทึกแจ้งเตือนแล้ว');
   }
@@ -54,14 +66,16 @@ export default function LiveAlertPanel({alerts, bid}: {alerts: ReturnType<typeof
     {tab === 'rules' && <>
       <form className="alerts-form" onSubmit={add}>
         <div className="alerts-fields">
-          <label className="chart-field">ราคาเป้าหมาย (USD)
+          {!drawing && <label className="chart-field">ราคาเป้าหมาย (USD)
             <input name="price" type="number" inputMode="decimal" step="0.01" min="0.01" max="1000000" required
               placeholder="เช่น 3580.00" value={level} onChange={event => setLevel(event.target.value)}/>
-          </label>
+          </label>}
           <label className="chart-field">เงื่อนไข
-            <select value={direction} onChange={event => setDirection(event.target.value as AlertDirection)}>
+            {drawing?.kind==='rect' ? <select value={zone} onChange={event=>setZone(event.target.value as 'enter'|'exit')}>
+              <option value="enter">ราคาเข้าโซน</option><option value="exit">ราคาออกจากโซน</option>
+            </select> : <select value={direction} onChange={event => setDirection(event.target.value as AlertDirection)}>
               {Object.entries(directions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
+            </select>}
           </label>
           <label className="chart-field">ชื่อแจ้งเตือน
             <input placeholder="เช่น แนวต้าน" value={name} maxLength={64} onChange={event => setName(event.target.value)}/>
@@ -72,7 +86,8 @@ export default function LiveAlertPanel({alerts, bid}: {alerts: ReturnType<typeof
             </select>
           </label>
         </div>
-        <p className="chart-hint">เริ่มเฝ้าจาก Bid ล่าสุด เมื่อราคาจากอีกฝั่งมาแตะหรือข้ามเป้าจะส่งแจ้งเตือน</p>
+        <p className="chart-hint">{drawing ? 'ใช้จุดยึด ณ เวลาที่สร้างแจ้งเตือน หากขยับวัตถุให้ตั้งรายการใหม่' :
+          'เริ่มเฝ้าจาก Bid ล่าสุด เมื่อราคาจากอีกฝั่งมาแตะหรือข้ามเป้าจะส่งแจ้งเตือน'}</p>
         <button className="primary" type="submit" disabled={pending || !!alerts.connection && !alerts.remote}><Plus size={17}/>สร้างแจ้งเตือน</button>
       </form>
       <h3 className="alerts-list-title">รายการแจ้งเตือน <span>{alerts.state.rules.length}</span></h3>
@@ -81,7 +96,7 @@ export default function LiveAlertPanel({alerts, bid}: {alerts: ReturnType<typeof
         {alerts.state.rules.map(rule => <li key={rule.id}>
           <div>
             <strong>{formatter.format(rule.level)}{rule.label && <span> · {rule.label}</span>}</strong>
-            <small>{directions[rule.direction]} · {rule.repeat ? 'ทุกครั้ง' : 'ครั้งเดียว'}</small>
+            <small>{rule.drawing?.kind==='zone' ? rule.drawing.condition==='enter'?'ราคาเข้าโซน':'ราคาออกจากโซน' : directions[rule.direction]} · {rule.repeat ? 'ทุกครั้ง' : 'ครั้งเดียว'}</small>
           </div>
           <span className="alerts-rule-status" data-armed={rule.status === 'armed'}>
             {rule.status === 'armed' ? 'เฝ้าราคา' : rule.status === 'paused' ? 'พัก' : 'แจ้งแล้ว'}

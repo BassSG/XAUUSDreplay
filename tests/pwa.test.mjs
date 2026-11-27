@@ -194,7 +194,7 @@ test('install identity and icons resolve within the GitHub Pages app scope', asy
     assert.equal(icon.type, 'image/png');
   }
   const html = await readFile(path.join(root, 'index.html'), 'utf8');
-  assert.match(html, /rel="manifest" href="%BASE_URL%manifest\.webmanifest"/);
+  assert.match(html, /rel="manifest" href="%BASE_URL%manifest\.webmanifest\?v=ebw"/);
   assert.match(html, /rel="apple-touch-icon" href="%BASE_URL%icons\/apple-touch-icon\.png"/);
 });
 
@@ -208,4 +208,12 @@ test('a push can display with every page closed and opens the alerts panel when 
   await sw.dispatch('notificationclick', {notification:{data: sw.notifications[0].options.data, close() {closed = true;}}});
   assert.equal(closed, true);
   assert.deepEqual(sw.opened,[base+'?mode=live&panel=alerts']);
+});
+
+test('installed identity is EBW XAUUSD and its updated maskable icon resolves to a real asset', async () => {
+  const manifest = JSON.parse(await readFile(path.join(root, 'public/manifest.webmanifest'), 'utf8'));
+  assert.equal(manifest.name, 'EBW XAUUSD');
+  const icon = manifest.icons.find(icon => icon.purpose === 'maskable');
+  assert.notEqual(icon.src, 'icons/icon-maskable-512.png');
+  assert.ok((await readFile(path.join(root, 'public', icon.src))).length > 1000);
 });

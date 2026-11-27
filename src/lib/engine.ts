@@ -7,16 +7,16 @@ export type {DrawingKind} from './drawing-definitions.ts';
 import type {DrawingKind} from './drawing-definitions.ts';
 import type {Period} from './live-market.ts';
 import type {ForwardTest} from './forward-test.ts';
-export type DrawingPoint={time:number;price:number};
+export type DrawingPoint={time:number;price:number;screen?:{x:number;y:number}};
 export type FibLevel={value:number;enabled:boolean;color?:string;opacity?:number;text?:string};
 export type DrawingStyle={
  width?:number;line?:'solid'|'dashed'|'dotted';opacity?:number;fillOpacity?:number;
- extendLeft?:boolean;extendRight?:boolean;middle?:boolean;
+ extendLeft?:boolean;extendRight?:boolean;middle?:boolean;closed?:boolean;
  showText?:boolean;textSize?:number;textAlign?:'start'|'center'|'end';bold?:boolean;italic?:boolean;
 };
 export type Drawing={
- id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;text?:string;color?:string;fillColor?:string;textColor?:string;
- style?:DrawingStyle;visiblePeriods?:Period[];forwardTest?:ForwardTest;
+ id:string;kind:DrawingKind;points:DrawingPoint[];locked?:boolean;hidden?:boolean;group?:string;pane?:string;scope?:'chart'|'layout'|'global';chartPeriod?:Period;image?:string;link?:string;text?:string;color?:string;fillColor?:string;textColor?:string;
+ style?:DrawingStyle;size?:{lots:number;contract:number};visiblePeriods?:Period[];forwardTest?:ForwardTest;
  fib?:{levels:FibLevel[];reverse?:boolean;showPrice?:boolean;format?:'ratio'|'percent'|'none';showTrend?:boolean;
   labelPosition?:'left'|'center'|'right';backgroundOpacity?:number};
 };

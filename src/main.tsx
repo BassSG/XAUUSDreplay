@@ -1,8 +1,9 @@
-import React, {useState} from 'react';
+import React, {lazy,Suspense,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import ReplayApp from './components/replay-app';
 import LiveWorkspace from './components/live-workspace';
 import './styles.css';
+
+const ReplayApp = lazy(() => import('./components/replay-app'));
 
 function App() {
   const [live, setLive] = useState(() => new URLSearchParams(location.search).get('mode') !== 'replay');
@@ -13,7 +14,7 @@ function App() {
     history.replaceState(history.state, '', url);
     setLive(next);
   }
-  return live ? <LiveWorkspace onReplay={() => openMode(false)}/> : <ReplayApp onLive={() => openMode(true)}/>;
+  return live ? <LiveWorkspace onReplay={() => openMode(false)}/> : <Suspense fallback={null}><ReplayApp onLive={() => openMode(true)}/></Suspense>;
 }
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);

@@ -111,3 +111,14 @@ test('free chart view retains absolute timestamps when the 2,000 candle window r
  assert.deepEqual(replayRange(range,2000,2000,-10,false),{from:1910,to:2040});
  assert.deepEqual(replayRange(range,120,130,0,false),range);
 });
+
+test('trend-based Fibonacci time projects the measured interval from the third anchor', () => {
+ const view={width:400,height:200,bars:[],visibleFrom:0,visibleTo:20,
+   index:time=>(time-100)/10,atIndex:(i,p)=>({x:i*20,y:200-p}),
+   at:({time,price})=>({x:(time-100)*2,y:200-price})};
+ const drawing={id:'time',kind:'fibTrendTime',points:[
+   {time:100,price:100},{time:120,price:110},{time:160,price:105}],
+   fib:{levels:[{value:1,enabled:true},{value:2,enabled:true}]}};
+ const levels=drawingGeometry(drawing,view).filter(mark=>mark.kind==='path');
+ assert.deepEqual(levels.map(mark=>mark.points[0].x),[160,200]);
+});

@@ -7,6 +7,7 @@ type Style = {color?: string; fill?: number; width?: number; opacity?: number; d
 export type DrawingMark = Style & (
   | {kind: 'path'; points: XY[]; closed?: boolean}
   | {kind: 'curve'; d: string}
+  | {kind:'image';at:XY;width:number;height:number;src:string}
   | {kind: 'ellipse'; center: XY; rx: number; ry: number}
   | {kind: 'label'; at: XY; value: string; background?: boolean; centered?: boolean; customText?: boolean}
 );
@@ -30,7 +31,7 @@ export function drawingFibLevels(drawing: Drawing): FibLevel[] {
 }
 
 function fibCaption(drawing: Drawing, level: FibLevel, price?: number): string {
-  const format = drawing.fib?.format ?? (drawing.kind === 'fibTime' ? 'ratio' : 'percent');
+  const format = drawing.fib?.format ?? ((drawing.kind === 'fibTime' || drawing.kind === 'fibTrendTime') ? 'ratio' : 'percent');
   const value = format === 'ratio' ? String(level.value) : format === 'percent'
     ? (Math.round(level.value * 100000) / 1000) + '%' : '';
   const showPrice = drawing.fib?.showPrice ?? (drawing.kind === 'fib' || drawing.kind === 'fibExtension');
@@ -40,10 +41,10 @@ const gannRatios = [.125, .25, .33333333, .5, 1, 2, 3, 4, 8];
 const success = '#5cdbad';
 const loss = '#ee8190';
 const dash = {dash: '5 4'};
-const twoTimes = new Set<DrawingKind>(['channel', 'fibChannel', 'fibTime', 'fibFan', 'gannFan', 'cycle', 'dateRange']);
+const twoTimes = new Set<DrawingKind>(['channel','barsPattern','volumeRange','timeCycles','sine','fibTrendTime', 'fibChannel', 'fibTime', 'fibFan', 'gannFan', 'cycle', 'dateRange']);
 const twoPrices = new Set<DrawingKind>(['fib', 'fibExtension', 'fibFan', 'gannFan', 'priceRange']);
-const rectangles = new Set<DrawingKind>(['gannBox', 'rect', 'ellipse']);
-const patterns = new Set<DrawingKind>(['abcd', 'xabcd', 'headShoulders', 'elliott', 'elliottABC']);
+const rectangles = new Set<DrawingKind>(['gannBox','gannSquare','gannFixed','rect','ellipse','image']);
+const patterns = new Set<DrawingKind>(['cypher','trianglePattern','threeDrives','elliottTriangle','elliottDouble','elliottTriple','abcd', 'xabcd', 'headShoulders', 'elliott', 'elliottABC']);
 
 export function positionMetrics(kind: 'long' | 'short', points: DrawingPoint[]) {
   const [entry, target, stop] = points;
@@ -57,20 +58,20 @@ export function positionMetrics(kind: 'long' | 'short', points: DrawingPoint[]) 
 export function placementError(kind: DrawingKind, points: DrawingPoint[], bars?: Bar[], index?: DrawingView['index']): string | null {
   const [a, b, c] = points;
   if (!a) return null;
-  if (kind === 'vwap' && bars && index) {
+  if ((kind === 'vwap' || kind === 'volumeAnchor') && bars && index) {
     const start = Math.round(index(a.time));
     if (start < 0 || start >= bars.length) return 'เลือกแท่งที่มีอยู่บนกราฟเพื่อเริ่มคำนวณ';
     const {volume} = vwapTotals(bars);
     if (volume[bars.length] === volume[start]) {
-      return 'ช่วงนี้ไม่มี Tick Volume สำหรับคำนวณ VWAP';
+      return 'ช่วงนี้ไม่มี Tick Volume สำหรับคำนวณ';
     }
   }
   if (!b) return null;
   if ((twoTimes.has(kind) || rectangles.has(kind)) && a.time === b.time) return 'เลือกเวลาให้ต่างจากจุดแรก';
   if ((twoPrices.has(kind) || rectangles.has(kind)) && a.price === b.price) return 'เลือกราคาให้ต่างจากจุดแรก';
-  if ((kind === 'fibTime' || kind === 'cycle' || kind === 'regression') && index
+  if ((kind === 'fibTime' || kind === 'fibTrendTime' || kind === 'cycle' || kind === 'timeCycles' || kind === 'sine' || kind === 'regression') && index
       && Math.round(index(a.time)) === Math.round(index(b.time))) return 'เลือกคนละแท่งเพื่อคำนวณ';
-  if (kind === 'regression' && bars && index) {
+  if ((kind === 'regression' || kind === 'barsPattern' || kind === 'volumeRange') && bars && index) {
     const first = Math.min(index(a.time), index(b.time));
     const last = Math.max(index(a.time), index(b.time));
     if (Math.round(first) < 0 || Math.round(last) >= bars.length) return 'เลือกต้นและท้ายช่วงบนแท่งที่มีข้อมูล';
@@ -205,6 +206,52 @@ function timeZones(drawing: Drawing, first: number, step: number, view: DrawingV
   return marks;
 }
 
+function volumeProfile(view: DrawingView, from: number, to?: number): DrawingMark[] {
+  const start = Math.round(view.index(from));
+  const end = to === undefined ? view.bars.length - 1 : Math.round(view.index(to));
+  const first = Math.max(0, Math.min(start, end));
+  const last = Math.min(view.bars.length - 1, Math.max(start, end));
+  if (first > last) return [];
+  const count = 28;
+  let low = Infinity, high = -Infinity;
+  for (let i=first; i<=last; i++) {
+    low = Math.min(low,view.bars[i].low);
+    high = Math.max(high,view.bars[i].high);
+  }
+  const row = (high-low)/count || .01;
+  const delta = new Float64Array(count + 1);
+  const bin = (price: number) => Math.min(count - 1, Math.max(0, Math.floor((price-low)/row)));
+  for (let i=first; i<=last; i++) {
+    const bar=view.bars[i], bottom=bin(bar.low), top=bin(bar.high);
+    const volume=bar.volume/(top-bottom+1);
+    delta[bottom]+=volume;
+    delta[top+1]-=volume;
+  }
+  const totals = Array.from(delta.slice(0,count));
+  for (let i=1; i<count; i++) totals[i]+=totals[i-1];
+  const peak=Math.max(...totals);
+  const total=totals.reduce((sum,value)=>sum+value,0);
+  if (!(peak>0) || !(total>0)) return [];
+  const poc=totals.indexOf(peak);
+  let lower=poc, upper=poc, covered=peak;
+  while (covered/total<.70 && (lower>0 || upper<count-1)) {
+    if ((totals[lower-1]??-1) >= (totals[upper+1]??-1)) covered+=totals[--lower];
+    else covered+=totals[++upper];
+  }
+  const x = view.atIndex(first,low).x;
+  const right = view.atIndex(last,low).x;
+  const span = Math.max(35,Math.min(view.width*.24,(right-x)*.48));
+  const marks = totals.flatMap((volume,i)=>volume > 0 ? [box(
+    view.atIndex(first,low+i*row),point(x+span*volume/peak,view.atIndex(first,low+(i+1)*row).y),{
+      fill:i>=lower&&i<=upper?.34:.13,noStroke:true
+    })] : []);
+  for (const [name,price] of [['POC',low+(poc+.5)*row],['VAH',low+(upper+1)*row],['VAL',low+lower*row]] as const) {
+    const y=view.atIndex(first,price).y;
+    marks.push(line(point(x,y),point(right,y),dash),label(point(Math.max(4,x)+4,y-4),name+' '+money(price),true));
+  }
+  return marks;
+}
+
 function toolGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
   const {kind, points} = drawing;
   const projected = points.map(view.at);
@@ -255,6 +302,30 @@ function toolGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
     case 'flag': return [line(a, shift(a, 0, -24)), path([shift(a, 0, -24), shift(a, 18, -20), shift(a, 0, -14)], {fill: .4}, true)];
     case 'markUp': return arrow(shift(a, 0, 19), a, [line(shift(a, 0, 19), a)]);
     case 'markDown': return arrow(shift(a, 0, -19), a, [line(shift(a, 0, -19), a)]);
+
+    case 'markLeft': case 'markRight': {
+      const tail = shift(a, kind === 'markLeft' ? 19 : -19, 0);
+      return arrow(tail, a, [line(tail, a)]);
+    }
+    case 'anchoredText': case 'anchoredNote': return annotation(a, kind === 'anchoredNote');
+    case 'image': return b ? [box(a,b), ...(drawing.image ? [
+      {kind:'image' as const,at:point(Math.min(a.x,b.x),Math.min(a.y,b.y)),width:Math.abs(a.x-b.x),height:Math.abs(a.y-b.y),src:drawing.image},
+      ] : [label(shift(a,5,16),'แนบรูปในตั้งค่าวัตถุ',true)])] : [];
+    case 'social': return [label(shift(a,6,-8), drawing.link?.includes('tradingview.com')?'TradingView Idea':'X Post',true),
+      ...annotation(shift(a,6,11),true)];
+    case 'comment': case 'symbol': return annotation(shift(a, 5, -8), kind === 'comment');
+    case 'priceNote': return [line(a, shift(a, 10, 0)), label(shift(a, 12, 4), money(points[0].price), true),
+      ...annotation(shift(a, 12, 20), true)];
+    case 'pin': case 'signpost': return [line(a, shift(a, 0, -22)), ...annotation(shift(a, 4, -22), true)];
+    case 'table': {
+      if (drawing.style?.showText === false) return [];
+      return text.split('\n').slice(0, 12).flatMap((row, i) => row.split('|').slice(0, 6).flatMap((cell,j) => {
+        const start = shift(a, j * 74, i * 20);
+        return [box(start, shift(start, 74, 20)), label(shift(start, 4, 14), cell.trim().slice(0, 12))];
+      }));
+    }
+    case 'volumeRange': return b ? volumeProfile(view, points[0].time, points[1].time) : [];
+    case 'volumeAnchor': return volumeProfile(view, points[0].time);
     case 'vwap': return anchoredVwap(view, points[0].time);
     case 'brush': return [path(projected, {width: 2.5})];
     case 'highlighter': return [path(projected, {width: 14, opacity: .32})];
@@ -280,7 +351,104 @@ function toolGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
       const to = drawing.style?.extendRight ? rayEnd(a, b, width, height) : b;
       return [line(from, to)];
     }
-    case 'polyline': return [path(projected)];
+
+    case 'angle': return [line(a, b), line(a, point(b.x, a.y), dash),
+      label(shift(a, 7, -8), (Math.atan2(-dy, Math.abs(dx)) * 180 / Math.PI).toFixed(1) + '°', true)];
+    case 'flatChannel': return c ? [path([a,b,point(b.x,c.y),point(a.x,c.y)],{fill:.12},true)] : [line(a,b)];
+    case 'disjoint': return c && d ? [path([a,b,d,c],{fill:.12},true)] : [path(projected)];
+    case 'fibTrendTime': return c ? timeZones(drawing, Math.round(view.index(third.time)), barDelta, view) : [line(a,b,dash)];
+    case 'fibCircles': case 'fibArcs': {
+      const radius = Math.hypot(dx, dy);
+      return [line(a,b,dash), ...fibLevels.flatMap(level => {
+        const r = radius * Math.abs(level.value);
+        if (r < .01 || !Number.isFinite(r)) return [];
+        const style = {color:level.color,opacity:level.opacity};
+        const edge = shift(a, dx * level.value, dy * level.value);
+        const shape: DrawingMark = kind === 'fibCircles' ? {kind:'ellipse',center:a,rx:r,ry:r,...style} :
+          {kind:'curve',d:`M ${edge.x} ${edge.y} A ${r} ${r} 0 0 ${Number(!drawing.fib?.reverse)} ${2*a.x-edge.x} ${2*a.y-edge.y}`,...style};
+        return [shape,label(shift(edge,4,-3),fibCaption(drawing,level),false,style)];
+      })];
+    }
+    case 'fibSpiral': {
+      const angle = Math.atan2(dy, dx);
+      const span = Math.hypot(dx,dy);
+      const turn = drawing.fib?.reverse ? -1 : 1;
+      return [path(Array.from({length:161}, (_,i) => {
+        const phase = (i-80)*Math.PI/40;
+        const radius = span * 1.61803398875 ** (phase/(Math.PI/2));
+        return shift(a, radius*Math.cos(angle+turn*phase),radius*Math.sin(angle+turn*phase));
+      }))];
+    }
+    case 'fibWedge': case 'sector': {
+      if (!c) return [line(a,b)];
+      const end = Math.atan2(c.y-a.y,c.x-a.x);
+      const start = Math.atan2(dy,dx);
+      const sweep = Math.atan2(Math.sin(end-start),Math.cos(end-start));
+      const radius = Math.hypot(dx,dy);
+      const arc = (r: number) => Array.from({length:25},(_,i)=>{
+        const phase = start+sweep*i/24;
+        return shift(a,r*Math.cos(phase),r*Math.sin(phase));
+      });
+      if (kind === 'sector') return [path([a,...arc(radius)],{fill:.13},true),
+        label(shift(a,8,-8),Math.abs(sweep*180/Math.PI).toFixed(1)+'°',true)];
+      return [line(a,b,dash),line(a,c,dash),...fibLevels.map(level=>path(arc(radius*Math.abs(level.value)),
+        {color:level.color,opacity:level.opacity}))];
+    }
+    case 'timeCycles': case 'sine': {
+      const step = Math.abs(dx);
+      if (step < 1 || !barDelta) return [];
+      const start = Math.min(a.x,b.x);
+      const firstCycle=Math.max(0, Math.floor(-start/step));
+      if (kind === 'timeCycles') {
+        const end = Math.min(firstCycle + 250, Math.ceil((width - start)/step));
+        return Array.from({length:Math.max(0,end-firstCycle)},(_,i)=>{
+          const x = start+(i+firstCycle)*step;
+          return box(point(x,0),point(x+step,height),{fill:(i+firstCycle)%2===0?.10:0});
+        });
+      }
+      const mid = (a.y+b.y)/2, amp = Math.max(1,Math.abs(dy)/2);
+      return [path(Array.from({length:Math.max(0,Math.ceil((width-Math.max(0,start))/3))},(_,i)=>{
+        const x = Math.max(0,start)+i*3;
+        return point(x,mid+amp*Math.cos((x-start)*2*Math.PI/step));
+      }))];
+    }
+    case 'arrowMarker': {
+      const length=Math.hypot(dx,dy);
+      if (length < 1) return [];
+      const unit=point(dx/length,dy/length);
+      const wing=Math.min(length*.45,18);
+      const base=shift(b,-unit.x*wing,-unit.y*wing);
+      return [line(a,base,{width:4}),path([b,shift(base,-unit.y*7,unit.x*7),shift(base,unit.y*7,-unit.x*7)],{fill:1},true)];
+    }
+    case 'forecast': return [...arrow(a,b,[line(a,b,dash)]),label(shift(b,7,-6),priceDelta,true),label(shift(b,7,11),timeDelta(),true)];
+    case 'ghost': return [path(projected,dash),...projected.slice(1).map((next,i)=>{
+      const prev=projected[i], w=Math.min(7,Math.max(2,Math.abs(next.x-prev.x)*.35));
+      return box(shift(next,-w,0),point(next.x+w,prev.y),{color:next.y<prev.y?success:loss,fill:.50});
+    })];
+    case 'barsPattern': {
+      if (!c) return [line(a,b,dash)];
+      const start = Math.round(Math.min(view.index(first.time),view.index(second.time)));
+      const end = Math.min(view.bars.length-1,Math.round(Math.max(view.index(first.time),view.index(second.time))));
+      if (!view.bars[start] || start > end) return [];
+      const offset = Math.round(view.index(third.time));
+      const base = third.price - view.bars[start].open;
+      const begin = Math.max(start,start+Math.floor(view.visibleFrom-offset)-2);
+      const finish = Math.min(end,start+Math.ceil(view.visibleTo-offset)+2);
+      const stride = Math.max(1,Math.ceil((finish-begin)/Math.max(50,width)));
+      const marks: DrawingMark[] = [];
+      for(let i=begin;i<=finish;i+=stride){
+        const bar=view.bars[i], index=offset+i-start;
+        const high=view.atIndex(index,bar.high+base), low=view.atIndex(index,bar.low+base);
+        const open=view.atIndex(index,bar.open+base), close=view.atIndex(index,bar.close+base);
+        if ([high,low,open,close].every(finitePoint)){
+          const color=bar.close>=bar.open?success:loss;
+          marks.push(line(high,low,{color}),box(shift(open,-2,0),shift(close,2,0),{color,fill:.45}));
+        }
+      }
+      return marks;
+    }
+    case 'path': return [path(projected)];
+    case 'polyline': return [path(projected, {fill:.12}, Boolean(drawing.style?.closed && c))];
     case 'ray': return [line(a, rayEnd(a, b, width, height))];
     case 'extended': return [line(rayEnd(b, a, width, height), rayEnd(a, b, width, height))];
     case 'arrow': return arrow(a, b, [line(a, b)]);
@@ -323,13 +491,15 @@ function toolGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
           ...(name ? [label(shift(p, 4, -3), name, false, {color:level.color})] : [])];
       })];
     }
-    case 'gannBox': {
-      const marks = [box(a, b), line(a, b, dash), line(point(a.x, b.y), point(b.x, a.y), dash)];
+    case 'gannBox': case 'gannSquare': case 'gannFixed': {
+      const end = kind === 'gannFixed' ? point(a.x + Math.sign(dx || 1) * Math.abs(dy), b.y) : b;
+      const gridLeft = Math.min(a.x, end.x), gridRight = Math.max(a.x, end.x);
+      const marks = [box(a, end), line(a, end, dash), line(point(a.x, end.y), point(end.x, a.y), dash)];
       for (let i = 1; i < 8; i += 1) {
         const ratio = i / 8;
-        const x = a.x + dx * ratio;
+        const x = a.x + (end.x-a.x) * ratio;
         const y = view.at({time: first.time, price: first.price + ratio * change}).y;
-        marks.push(line(point(x, top), point(x, bottom), dash), line(point(left, y), point(right, y), dash));
+        marks.push(line(point(x, top), point(x, bottom), dash), line(point(gridLeft, y), point(gridRight, y), dash));
       }
       return [...marks, ...boxCaption(drawing, a, b)];
     }
@@ -349,11 +519,16 @@ function toolGeometry(drawing: Drawing, view: DrawingView): DrawingMark[] {
       })];
       return marks;
     }
-    case 'pitchfork': {
+    case 'pitchfork': case 'insideFork': case 'schiff': case 'modifiedSchiff': case 'pitchfan': {
       if (!c) return [line(a, b, dash)];
       const center = point((b.x + c.x) / 2, (b.y + c.y) / 2);
-      const x = center.x - a.x, y = center.y - a.y;
-      return [line(b, c, dash), line(a, rayEnd(a, center, width, height)),
+      if (kind === 'pitchfan') return [b, center, c].map(p => line(a, rayEnd(a,p,width,height)));
+      const start = kind === 'schiff' ? point(a.x,(a.y+b.y)/2)
+        : kind === 'modifiedSchiff' ? point((a.x+b.x)/2,(a.y+b.y)/2)
+        : kind === 'insideFork' ? point((a.x+b.x)/2,(a.y+b.y)/2) : a;
+      const target = kind === 'insideFork' ? c : center;
+      const x = target.x - start.x, y = target.y - start.y;
+      return [line(b, c, dash), line(start, rayEnd(start, target, width, height)),
         line(b, rayEnd(b, shift(b, x, y), width, height)), line(c, rayEnd(c, shift(c, x, y), width, height))];
     }
     case 'regression': return regression(view, [first.time, second.time]);

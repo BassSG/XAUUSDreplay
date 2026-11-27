@@ -642,3 +642,26 @@
   .live-tools { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .forward-pick button, .forward-position-actions button { min-height: 44px; }
 }
+
+.live-object-manager { display:grid; gap:10px; min-width:0; }
+.live-object-manager h3 { margin:8px 0 4px; font-size:13px; }
+.object-manager-actions, .object-manager-row { display:flex; align-items:center; gap:6px; }
+.object-manager-actions { flex-wrap:wrap; }
+.object-manager-actions button, .object-manager-row button { min-height:38px; }
+.object-manager-row button { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; text-align:start; }
+.object-manager-row input { flex:none; width:20px; height:20px; }
+.live-aim-target { touch-action:none; }
+@media (pointer:coarse) {
+  .object-manager-actions button, .object-manager-row button { min-height:44px; }
+  .live-aim-target { width:50px; height:50px; }
+}
+
+.drawing-image-preview { display:block; max-width:100%; max-height:150px; object-fit:contain; }
+
+.drawing-pane-select { position:absolute; z-index:8; inset-inline-end:65px; top:40px; display:flex; align-items:center; gap:6px; background:var(--live-panel, #121b26); padding:4px 6px; border-radius:6px; font-size:12px; }
+
+.chart-zoom-drag { position:absolute; inset:0; z-index:11; cursor:crosshair; touch-action:none; }
+.chart-zoom-drag > span { position:absolute; border:1px solid #d7b46a; background:#d7b46a28; pointer-events:none; }
+.chart-canvas[data-chart-utility=dot] * { cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Ccircle cx='6' cy='6' r='3' fill='%23d7b46a'/%3E%3C/svg%3E") 6 6, crosshair !important; }
+.chart-canvas[data-chart-utility=arrow] * { cursor:default !important; }
+.chart-canvas[data-chart-utility=erase] * { cursor:cell !important; }

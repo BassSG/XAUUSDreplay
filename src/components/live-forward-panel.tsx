@@ -46,6 +46,12 @@ export default function LiveForwardPanel({drawings, enabled, live, selected, onP
             <div><dt>SL</dt><dd>{price.format(plan.sl)}</dd></div>
             {metrics && <div><dt>R/R</dt><dd>{metrics.ratio.toFixed(2)}</dd></div>}
           </dl>}
+          {drawing.size && metrics && <p className="chart-hint">
+            {drawing.size.lots} ล็อต · เสี่ยง {price.format(metrics.risk*drawing.size.lots*drawing.size.contract)} USD ·
+            เป้ากำไร {price.format(metrics.reward*drawing.size.lots*drawing.size.contract)} USD ก่อนค่าธรรมเนียม
+            {state !== 'changed' && run?.entry && run.exit && ' · ผลจำลอง ' +
+              price.format((run.exit.price-run.entry.price)*(plan?.side==='short'?-1:1)*drawing.size.lots*drawing.size.contract)+' USD'}
+          </p>}
           {state === 'changed' && <p className="chart-hint">กดติดตามระดับใหม่เพื่อเริ่มรอบใหม่</p>}
           {state !== 'changed' && run?.entry && <p className="forward-event">
             <span>Entry {price.format(run.entry.price)}</span><time dateTime={new Date(run.entry.time * 1000).toISOString()}>{clock.format(run.entry.time * 1000)}</time>

@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useId,useImperativeHandle,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
-import {createChart,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers,type IChartApi,type Logical,type UTCTimestamp} from 'lightweight-charts';
+import {createChart,CrosshairMode,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers,type IChartApi,type Logical,type UTCTimestamp} from 'lightweight-charts';
 import ChartDrawings from './chart-drawings';
 import {PineBandLayer} from './pine-band-layer';
 import {PineBox,PineLabel,pineDash,pineStroke} from './pine-annotations';
@@ -39,7 +39,9 @@ const markerShape=(s:string)=>{const v=(s||'').toLowerCase();return v.includes('
 const markerPosition=(s:string)=>{const v=(s||'').toLowerCase();return v.includes('below')?'belowBar':v.includes('above')?'aboveBar':'inBar'};
 const cssColor=(v:any,fallback='transparent')=>typeof v==='string'&&v&&v!=='na'?v:fallback;
 function chartPreference(key:string){try{return localStorage.getItem(key)==='true';}catch{return false;}}
+type ChartUtility = 'cross'|'dot'|'arrow'|'demo'|'magic'|'erase'|'zoom';
 export type LiveChartActions = {
+ utility: (tool:ChartUtility)=>void;
  fit: () => void;
  first: () => void;
  latest: () => void;
@@ -50,8 +52,11 @@ export type LiveChartActions = {
  copyPng: () => Promise<void>;
 };
 
-export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,onToggleMagnet,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,alertLevels=noAlertLevels,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveStudyBadges,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;alertLevels?:number[];liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveStudyBadges?:LiveStudyBadge[];liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
+export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,fills=noFills,shapes=[],pineDrawings=[],pineTables=[],barIndexOffset=0,onPrice,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingRemove,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,strongMagnet=false,onToggleMagnet,confirmDrawingPlacement,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,alertLevels=noAlertLevels,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveStudyBadges,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingRemove?:(id:string)=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;strongMagnet?:boolean;confirmDrawingPlacement?: boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;alertLevels?:number[];liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveStudyBadges?:LiveStudyBadge[];liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
  const [expanded,setExpanded]=useState(false),[paneCount,setPaneCount]=useState(0),[focus,setFocus]=useState('draft');
+ const [utility,setUtility]=useState<ChartUtility>('cross');
+ const [zoomBox,setZoomBox]=useState<{x:number;y:number;right:number;bottom:number}|null>(null);
+ const [drawingPane,setDrawingPane]=useState('');
  const pricePaneClip=useId();
  const [snapshotMessage,setSnapshotMessage]=useState('');
  const [cursorTime,setCursorTime]=useState<number|null>(null);
@@ -65,6 +70,8 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
   }
   return [...studies.entries()];
  },[plots]);
+ const activePane = paneStudies.some(([id])=>id===drawingPane) ? drawingPane : '';
+ const drawingPanes = [{id:'',index:0}, ...paneStudies.map(([id],i)=>({id,index:i+1}))];
  const navigation=useRef({onHistoryEdge,onLeaveLatest});
  navigation.current={onHistoryEdge,onLeaveLatest};
  const [replayText,setShowPineText]=useState(()=>chartPreference('xau-pine-text')),[replayTables,setShowPineTables]=useState(()=>chartPreference('xau-pine-tables'));
@@ -296,7 +303,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
     const image=new Image();
     image.src=url;
     await image.decode();
-    ctx.drawImage(image,0,0,Number(clone.getAttribute('width'))*scale,Number(clone.getAttribute('height'))*scale);
+    ctx.drawImage(image,0,(parseFloat(clone.style.top)||0)*scale,Number(clone.getAttribute('width'))*scale,Number(clone.getAttribute('height'))*scale);
    } finally { URL.revokeObjectURL(url); }
   }
   return new Promise((resolve,reject)=>canvas.toBlob(blob=>{
@@ -377,13 +384,58 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
    return {follow:following,viewport:captureLiveViewport(range,bars,seconds),rightOffset:range.to-bars.length+1,
     priceRange:axis.options().autoScale?null:axis.getVisibleRange(),paneSizes};
   },
+  utility:chooseUtility,
   exportPng:exportChart,
   copyPng:copyChart,
  }));
 
+ function chooseUtility(tool:ChartUtility) {
+  onDrawingCancel?.();
+  setZoomBox(null);
+  setUtility(tool);
+  const chart=ref.current?.chart;
+  chart?.applyOptions({crosshair:{
+    mode:['dot','arrow','erase','zoom'].includes(tool)?CrosshairMode.Hidden:CrosshairMode.Normal,
+    vertLine:{color:tool==='magic'?'#ba8af0':tool==='demo'?'#dbb76e':'#536278'},
+    horzLine:{color:tool==='magic'?'#ba8af0':tool==='demo'?'#dbb76e':'#536278'},
+  }});
+ }
  const brandMarkBottom=(ref.current?.chart.timeScale().height()||26)+brandMarkInset;
  const canvas = <>
-  <div className="chart-canvas" ref={host} tabIndex={live?0:undefined} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}<ChartDrawings api={ref.current} host={host.current} controlsHost={placementHost.current} confirmPlacement={live} readOnly={readOnlyDrawings} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings} mode={drawingMode} hidden={hiddenDrawings} magnet={magnet} onToggleMagnet={onToggleMagnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onEdit={onDrawingEdit} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>{!drawingMode&&!selectedDrawing&&handles}{tables}
+  <div className="chart-canvas" data-chart-utility={drawingMode?"cross":utility} ref={host} tabIndex={live?0:undefined} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}{drawingPanes.map(pane=><ChartDrawings key={pane.id} api={ref.current} pane={pane.id ? pane : undefined} host={host.current} controlsHost={placementHost.current} confirmPlacement={live || confirmDrawingPlacement} readOnly={readOnlyDrawings || pane.id!==activePane} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings.filter(d=>(d.pane??'')===pane.id)} mode={pane.id===activePane ? drawingMode : null} hidden={hiddenDrawings} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={onToggleMagnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onEdit={onDrawingEdit} onErase={!drawingMode && utility==='erase' ? onDrawingRemove : undefined} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>)}{!drawingMode&&!selectedDrawing&&handles}{tables}
+  {!drawingMode && utility==='zoom' && <div className="chart-zoom-drag" aria-label="ลากกรอบเพื่อซูมกราฟ"
+    style={{width:ref.current?.chart.timeScale().width(),height:ref.current?.chart.panes()[0]?.getHeight()}}
+    onPointerDown={event=>{
+      if (!event.isPrimary || event.button!==0)return;
+      const r=event.currentTarget.getBoundingClientRect();
+      const x=event.clientX-r.left,y=event.clientY-r.top;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setZoomBox({x,y,right:x,bottom:y});
+    }}
+    onPointerMove={event=>{
+      if (!event.currentTarget.hasPointerCapture(event.pointerId))return;
+      const r=event.currentTarget.getBoundingClientRect();
+      setZoomBox(box=>box?{...box,right:Math.max(0,Math.min(r.width,event.clientX-r.left)),
+       bottom:Math.max(0,Math.min(r.height,event.clientY-r.top))}:null);
+    }}
+    onPointerCancel={()=>setZoomBox(null)}
+    onPointerUp={()=>{
+      const r=ref.current;
+      if (!r || !zoomBox)return;
+      if (Math.abs(zoomBox.x-zoomBox.right)>=12) {
+        const scale=r.chart.timeScale();
+        const from=scale.coordinateToLogical(Math.min(zoomBox.x,zoomBox.right));
+        const to=scale.coordinateToLogical(Math.max(zoomBox.x,zoomBox.right));
+        if(from!==null&&to!==null&&to-from>=1) {
+          onLeaveLatest?.();
+          scale.setVisibleLogicalRange({from,to});
+        }
+      }
+      chooseUtility('cross');
+    }}>
+    {zoomBox && <span style={{left:Math.min(zoomBox.x,zoomBox.right),top:Math.min(zoomBox.y,zoomBox.bottom),
+      width:Math.abs(zoomBox.x-zoomBox.right),height:Math.abs(zoomBox.y-zoomBox.bottom)}}/>}
+  </div>}
   <img ref={brandMark} className="chart-brand-mark" src={brandMarkUrl} alt=""
    width={brandMarkWidth} height={brandMarkHeight} style={{left:brandMarkInset,bottom:brandMarkBottom}}/>
  </>;
@@ -417,6 +469,12 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
     })}
    </div>
   </div>
+  {drawingMode && paneStudies.length>0 && !readOnlyDrawings && <label className="drawing-pane-select">
+    <span>วาดบน</span><select aria-label="ช่องสำหรับวาด" value={activePane} onChange={event=>setDrawingPane(event.target.value)}>
+      <option value="">กราฟราคา</option>
+      {paneStudies.map(([id,plot])=><option key={id} value={id}>{plot.indicatorName||plot.name}</option>)}
+    </select>
+  </label>}
   <div className="live-placement-slot" ref={placementHost}/>
   {liveSelection}
  </div>;
@@ -427,6 +485,10 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots,
     {groups.map(g=><option key={g} value={g}>{g==='draft'?'Draft SL / TP':(levels.find(l=>l.tradeId===g||l.orderId===g)?.label.split(' ').slice(0,2).join(' ')||g)}</option>)}
    </select>}
    <button onClick={()=>ref.current?.chart.timeScale().fitContent()} title="ดูช่วงที่เปิดแล้วทั้งหมด">Fit</button>
+   <select value={utility} aria-label="เคอร์เซอร์และซูม" onChange={event=>chooseUtility(event.target.value as ChartUtility)}>
+    <option value="cross">กากบาท</option><option value="dot">จุด</option><option value="arrow">ลูกศร</option>
+    <option value="demo">นำเสนอ</option><option value="magic">เส้นเน้นสีม่วง</option><option value="erase">ยางลบ</option><option value="zoom">ลากกรอบซูม</option>
+   </select>
    <button onClick={goLatest}>แท่งล่าสุด</button>
    <button onClick={goLatest}>Reset</button>
    <button onClick={()=>setExpanded(v=>!v)}>{expanded?'ย่อกราฟ':'ขยายกราฟ'}</button>

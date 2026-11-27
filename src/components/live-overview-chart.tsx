@@ -41,7 +41,7 @@ export default function LiveOverviewChart({period, feed, retry, onRetry, workspa
   const market = useLiveMarket(period, retry, feed, null, false);
   const {bars, historical, needsBackup, backupFailed} = useLiveBars(period, market, retry);
   const {pine, plots, badges} = useLiveStudies(period, market, historical, studies, lengths, scripts);
-  const visibleDrawings = useMemo(() => drawings.filter(d => !d.visiblePeriods || d.visiblePeriods.includes(period)), [drawings, period]);
+  const visibleDrawings = useMemo(() => drawings.filter(d => (d.scope!=='chart'||d.chartPeriod===period) && (!d.visiblePeriods || d.visiblePeriods.includes(period))), [drawings, period]);
   const [follow, setFollow] = useState(true);
   const chart = useRef<LiveChartActions>(null);
   const live = !historical.length && market.quote?.status === 'live' && !market.quoteError;

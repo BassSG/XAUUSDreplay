@@ -25,14 +25,44 @@ function parseLevel(value: string, asPercent: boolean) {
   return Number(number) / (asPercent ? 100 : 1);
 }
 
-export default function LiveDrawingSettings({drawing, onSave, onClose}: {
-  drawing: Drawing; onSave: (drawing: Drawing) => void; onClose: () => void;
+function socialLink(value:string) {
+  try {
+    const url=new URL(value);
+    return url.protocol==='https:' && !url.username && !url.password && !url.port &&
+      ((['x.com','twitter.com','www.x.com','www.twitter.com'].includes(url.hostname) && /\/status\/\d+/.test(url.pathname)) ||
+      ((url.hostname==='tradingview.com' || url.hostname.endsWith('.tradingview.com')) && url.pathname.startsWith('/chart/'))) ? url.href : '';
+  } catch { return ''; }
+}
+async function readDrawingImage(file:File) {
+  if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size>8_000_000) throw Error('เลือก PNG, JPEG หรือ WebP ไม่เกิน 8 MB');
+  const image=await createImageBitmap(file,{resizeWidth:480,resizeQuality:'high'});
+  try {
+    const canvas=document.createElement('canvas');
+    const scale=Math.min(1,480/Math.max(image.width,image.height));
+    canvas.width=Math.max(1,Math.round(image.width*scale));
+    canvas.height=Math.max(1,Math.round(image.height*scale));
+    const context=canvas.getContext('2d');
+    if (!context) throw Error('เปิดรูปไม่ได้');
+    context.fillStyle='#0b1119';
+    context.fillRect(0,0,canvas.width,canvas.height);
+    context.drawImage(image,0,0,canvas.width,canvas.height);
+    for (const quality of [.84,.68,.50,.32]) {
+      const data=canvas.toDataURL('image/jpeg',quality);
+      if (data.length<=40000) return data;
+    }
+    throw Error('รูปมีรายละเอียดมากเกินไป ลองใช้ไฟล์เล็กลง');
+  } finally {image.close();}
+}
+
+export default function LiveDrawingSettings({drawing, onSave, onClose, period}: {
+  drawing: Drawing; period?:typeof periodList[number]; onSave: (drawing: Drawing) => void; onClose: () => void;
 }) {
   const isFib = Boolean(fibDefaults[drawing.kind]);
   const asPercent = drawing.kind !== 'fibTime';
   const isBox = isLabelBox(drawing.kind);
   const [tab, setTab] = useState<Tab>('text');
   const [draft, setDraft] = useState(drawing);
+  const [defaultStyle,setDefaultStyle]=useState(false);
   const [anchors, setAnchors] = useState(() => drawing.points.map(p => ({time:bangkokLocal(p.time), price:String(p.price)})));
   const [levels, setLevels] = useState(() => drawingFibLevels(drawing).map((level, id) => ({
     ...level, id, original: level.value, value:levelInput(level.value, asPercent),
@@ -40,12 +70,15 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
   const nextLevelId = useRef(levels.length);
   const [focusLevel, setFocusLevel] = useState<number | null>(null);
   const activeLevelInput = useRef<HTMLInputElement>(null);
+  const [size,setSize]=useState(()=>({lots:String(drawing.size?.lots ?? ''),contract:String(drawing.size?.contract ?? 100)}));
+  const position = drawing.kind==='long' || drawing.kind==='short';
   const [error, setError] = useState('');
   const style = draft.style ?? {};
   const fib = draft.fib;
   const horizontalFib = drawing.kind === 'fib' || drawing.kind === 'fibExtension';
   const extend = horizontalFib || drawing.kind === 'rect' || drawing.kind === 'trend';
-  const hasFill = isBox || ['ellipse','triangle','circle','channel','regression','ruler','long','short','flag'].includes(drawing.kind);
+  const hasFill = isBox || ['ellipse','triangle','circle','channel','regression','ruler','long','short','flag','polyline','sector','gannSquare','gannFixed','flatChannel','disjoint'].includes(drawing.kind);
+  const screenAnchored = drawing.points.some(point=>point.screen);
   const hasOutline = drawing.kind !== 'text' && drawing.kind !== 'note';
   const textDefaultColor = drawingTools[drawing.kind].text ? drawingInputColor(draft.color) : '#e7edf5';
   useEffect(() => {
@@ -83,11 +116,11 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
   function save() {
     if (drawing.locked) return;
     setError('');
-    const points = anchors.map(({time,price}) => ({time:Date.parse(time + '+07:00') / 1000, price:Number(price)}));
+    const points = anchors.map(({time,price},i) => ({...drawing.points[i],time:Date.parse(time + '+07:00') / 1000, price:Number(price)}));
     const moved = points.some((point,i) => point.time !== drawing.points[i].time || point.price !== drawing.points[i].price);
     if (moved) {
       const issue = points.some(p => !Number.isSafeInteger(p.time) || p.time <= 0 || p.time > 253402275599 ||
-        !Number.isFinite(p.price) || p.price < .01)
+        !Number.isFinite(p.price) || !drawing.pane && p.price < .01)
         ? 'ตรวจวัน เวลา และราคาของแต่ละจุด' : placementError(drawing.kind, points);
       if (issue) { setTab('coordinates'); setError(issue); return; }
     }
@@ -102,20 +135,50 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
       return;
     }
     const next = {...draft, points};
+    if (drawing.kind==='social' && draft.link && !socialLink(draft.link)) {
+      setTab('text');setError('ใส่ลิงก์โพสต์จาก X หรือไอเดีย TradingView');return;
+    }
+    if (draft.link) next.link=socialLink(draft.link);
+    if (position) {
+      const lots=Number(size.lots),contract=Number(size.contract);
+      if (size.lots && (!(lots>0 && lots<=1000) || !(contract>0 && contract<=100000))) {
+        setTab('style');setError('ตรวจจำนวนล็อตและขนาดสัญญา');return;
+      }
+      next.size=size.lots?{lots,contract}:undefined;
+    }
     if (isFib && (fib || JSON.stringify(parsedLevels) !== JSON.stringify(drawingFibLevels(drawing)))) {
       next.fib = {...fib, levels:parsedLevels};
+    }
+    if (defaultStyle) {
+      const {color,fillColor,textColor,style,fib,text}=next;
+      try { localStorage.setItem('ebw-drawing-style:'+drawing.kind,JSON.stringify({color,fillColor,textColor,style,fib,text})); }
+      catch { setError('พื้นที่จัดเก็บเต็ม กรุณาลองอีกครั้ง');return; }
     }
     if (JSON.stringify(next) !== JSON.stringify(drawing)) onSave(next);
     onClose();
   }
   return <form className="live-object live-drawing-settings" noValidate onSubmit={event => {event.preventDefault(); save();}}>
     <nav className="drawing-settings-tabs" aria-label="หมวดตั้งค่าเครื่องมือ">
-      {tabs.filter(item => (item.id !== 'fib' || isFib) && (item.id !== 'style' || hasOutline)).map(item =>
+      {tabs.filter(item => (item.id !== 'coordinates' || !screenAnchored) && (item.id !== 'fib' || isFib) && (item.id !== 'style' || hasOutline)).map(item =>
         <button type="button" key={item.id} aria-pressed={tab === item.id}
           onClick={() => {setError(''); setTab(item.id);}}>{item.label}</button>)}
     </nav>
     <fieldset disabled={drawing.locked}>
       {tab === 'text' && <>
+        {drawing.kind==='image' && <label>แนบรูปบนกราฟ
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={async event=>{
+            const file=event.target.files?.[0];
+            if(!file)return;
+            setError('');
+            try {property('image',await readDrawingImage(file));}
+            catch(error){setError(error instanceof Error?error.message:'เปิดรูปไม่ได้');}
+          }}/>
+          {draft.image && <img className="drawing-image-preview" src={draft.image} alt="ตัวอย่างรูปบนกราฟ"/>}
+        </label>}
+        {drawing.kind==='social' && <label>ลิงก์โพสต์หรือไอเดีย
+          <input type="url" maxLength={1000} value={draft.link??''} onChange={e=>property('link',e.target.value)}/>
+          {draft.link && socialLink(draft.link) && <a href={socialLink(draft.link)} target="_blank" rel="noopener noreferrer">เปิดต้นทาง</a>}
+        </label>}
         <label className="live-object-text">{isBox ? 'ข้อความในกล่อง' : 'ข้อความบนกราฟ'}
           <textarea name="text" data-dialog-autofocus rows={3} maxLength={1000}
             placeholder={isBox ? 'เช่น โซนรอราคา' : 'เช่น แนวต้านรายวัน'}
@@ -138,6 +201,10 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
         </div>
       </>}
       {tab === 'style' && <>
+        {position && <div className="drawing-settings-fields">
+          <label>จำนวนล็อตจำลอง <input type="number" step="any" min="0" value={size.lots} onChange={e=>setSize({...size,lots:e.target.value})}/></label>
+          <label>ขนาดสัญญาต่อล็อต <input type="number" step="any" min="0" value={size.contract} onChange={e=>setSize({...size,contract:e.target.value})}/></label>
+        </div>}
         <div className="drawing-settings-fields">
           <label>สีเส้น <input type="color" value={drawingInputColor(draft.color)} onChange={e=>property('color',e.target.value)}/></label>
           <label>ความหนา <select value={style.width ?? ''} onChange={e=>appearance('width',e.target.value ? Number(e.target.value) : undefined)}>
@@ -156,6 +223,8 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
           <label><input type="checkbox" checked={style.extendLeft ?? false} onChange={e=>appearance('extendLeft',e.target.checked)}/>ต่อเส้นซ้าย</label>
           <label><input type="checkbox" checked={style.extendRight ?? false} onChange={e=>appearance('extendRight',e.target.checked)}/>ต่อเส้นขวา</label>
         </div>}
+        {drawing.kind === 'polyline' && <label><input type="checkbox" checked={style.closed ?? false}
+          onChange={e=>appearance('closed',e.target.checked)}/>ปิดรูปและเติมสีพื้น</label>}
         {drawing.kind === 'rect' && <label><input type="checkbox" checked={style.middle ?? false} onChange={e=>appearance('middle',e.target.checked)}/>เส้นกึ่งกลาง</label>}
       </>}
       {tab === 'fib' && <>
@@ -165,7 +234,7 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
             onChange={e=>fibOption('showTrend',e.target.checked)}/>เส้นจุดยึด</label>
           {['fib','fibExtension','fibFan'].includes(drawing.kind) && <label><input type="checkbox"
             checked={fib?.showPrice ?? (drawing.kind !== 'fibFan')} onChange={e=>fibOption('showPrice',e.target.checked)}/>แสดงราคา</label>}
-          <label>ป้ายระดับ <select value={fib?.format ?? (drawing.kind === 'fibTime' ? 'ratio' : 'percent')}
+          <label>ป้ายระดับ <select value={fib?.format ?? (drawing.kind === 'fibTime' || drawing.kind === 'fibTrendTime' ? 'ratio' : 'percent')}
             onChange={e=>fibOption('format',e.target.value as 'ratio'|'percent'|'none')}>
             <option value="ratio">ตัวเลข</option><option value="percent">เปอร์เซ็นต์</option><option value="none">ซ่อนตัวเลข</option>
           </select></label>
@@ -215,11 +284,18 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
           return <div className="drawing-anchor-row" key={i}>
             <strong>{drawingTools[drawing.kind].points[i] ?? 'จุด ' + (i+1)}</strong>
             <label>เวลา กรุงเทพฯ <input type="datetime-local" step="1" value={anchor.time} onChange={e=>update({time:e.target.value})}/></label>
-            <label>ราคา <input type="number" min=".01" step="any" value={anchor.price} onChange={e=>update({price:e.target.value})}/></label>
+            <label>ราคา <input type="number" min={drawing.pane?undefined:.01} step="any" value={anchor.price} onChange={e=>update({price:e.target.value})}/></label>
           </div>;
         })}
       </div>}
       {tab === 'visibility' && <div className="drawing-settings-fields">
+        {period && <label>แชร์วัตถุ <select value={draft.scope??'layout'} onChange={e=>{
+          const scope=e.target.value as Drawing['scope'];
+          setDraft(current=>({...current,scope,chartPeriod:scope==='chart'?period:undefined}));
+        }}>
+          <option value="chart">เฉพาะกราฟ {period}</option><option value="layout">ในเลย์เอาต์นี้</option>
+          <option value="global">ทุกเลย์เอาต์</option>
+        </select></label>}
         {periodList.map(period => <label key={period}><input type="checkbox"
           checked={draft.visiblePeriods?.includes(period) ?? true}
           onChange={e=>property('visiblePeriods',periodList.filter(p=>p===period ? e.target.checked : draft.visiblePeriods?.includes(p) ?? true))}/>{period}</label>)}
@@ -228,6 +304,8 @@ export default function LiveDrawingSettings({drawing, onSave, onClose}: {
     {drawing.locked && <p className="chart-hint">ปลดล็อกวัตถุจากแถบแก้ไขเพื่อเปลี่ยนค่า</p>}
     {error && <p className="chart-error" role="alert">{error}</p>}
     <div className="layout-actions">
+      <label><input type="checkbox" disabled={drawing.locked} checked={defaultStyle}
+        onChange={event=>setDefaultStyle(event.target.checked)}/>ใช้เป็นค่าเริ่มต้นของเครื่องมือนี้</label>
       <button type="submit" className="primary" disabled={drawing.locked}>บันทึก</button>
       <button type="button" onClick={onClose}>ยกเลิก</button>
     </div>

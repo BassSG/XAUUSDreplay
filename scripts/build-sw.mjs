@@ -13,7 +13,7 @@ self.addEventListener('push',e=>e.waitUntil((async()=>{
 let item;
 try{item=e.data?.json()}catch{}
 if(!item||typeof item.title!=='string'||typeof item.body!=='string')return;
-await self.registration.showNotification(item.title.slice(0,128),{body:item.body.slice(0,200),tag:typeof item.tag==='string'?item.tag.slice(0,128):'ebw-xauusd-alert',icon:SCOPE+'icons/icon-192.png',data:{ebwAlert:true}});
+await self.registration.showNotification(item.title.slice(0,128),{body:item.body.slice(0,200),tag:typeof item.tag==='string'?item.tag.slice(0,128):'ebw-xauusd-alert',icon:SCOPE+'icons/ebw-192.png',data:{ebwAlert:true}});
 })()));
 self.addEventListener('notificationclick',e=>{if(!e.notification.data?.ebwAlert)return;
 e.notification.close();
@@ -24,6 +24,7 @@ else await self.clients.openWindow(SCOPE+'?mode=live&panel=alerts');
 })());
 });
 self.addEventListener('fetch',e=>{const r=e.request,u=new URL(r.url);if(r.method!=='GET'||u.origin!==self.location.origin||!u.pathname.startsWith(SCOPE))return;
+if(u.pathname===SCOPE+'manifest.webmanifest'){e.respondWith(fetch(r,{cache:'no-cache'}).then(async response=>response.ok?response:await caches.match(SCOPE+'manifest.webmanifest')||response).catch(async()=>await caches.match(SCOPE+'manifest.webmanifest')||Response.error()));return;}
 if(r.mode==='navigate'){e.respondWith((async()=>{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),4000);try{const response=await fetch(r,{signal:controller.signal});return response.ok?response:await caches.match(SCOPE+'index.html');}catch{return await caches.match(SCOPE+'index.html');}finally{clearTimeout(timer)}})());return;}
 e.respondWith(caches.open(CACHE).then(async c=>{const old=await c.match(r);if(old)return old;const response=await fetch(r);if(response.ok)await c.put(r,response.clone());return response}));});`;
 await writeFile('dist/sw.js',sw);await writeFile('dist/.nojekyll','');console.log('Offline shell prepared: '+shell.length+' assets.');

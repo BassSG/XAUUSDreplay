@@ -128,7 +128,7 @@ export class AlertHub {
       if (path === '/rules') {
         const before = await this.read();
         const now = Date.now();
-        const initialise = (body.op === 'add' || body.op === 'resume') &&
+        const initialise = (body.op === 'add' || body.op === 'add-drawing' || body.op === 'resume') &&
           (!before.alerts.last || Math.abs(now / 1000 - before.alerts.last.time) > 30);
         const seed = initialise ? await latestQuote(this.env) : null;
         const state = await this.store.transaction(async txn => {
