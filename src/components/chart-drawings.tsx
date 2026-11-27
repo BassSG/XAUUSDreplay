@@ -12,7 +12,8 @@ import {drawingGeometry, placementError, positionMetrics, type DrawingMark, type
 type Api = {chart: IChartApi; series: ISeriesApi<'Candlestick'>};
 type Props = {
   api: Api | null; host: HTMLDivElement | null; controlsHost?: HTMLDivElement | null;
-  pane?:{id:string;index:number}; confirmPlacement?: boolean; readOnly?: boolean; timeline: Bar[]; offset: number; seconds: number;
+  pane?:{id:string;index:number}; confirmPlacement?: boolean; readOnly?: boolean; keyboardOwner: boolean;
+  timeline: Bar[]; offset: number; seconds: number;
   drawings: Drawing[]; mode: DrawingKind | null; hidden: boolean; magnet: boolean;
   selected: string | null; strongMagnet?:boolean; pricePicking: boolean;
   onSelect: (id: string | null) => void; onCreate: (d: Drawing) => void; onChange: (d: Drawing) => void;
@@ -287,10 +288,6 @@ export default function ChartDrawings(props: Props) {
   }, [confirmPlacement, props.magnet]);
 
   useEffect(() => {
-    if (props.selected && !props.drawings.some(d => d.id === props.selected)) props.onSelect(null);
-  }, [props.drawings, props.selected]);
-
-  useEffect(() => {
     const api = props.api;
     if (!api || props.readOnly) return;
     const click = (event: MouseEventParams) => {
@@ -399,7 +396,7 @@ export default function ChartDrawings(props: Props) {
   }, [props.api, props.mode, confirmPlacement, props.readOnly]);
 
   useEffect(() => {
-    if (props.readOnly) return;
+    if (props.readOnly || !props.keyboardOwner) return;
     function setCtrlMagnet(pressed: boolean) {
       if (ctrlMagnet.current === pressed) return;
       ctrlMagnet.current = pressed;
@@ -458,7 +455,7 @@ export default function ChartDrawings(props: Props) {
       window.removeEventListener('blur', blur);
       cancelDrag();
     };
-  }, [confirmPlacement, props.readOnly]);
+  }, [confirmPlacement, props.readOnly, props.keyboardOwner]);
 
   function beginMove(event: ReactPointerEvent<SVGGElement>, drawing: Drawing, handle: number | null) {
     const p = state.current;

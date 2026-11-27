@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useId,useImperativeHandle,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
-import {createChart,CrosshairMode,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers,type IChartApi,type Logical,type UTCTimestamp} from 'lightweight-charts';
+import {createChart,CrosshairMode,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers,type IChartApi,type Logical,type MouseEventParams,type UTCTimestamp} from 'lightweight-charts';
 import ChartDrawings from './chart-drawings';
 import {PineBandLayer} from './pine-band-layer';
 import {PineBox,PineLabel,pineDash,pineStroke} from './pine-annotations';
@@ -47,6 +47,14 @@ const cssColor=(v:any,fallback='transparent')=>typeof v==='string'&&v&&v!=='na'?
 function chartPreference(key:string){try{return localStorage.getItem(key)==='true';}catch{return false;}}
 type ChartUtility = 'cross'|'dot'|'arrow'|'demo'|'magic'|'erase'|'zoom';
 type ReplayPicker = {time:number|null;onPick:(time:number)=>void};
+function readPaneSizes(chart:IChartApi, studies:[string,PinePlot][]):ChartView['paneSizes'] {
+ const panes=chart.panes();
+ const sizes:ChartView['paneSizes']={price:panes[0].getStretchFactor()};
+ studies.forEach(([id],index)=>{
+  if(panes[index+1])sizes[id]=panes[index+1].getStretchFactor();
+ });
+ return sizes;
+}
 export type LiveChartActions = {
  utility: (tool:ChartUtility)=>void;
  fit: () => void;
@@ -61,12 +69,15 @@ export type LiveChartActions = {
 
 export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:studyPlots,fills:studyFills=noFills,shapes:studyShapes=noShapes,pineDrawings:studyDrawings=noPineDrawings,pineTables:studyTables=noPineTables,barIndexOffset=0,onPrice,replayPicker,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingRemove,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,strongMagnet=false,onToggleMagnet,confirmDrawingPlacement,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,alertLevels=noAlertLevels,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveStudyBadges,hiddenStudies,onToggleStudy,liveSelection,onHistoryEdge,onLeaveLatest}:{bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;replayPicker?:ReplayPicker;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingRemove?:(id:string)=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;strongMagnet?:boolean;confirmDrawingPlacement?: boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;alertLevels?:number[];liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveStudyBadges?:LiveStudyBadge[];hiddenStudies?:readonly string[];onToggleStudy?:(id:string)=>void;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
  const hiddenStudyIds=useMemo(()=>new Set(hiddenStudies),[hiddenStudies]);
+ const [priceExpanded,setPriceExpanded]=useState(false);
+ const normalPaneSizes=useRef<ChartView['paneSizes']|null>(null);
  const {plots,fills,shapes,pineDrawings,pineTables}=useMemo(()=>{
-  const visible=<T extends {indicatorId?:string},>(items:T[])=>hiddenStudyIds.size
-   ? items.filter(item=>!item.indicatorId||!hiddenStudyIds.has(item.indicatorId)) : items;
+  const visible=<T extends {indicatorId?:string;overlay?:boolean},>(items:T[])=>hiddenStudyIds.size||priceExpanded
+   ? items.filter(item=>(!item.indicatorId||!hiddenStudyIds.has(item.indicatorId))&&(!priceExpanded||item.overlay!==false))
+   : items;
   return {plots:visible(studyPlots),fills:visible(studyFills),shapes:visible(studyShapes),
    pineDrawings:visible(studyDrawings),pineTables:visible(studyTables)};
- },[hiddenStudyIds,studyPlots,studyFills,studyShapes,studyDrawings,studyTables]);
+ },[hiddenStudyIds,priceExpanded,studyPlots,studyFills,studyShapes,studyDrawings,studyTables]);
  const [expanded,setExpanded]=useState(false),[paneCount,setPaneCount]=useState(0),[focus,setFocus]=useState('draft');
  const [utility,setUtility]=useState<ChartUtility>('cross');
  const [zoomBox,setZoomBox]=useState<{x:number;y:number;right:number;bottom:number}|null>(null);
@@ -86,6 +97,13 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
  },[plots]);
  const activePane = paneStudies.some(([id])=>id===drawingPane) ? drawingPane : '';
  const drawingPanes = [{id:'',index:0}, ...paneStudies.map(([id],i)=>({id,index:i+1}))];
+ const selectedObject = drawings.find(drawing=>drawing.id===selectedDrawing);
+ const selectedPane = selectedObject?.pane ?? '';
+ const keyboardPane = drawingMode ? activePane : selectedPane;
+ // Selection belongs to the chart. Each drawing layer only receives that pane's drawings.
+ useEffect(()=>{
+  if(selectedDrawing&&(!selectedObject||selectedPane&&!paneStudies.some(([id])=>id===selectedPane)))onDrawingSelect?.(null);
+ },[selectedDrawing,selectedObject,selectedPane,paneStudies,onDrawingSelect]);
  const navigation=useRef({onHistoryEdge,onLeaveLatest});
  navigation.current={onHistoryEdge,onLeaveLatest};
  const [replayText,setShowPineText]=useState(()=>chartPreference('xau-pine-text')),[replayTables,setShowPineTables]=useState(()=>chartPreference('xau-pine-tables'));
@@ -142,6 +160,17 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
   chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);const el=host.current;el.addEventListener('wheel',redraw);el.addEventListener('pointermove',redraw);const observer=new ResizeObserver(redraw);observer.observe(el);
   return()=>{observer.disconnect();el.removeEventListener('wheel',redraw);el.removeEventListener('pointermove',redraw);chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);if(edgeFrame!==undefined)cancelAnimationFrame(edgeFrame);if(redrawFrame.current!==undefined)cancelAnimationFrame(redrawFrame.current);redrawFrame.current=undefined;ref.current=null;livePriceMarker.current=null;if(priceMarker)series.detachPrimitive(priceMarker);chart.remove()};
  },[]);
+ useEffect(()=>{
+  const chart:IChartApi|undefined=ref.current?.chart;
+  if(!chart||!live||drawingMode||pricePicking||replayPicker||(!priceExpanded&&!paneStudies.length))return;
+  const toggle=(event:MouseEventParams)=>{
+   if(!event.point||(event.paneIndex??0)!==0)return;
+   if(!priceExpanded)normalPaneSizes.current=readPaneSizes(chart,paneStudies);
+   setPriceExpanded(!priceExpanded);
+  };
+  chart.subscribeDblClick(toggle);
+  return ()=>chart.unsubscribeDblClick(toggle);
+ },[live,drawingMode,pricePicking,replayPicker,priceExpanded,paneStudies]);
  useEffect(()=>{
   const r=ref.current;
   if(!appearance||!r)return;
@@ -236,17 +265,20 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
   for(const [key,series] of r.studies)if(!visible.has(key)){
    const line=r.horizontals.get(key);
    if(line){series.removePriceLine(line);r.horizontals.delete(key);}
-   if(calculating&&!hiddenStudyIds.has(key.split('|',1)[0]))series.setData([]);
+   const hidden=hiddenStudyIds.has(key.split('|',1)[0])||priceExpanded&&key.endsWith('|0');
+   if(calculating&&!hidden)series.setData([]);
    else{r.chart.removeSeries(series);r.studies.delete(key);}
   }
-  if(r.chart.panes().length!==previousPanes&&live){
+  if(!priceExpanded&&live&&(r.chart.panes().length!==previousPanes||normalPaneSizes.current)){
    const panes:ReturnType<IChartApi['panes']>=r.chart.panes();
-   panes[0].setStretchFactor(initialView?.paneSizes.price??3);
-   panes.slice(1).forEach((pane,i)=>pane.setStretchFactor(initialView?.paneSizes[paneStudies[i]?.[0]]??1));
-  }else if(r.chart.panes().length>previousPanes){
+   const sizes=normalPaneSizes.current??initialView?.paneSizes;
+   panes[0].setStretchFactor(sizes?.price??3);
+   panes.slice(1).forEach((pane,i)=>pane.setStretchFactor(sizes?.[paneStudies[i]?.[0]]??1));
+   normalPaneSizes.current=null;
+  }else if(!live&&r.chart.panes().length>previousPanes){
    for(let i=1;i<r.chart.panes().length;i++)r.chart.panes()[i].setHeight(150);
   }
- setPaneCount(Math.max(0,r.chart.panes().length-1));setViewTick(v=>v+1);},[plots,paneStudies,calculating,hiddenStudyIds,showPineText,live]);
+ setPaneCount(Math.max(0,r.chart.panes().length-1));setViewTick(v=>v+1);},[plots,paneStudies,calculating,hiddenStudyIds,priceExpanded,showPineText,live]);
  useEffect(()=>{
   const r=ref.current;
   if(!r||!fills.length)return;
@@ -407,9 +439,8 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
   captureView:(following)=>{
    const r=ref.current,range=r?.chart.timeScale().getVisibleLogicalRange();
    if(!range||!bars.length)return null;
-   const axis=r.series.priceScale(),panes:ReturnType<IChartApi['panes']>=r.chart.panes();
-   const paneSizes:Record<string,number>={price:panes[0].getStretchFactor()};
-   paneStudies.forEach(([id],i)=>{if(panes[i+1])paneSizes[id]=panes[i+1].getStretchFactor();});
+   const axis=r.series.priceScale();
+   const paneSizes=normalPaneSizes.current??readPaneSizes(r.chart,paneStudies);
    return {follow:following,viewport:captureLiveViewport(range,bars,seconds),rightOffset:range.to-bars.length+1,
     priceRange:axis.options().autoScale?null:axis.getVisibleRange(),paneSizes};
   },
@@ -431,7 +462,7 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
  }
  const brandMarkBottom=(ref.current?.chart.timeScale().height()||26)+brandMarkInset;
  const canvas = <>
-  <div className="chart-canvas" data-chart-utility={drawingMode?"cross":utility} ref={host} tabIndex={live?0:undefined} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}{drawingPanes.map(pane=><ChartDrawings key={pane.id} api={ref.current} pane={pane.id ? pane : undefined} host={host.current} controlsHost={placementHost.current} confirmPlacement={live || confirmDrawingPlacement} readOnly={Boolean(replayPicker)||readOnlyDrawings||pane.id!==activePane} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings.filter(d=>(d.pane??'')===pane.id)} mode={pane.id===activePane ? drawingMode : null} hidden={hiddenDrawings} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={onToggleMagnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onEdit={onDrawingEdit} onErase={!drawingMode && utility==='erase' ? onDrawingRemove : undefined} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>)}{!drawingMode&&!selectedDrawing&&handles}{tables}
+  <div className="chart-canvas" data-chart-utility={drawingMode?"cross":utility} ref={host} tabIndex={live?0:undefined} aria-label="กราฟแท่งเทียน XAUUSD พร้อมอินดิเคเตอร์"/>{overlay}{drawingPanes.map(pane=><ChartDrawings key={pane.id} api={ref.current} pane={pane.id ? pane : undefined} host={host.current} controlsHost={placementHost.current} confirmPlacement={live || confirmDrawingPlacement} readOnly={Boolean(replayPicker)||readOnlyDrawings||Boolean(drawingMode&&pane.id!==activePane)} keyboardOwner={pane.id===keyboardPane} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings.filter(d=>(d.pane??'')===pane.id)} mode={pane.id===activePane ? drawingMode : null} hidden={hiddenDrawings} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={onToggleMagnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onEdit={onDrawingEdit} onErase={!drawingMode && utility==='erase' ? onDrawingRemove : undefined} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>)}{!drawingMode&&!selectedDrawing&&handles}{tables}
   {replayPicker && replayPicker.time!==null && (() => {
     const r=ref.current;
     if(!r)return null;
