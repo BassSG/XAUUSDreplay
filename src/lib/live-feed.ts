@@ -3,7 +3,8 @@ import type {Bar} from './engine';
 import {maxPineSourceBars, type PineHistoryQuery} from './live-pine';
 import {historyCatalog, loadBefore} from './history';
 import {spotSnapshot} from './binance-spot';
-import {defaultMarketSymbol, isCryptoSymbol, type MarketSymbol} from './market-symbol.ts';
+import {defaultMarketSymbol, isCryptoSymbol, isForexSymbol, type MarketSymbol} from './market-symbol.ts';
+import {forexHistoryPage} from './forex-feed';
 
 const pagesOrigin = 'https://basssg.github.io';
 const pagesBridge = 'https://anything-mrna-work-voted.trycloudflare.com';
@@ -32,6 +33,7 @@ export async function requestMarket(route: string, signal: AbortSignal, options:
 }
 
 export function historyPage(period: Period, before: number, now: number, signal: AbortSignal, symbol: MarketSymbol = defaultMarketSymbol) {
+  if (isForexSymbol(symbol)) return forexHistoryPage(symbol, period, before, signal).then(result => result.bars);
   if (isCryptoSymbol(symbol)) return spotSnapshot(symbol, period, signal, () => now, undefined, before).then(result => result.closed);
   return requestMarket('bars/' + period, signal, {end: olderBarsEnd(before)})
     .then(payload => readOlderBars(payload, before, periods[period], now));

@@ -8,7 +8,7 @@ import {PineBox,PineLabel,pineDash,pineStroke} from './pine-annotations';
 import './mobile-chart.css';
 import type {PineBand} from '../lib/pine-bands';
 import {LivePriceCountdown,LivePriceMarker} from './live-price-marker';
-import {defaultMarketSymbol,formatMarketPrice,marketInfoFor,type MarketSymbol} from '../lib/market-symbol';
+import {defaultMarketSymbol,formatMarketPrice,isForexSymbol,marketInfoFor,type MarketSymbol} from '../lib/market-symbol';
 import {captureLiveViewport,coordinateAtLogical,logicalAtTime,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
 import {liveTailUpdate, sameMarketBar} from '../lib/live-market';
 import {studyStateLabel, type LiveStudyBadge} from '../lib/live-indicators';
@@ -31,6 +31,11 @@ const noPineTables: PineTable[] = [];
 const dateFmt=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
 const tickTime=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false});
 const tickDate=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short'});
+// Rendering raw MT5 clock fields with UTC preserves the reported wall clock;
+// it does not claim that the source timestamps are UTC.
+const rawDateFmt=new Intl.DateTimeFormat('en-GB',{timeZone:'UTC',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
+const rawTickTime=new Intl.DateTimeFormat('en-GB',{timeZone:'UTC',hour:'2-digit',minute:'2-digit',hour12:false});
+const rawTickDate=new Intl.DateTimeFormat('en-GB',{timeZone:'UTC',day:'2-digit',month:'short'});
 const ohlcFormats=new Map<number,Intl.NumberFormat>();
 function ohlcNumber(precision:number){let formatter=ohlcFormats.get(precision);if(!formatter){formatter=new Intl.NumberFormat('en-US',{minimumFractionDigits:precision,maximumFractionDigits:precision});ohlcFormats.set(precision,formatter);}return formatter;}
 const compactChartMedia='(max-width: 720px), (orientation: landscape) and (max-height: 500px) and (pointer: coarse)';
@@ -119,7 +124,7 @@ export default function ReplayChart({symbol=defaultMarketSymbol,bars,timeline=ba
  const host=useRef<HTMLDivElement>(null);const placementHost=useRef<HTMLDivElement>(null);const ref=useRef<any>(null);const onPriceRef=useRef(onPrice);onPriceRef.current=onPrice;const drawingsRef=useRef({user:drawings,pine:pineDrawings});drawingsRef.current={user:drawings,pine:pineDrawings};const modeRef=useRef(drawingMode);modeRef.current=drawingMode;const redrawFrame=useRef<number|undefined>(undefined);const [,setViewTick]=useState(0);
  useEffect(()=>{
   if(!host.current)return;
-  const chart=createChart(host.current,{autoSize:true,layout:{attributionLogo:false,background:{type:ColorType.Solid,color:live?'#0d141e':'#10151d'},textColor:live?'#93a4ba':'#8f9caf',fontSize:12,fontFamily:"'Segoe UI',sans-serif",panes:{separatorColor:'#2b3442',separatorHoverColor:'#46546a',enableResize:true}},grid:{vertLines:{color:live?'#1a2635':'#19212c'},horzLines:{color:live?'#1a2635':'#19212c'}},crosshair:{mode:0,vertLine:{color:'#778495',labelBackgroundColor:'#344155'},horzLine:{color:'#778495',labelBackgroundColor:'#344155'}},timeScale:{timeVisible:true,secondsVisible:false,tickMarkFormatter:(t:any,type:number)=>{const d=typeof t==='number'?new Date(t*1000):new Date(Date.UTC(t.year,t.month-1,t.day));return type>=3?tickTime.format(d):tickDate.format(d)},borderColor:'#293241',rightOffset:35,barSpacing:7,minBarSpacing:live?.001:.5,shiftVisibleRangeOnNewBar:false,allowShiftVisibleRangeOnWhitespaceReplacement:false},rightPriceScale:{minimumWidth:live?66:0,borderColor:'#293241',scaleMargins:{top:.12,bottom:.1}},localization:{priceFormatter:(v:number)=>formatMarketPrice(symbol,v),timeFormatter:(t:any)=>dateFmt.format(new Date(Number(t)*1000))}});
+  const chart=createChart(host.current,{autoSize:true,layout:{attributionLogo:false,background:{type:ColorType.Solid,color:live?'#0d141e':'#10151d'},textColor:live?'#93a4ba':'#8f9caf',fontSize:12,fontFamily:"'Segoe UI',sans-serif",panes:{separatorColor:'#2b3442',separatorHoverColor:'#46546a',enableResize:true}},grid:{vertLines:{color:live?'#1a2635':'#19212c'},horzLines:{color:live?'#1a2635':'#19212c'}},crosshair:{mode:0,vertLine:{color:'#778495',labelBackgroundColor:'#344155'},horzLine:{color:'#778495',labelBackgroundColor:'#344155'}},timeScale:{timeVisible:true,secondsVisible:false,tickMarkFormatter:(t:any,type:number)=>{const d=typeof t==='number'?new Date(t*1000):new Date(Date.UTC(t.year,t.month-1,t.day));return type>=3?(isForexSymbol(symbol)?rawTickTime:tickTime).format(d):(isForexSymbol(symbol)?rawTickDate:tickDate).format(d)},borderColor:'#293241',rightOffset:35,barSpacing:7,minBarSpacing:live?.001:.5,shiftVisibleRangeOnNewBar:false,allowShiftVisibleRangeOnWhitespaceReplacement:false},rightPriceScale:{minimumWidth:live?66:0,borderColor:'#293241',scaleMargins:{top:.12,bottom:.1}},localization:{priceFormatter:(v:number)=>formatMarketPrice(symbol,v),timeFormatter:(t:any)=>(isForexSymbol(symbol)?rawDateFmt:dateFmt).format(new Date(Number(t)*1000))}});
   const series=chart.addSeries(CandlestickSeries,{upColor:'#35c4a0',downColor:'#ef6b79',wickUpColor:'#35c4a0',wickDownColor:'#ef6b79',borderVisible:false,priceFormat:{type:'price',precision:instrument.pricePrecision,minMove:instrument.tickSize}});
   const markers=createSeriesMarkers(series,[]);ref.current={chart,series,markers,lines:[],studies:new Map(),horizontals:new Map(),count:0};
   const priceMarker=live?new LivePriceMarker():null;
@@ -584,7 +589,7 @@ export default function ReplayChart({symbol=defaultMarketSymbol,bars,timeline=ba
  const ohlcValues=shownBar&&<div>{prices.map(([key,label,description])=><span key={key} aria-label={description} data-price={key}>
   <small>{label}</small> {ohlcNumber(instrument.pricePrecision).format(shownBar[key])}
  </span>)}</div>;
- const candleTime=shownBar&&<time dateTime={new Date(shownBar.time*1000).toISOString()}>{dateFmt.format(shownBar.time*1000)}</time>;
+ const candleTime=shownBar&&<time>{(isForexSymbol(symbol)?rawDateFmt:dateFmt).format(shownBar.time*1000)}</time>;
  const plotTop=live&&paneCount?host.current?.getBoundingClientRect().top:undefined;
  const livePanes:ReturnType<IChartApi['panes']>|undefined=plotTop===undefined?undefined:ref.current?.chart.panes();
  const showStudyTitles=appearance?.studyTitles!==false;

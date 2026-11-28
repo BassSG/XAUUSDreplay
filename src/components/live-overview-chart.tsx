@@ -50,7 +50,7 @@ export default function LiveOverviewChart({period, frame, onRetry, workspace, la
   const [follow, setFollow] = useState(true);
   const chart = useRef<LiveChartActions>(null);
   const live = !replay && !historical.length && market.quote?.status === 'live' && !market.quoteError;
-  const chartKey = period + ':' + layoutVersion + ':' + (replay?.session??'live');
+  const chartKey = market.symbol + ':' + period + ':' + layoutVersion + ':' + (replay?.session??'live');
   const message = replay ? '' : historical.length ? 'ข้อมูลสำรอง'
     : market.barError || market.minuteError ? 'แท่งยืนยันอัปเดตล่าช้า' : '';
 

@@ -24,7 +24,7 @@ import LiveForwardPanel from './live-forward-panel';
 import LiveLayoutPanel, {type ActiveLayout} from './live-layout-panel';
 import LivePineEditor, {newScriptDraft, type ScriptDraft} from './live-pine-editor';
 import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readChartView, workspaceStorageKey} from '../lib/live-layouts';
-import {defaultMarketSymbol, formatMarketPrice, isCryptoSymbol, isMarketSymbol, marketInfoFor, type MarketSymbol, type SpotMarket} from '../lib/market-symbol';
+import {defaultMarketSymbol, forexSymbols, formatMarketPrice, isCryptoSymbol, isForexSymbol, isMarketSymbol, marketInfoFor, type MarketSymbol, type SpotMarket} from '../lib/market-symbol';
 import {loadSpotMarkets} from '../lib/binance-spot';
 import {saveLiveAutoSave, saveLiveLayout, type SavedLayout} from '../lib/storage';
 import {useLiveTimeframes} from '../lib/use-live-timeframes';
@@ -52,6 +52,10 @@ const clock = new Intl.DateTimeFormat('en-GB', {
 });
 const historyDate = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+});
+// Display the broker's reported wall-clock fields without asserting their UTC offset.
+const forexHistoryDate = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
 });
 const counts = new Intl.NumberFormat('en-US');
 const bangkokDate = new Intl.DateTimeFormat('sv-SE', {timeZone: 'Asia/Bangkok'});
@@ -112,7 +116,8 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   symbol: MarketSymbol; onSelectSymbol: (symbol: MarketSymbol) => void; onReplay: () => void;
 }) {
   const instrument = marketInfoFor(symbol);
-  const spot = isCryptoSymbol(symbol);
+  const forex = isForexSymbol(symbol);
+  const spot = isCryptoSymbol(symbol) || forex;
   const workspaceKey = workspaceStorageKey(symbol);
   const cameraKey = workspaceKey + '-camera';
   const [initial] = useState(() => readWorkingChart(symbol));
@@ -203,7 +208,7 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
     return load;
   }, []);
   useEffect(() => () => spotCatalogController.current?.abort(), []);
-  useEffect(() => { if (spot) void ensureSpotCatalog(); }, [spot, ensureSpotCatalog]);
+  useEffect(() => { if (isCryptoSymbol(symbol)) void ensureSpotCatalog(); }, [symbol, ensureSpotCatalog]);
   useEffect(() => {
     if (workspaceSymbol === symbol) return;
     const pending = symbolSwitch.current?.symbol === symbol ? symbolSwitch.current.target : readWorkingChart(symbol);
@@ -390,15 +395,15 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   const activeMetrics = activeDrawing?.kind === 'long' || activeDrawing?.kind === 'short'
     ? positionMetrics(activeDrawing.kind, activeDrawing.points) : null;
   const quote = market.quote;
-  const headerPrice = spot ? (feed.minuteForming ?? feed.rows.at(-1))?.close : quote?.bid;
-  const status = market.quoteError ? 'การเชื่อมต่อขัดข้อง' : quote?.status === 'live' ? 'ราคาสด'
+  const headerPrice = forex ? bars.at(-1)?.close : spot ? (feed.minuteForming ?? feed.rows.at(-1))?.close : quote?.bid;
+  const status = forex ? (market.barError ? 'โหลด Forex ไม่สำเร็จ' : 'ราคาแท่งล่าสุด · เวลา MT5 ยังไม่ยืนยัน') : market.quoteError ? 'การเชื่อมต่อขัดข้อง' : quote?.status === 'live' ? 'ราคาสด'
     : quote?.status === 'closed' ? 'ตลาดปิด' : quote ? 'ราคาล่าช้า' : 'กำลังเชื่อมต่อ';
-  const shortStatus = market.quoteError ? 'ขัดข้อง' : quote?.status === 'live' ? 'สด'
+  const shortStatus = forex ? (market.barError ? 'ขัดข้อง' : 'แท่งล่าสุด') : market.quoteError ? 'ขัดข้อง' : quote?.status === 'live' ? 'สด'
     : quote?.status === 'closed' ? 'ปิด' : quote ? 'ล่าช้า' : 'เชื่อมต่อ';
   const historyLabel = market.progress ? 'โหลดเพิ่มแล้ว ' + counts.format(market.progress.loaded) + ' แท่ง'
     : market.historyStatus === 'loading' ? 'กำลังโหลดแท่งเก่า'
     : market.historyStatus === 'error' ? 'โหลดแท่งเก่าไม่สำเร็จ'
-    : market.historyStatus === 'end' ? 'ถึงข้อมูลเก่าสุดที่ ' + instrument.source + ' ส่งมาแล้ว' : '';
+    : market.historyStatus === 'end' ? (forex ? 'ถึงแท่งเก่าสุดที่เก็บอยู่ในฐานข้อมูล Forex ขณะนี้' : 'ถึงข้อมูลเก่าสุดที่ ' + instrument.source + ' ส่งมาแล้ว') : '';
   const liveNow = !replaying && follow && !market.archive && !historical.length && quote?.status === 'live' && !market.quoteError;
   const enabledScripts = useMemo(() => scripts.filter(s => s.enabled), [scripts]);
   const totalStudies = studies.length + enabledScripts.length;
@@ -417,13 +422,13 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
     }
     setTrial(null);
   }, [trial, pine.completed, pine.error, pine.calculating, proposedScripts, scripts]);
-  const chartStatus = storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
+  const chartStatus = forex ? 'Forex · เวลา MT5 ยังไม่ยืนยันเขตเวลา · ยังไม่มีราคา Bid สด' : storageFailed ? 'บันทึกลงเครื่องไม่ได้' : historyLabel ||
     (market.windowUnavailable ? 'ไม่พบช่วงเวลาเดิมในไทม์เฟรมนี้' : market.archive ? 'มุมมองย้อนหลัง'
       : historical.length ? 'ข้อมูลสำรอง' : liveNow && market.provisional ? (spot ? 'OHLC กำลังก่อตัว · Binance TH' : 'OHLC กำลังก่อตัวจาก Bid สด')
         : market.barError || market.minuteError ? 'แสดงแท่งที่โหลดไว้'
           : liveNow && through !== undefined ? 'OHLC ถึง ' + shortClock.format(through * 1000)
           : minuteBased ? 'OHLC จาก 1m ที่ปิดแล้ว' : '');
-  const viewportKey = period + (replaying ? '-replay-'+replay.id : market.archive ? '-archive' : '-current') + '-' + layoutVersion;
+  const viewportKey = symbol + '-' + period + (replaying ? '-replay-'+replay.id : market.archive ? '-archive' : '-current') + '-' + layoutVersion;
 
   useEffect(() => {
     if (!fitHistory || !bars.length) return;
@@ -562,8 +567,9 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
     void market.loadOlder(false);
   }
   function jumpToDate(day: string) {
-    const time = Date.parse(day + 'T00:00:00+07:00') / 1000;
-    if (!Number.isFinite(time) || time <= 0 || time > market.serverNow()) return;
+    // Forex timestamps are still raw MT5 clock fields, not verified UTC.
+    const time = Date.parse(day + (forex ? 'T00:00:00Z' : 'T00:00:00+07:00')) / 1000;
+    if (!Number.isFinite(time) || time <= 0 || (!forex && time > market.serverNow())) return;
     const view = chart.current?.viewport();
     setInitialView(null);
     setFollow(false);
@@ -894,7 +900,7 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
         replay.setCandidate(null);
       }}/>}
     <footer className="live-foot">
-      <span>{replaying ? 'Eightcap · Replay' : instrument.source + (spot ? ' · Spot' : ' · Bid')}</span>
+      <span>{replaying ? 'Eightcap · Replay' : instrument.source + (forex ? ' · Forex' : spot ? ' · Spot' : ' · Bid')}</span>
       <span className="live-foot-status" role="status" title={replaying?'เวลาจำลอง':chartStatus}>{replaying?'เวลาจำลอง · กรุงเทพฯ':chartStatus}</span>
       <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a>
     </footer>
@@ -925,6 +931,13 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
             onClick={() => chooseSymbol(defaultMarketSymbol)}>
             <strong>XAUUSD</strong><small>Eightcap MT5 · Gold CFD</small>
           </button>
+        </section>
+        <section className="live-market-group">
+          <h3>Forex · Eightcap</h3>
+          {forexSymbols.map(item => <button key={item} type="button" className="live-market-symbol"
+            aria-pressed={symbol === item} onClick={() => chooseSymbol(item)}>
+            <strong>{item.slice(0,3)}/{item.slice(3)}</strong><small>Eightcap MT5 · Forex</small>
+          </button>)}
         </section>
         <section className="live-market-group">
           <div className="live-market-group-title"><h3>Crypto · Binance TH</h3>
@@ -1047,13 +1060,13 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
     {panel === 'history' && <LivePanel title="แท่งย้อนหลัง" onClose={closePanel}>
       <div className="live-history" aria-label="แท่งเทียนย้อนหลัง">
         <div className="live-history-detail">
-          <strong>{bars.length ? 'ย้อนหลังถึง ' + historyDate.format(bars[0].time * 1000) : 'กำลังโหลดแท่งราคา'}</strong>
+          <strong>{bars.length ? 'ย้อนหลังถึง ' + (forex ? forexHistoryDate : historyDate).format(bars[0].time * 1000) + (forex ? ' · เวลา MT5 ยังไม่ยืนยันเขตเวลา' : '') : 'กำลังโหลดแท่งราคา'}</strong>
           <span>{counts.format(market.closed.length || historical.length)} แท่งปิด · {period === '1d' ? '1D' : period}</span>
           <span role="status">{historyLabel}</span>
         </div>
         <form className="live-history-date" onSubmit={event => { event.preventDefault(); jumpToDate(historyDay); }}>
-          <label>ไปวันที่ (กรุงเทพฯ)
-            <input type="date" min="1970-01-02" max={bangkokDate.format(market.serverNow() * 1000)}
+          <label>{forex ? 'ไปวันที่ (เวลา MT5 ยังไม่ยืนยันเขตเวลา)' : 'ไปวันที่ (กรุงเทพฯ)'}
+            <input type="date" min="1970-01-02" max={forex ? undefined : bangkokDate.format(market.serverNow() * 1000)}
               value={historyDay} required onChange={event => setHistoryDay(event.target.value)}/>
           </label>
           <button type="submit" disabled={!historyDay || Boolean(market.progress)}><CalendarDays size={17}/>ไปที่กราฟ</button>

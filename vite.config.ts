@@ -22,5 +22,10 @@ export default defineConfig({
   plugins: [react(), liveBridge(), livePineDevBundle()],
   worker: {format: 'iife'},
   build: {target: 'es2022', sourcemap: false},
-  server: {host: '127.0.0.1', port: 5199},
+  server: {host: '127.0.0.1', port: 5199, proxy: {
+    '/api/forex-history': {target: 'https://mixed-locally-hobbies-responded.trycloudflare.com', changeOrigin: true,
+      rewrite: path => path.replace(/^\/api\/forex-history/, '/api/bars')},
+    '/api/forex-preview': {target: 'https://mixed-locally-hobbies-responded.trycloudflare.com', changeOrigin: true,
+      rewrite: path => path.replace(/^\/api\/forex-preview/, '/api/bars/all')},
+  }},
 });

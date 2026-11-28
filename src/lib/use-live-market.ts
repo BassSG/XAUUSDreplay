@@ -1,6 +1,7 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import type {Bar} from './engine';
-import {defaultMarketSymbol, isCryptoSymbol, marketInfoFor, type MarketSymbol} from './market-symbol.ts';
+import {defaultMarketSymbol, isCryptoSymbol, isForexSymbol, marketInfoFor, type MarketSymbol} from './market-symbol.ts';
+import {forexHistoryPage, forexSnapshot} from './forex-feed';
 import {spotBookQuote, spotPageSize, spotServerTime, spotSnapshot} from './binance-spot';
 import {historyPage, requestMarket as request} from './live-feed';
 import {historyCatalog, loadBefore, loadWindow} from './history';
@@ -48,6 +49,18 @@ export function useLiveFeed(retry: number, symbol: MarketSymbol = defaultMarketS
   const minuteCache = useRef(emptyBars);
   const clock = useRef<{utc: number; receivedAt: number} | null>(null);
   const latestTick = useRef(0);
+  const feedSymbol = useRef(symbol);
+  if (feedSymbol.current !== symbol) {
+    feedSymbol.current = symbol;
+    historyCache.current.clear();
+    minuteCache.current = emptyBars;
+    clock.current = null;
+    latestTick.current = 0;
+  }
+  useLayoutEffect(() => {
+    setQuote({quote: null, quoteError: false, sampled: emptyBars});
+    setMinutes({rows: emptyBars, minuteError: false, minuteForming: null});
+  }, [symbol]);
   const serverNow = useCallback(() => {
     const sample = clock.current;
     return sample ? Math.floor(sample.utc + (performance.now() - sample.receivedAt) / 1000) : now();
@@ -61,6 +74,7 @@ export function useLiveFeed(retry: number, symbol: MarketSymbol = defaultMarketS
     let refreshMinutes = true;
     let clockRequest: Promise<void> | undefined;
     const spot = isCryptoSymbol(symbol);
+    const forex = isForexSymbol(symbol);
     const recentLimit = spot ? spotPageSize : recentBarsSize;
 
     function syncSpotClock() {
@@ -118,8 +132,10 @@ export function useLiveFeed(retry: number, symbol: MarketSymbol = defaultMarketS
       }
     }
 
-    void pollQuote();
-    void pollMinutes();
+    if (!forex) {
+      void pollQuote();
+      void pollMinutes();
+    }
     return () => {
       controller.abort();
       clearTimeout(quoteTimer);
@@ -135,6 +151,7 @@ export type LiveFeed = ReturnType<typeof useLiveFeed>;
 export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anchorTime: number | null = null, warm = true, enabled = true, historyTarget = focusBarCount) {
   const {symbol} = feed;
   const spot = isCryptoSymbol(symbol);
+  const forex = isForexSymbol(symbol);
   const pollDelay = spot ? 10000 : 15000;
   const key = symbol + ':' + period + ':' + (anchorTime ?? 'latest');
   const seconds = periods[period];
@@ -152,11 +169,11 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
   const lastPoll = useRef<{key:string;retry:number;at:number} | undefined>(undefined);
 
   useEffect(() => {
-    if (!data.archive && data.closed.length) {
+    if (data.key === key && !data.archive && data.closed.length) {
       const previous = cache.current.get(data.period);
       cache.current.set(data.period, {closed: data.closed, ended: data.historyStatus === 'end' || Boolean(previous?.ended)});
     }
-  }, [data.period, data.closed, data.historyStatus, data.archive]);
+  }, [key, data.key, data.period, data.closed, data.historyStatus, data.archive]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -177,14 +194,15 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
     async function pollBars() {
       try {
         const cachedMinutes = minuteCache.current;
-        const snapshot = period === '1m' && cachedMinutes.length ? {closed: cachedMinutes, forming: null}
+        const snapshot = forex ? {closed: await forexSnapshot(symbol, period, signal), forming: null}
+          : period === '1m' && cachedMinutes.length ? {closed: cachedMinutes, forming: null}
           : spot ? await spotSnapshot(symbol, period, signal, serverNow)
           : {closed: readBars(await request('bars/' + period, signal), seconds, serverNow()), forming: null};
         const rows = snapshot.closed;
         if (!rows.length) throw Error('ยังไม่มีแท่งราคาที่ปิดแล้ว');
         if (checkWindow && anchorTime !== null && rows[0].time > anchorTime) {
           try {
-            const before = Math.min(serverNow(), anchorTime + seconds * 128);
+            const before = forex ? anchorTime + seconds * 128 : Math.min(serverNow(), anchorTime + seconds * 128);
             const {bars: past} = await readHistoryPages(before, historyTarget + 128, signal,
               edge => historyPage(period, edge, serverNow(), signal, symbol));
             if (!past.length || past[0].time > anchorTime) {
@@ -198,7 +216,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
           } catch {
             if (signal.aborted) return;
             try {
-              const source = spot ? undefined : (await historyCatalog()).find(d => d.calendar === 'eightcap'
+              const source = spot || forex ? undefined : (await historyCatalog()).find(d => d.calendar === 'eightcap'
                 && d.timeframe === seconds && d.start <= anchorTime && d.end >= anchorTime);
               if (source) {
                 const {bars} = await loadWindow(source.id, anchorTime, historyTarget, 128);
@@ -219,11 +237,11 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
         apply(state => ({...state, barError: true, findingWindow: false}));
       } finally {
         if (!signal.aborted) lastPoll.current = {key,retry,at:performance.now()};
-        if (!signal.aborted && !archive && (period !== '1m' || checkWindow)) timer = setTimeout(pollBars, pollDelay);
+        if (!signal.aborted && !archive && (forex || period !== '1m' || checkWindow)) timer = setTimeout(pollBars, pollDelay);
       }
     }
 
-    if (!archive && (period !== '1m' || checkWindow)) {
+    if (!archive && (forex || period !== '1m' || checkWindow)) {
       const previous = lastPoll.current;
       const delay = !checkWindow && previous?.key === key && previous.retry === retry
         ? pollDelay - (performance.now() - previous.at) : 0;
@@ -235,30 +253,30 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
       if (active.current === run) active.current = null;
       clearTimeout(timer);
     };
-  }, [key, period, seconds, retry, anchorTime, minuteCache, serverNow, enabled, historyTarget, spot, pollDelay, symbol]);
+  }, [key, period, seconds, retry, anchorTime, minuteCache, serverNow, enabled, historyTarget, spot, forex, pollDelay, symbol]);
 
   useEffect(() => {
-    if (!enabled || period !== '1m') return;
+    if (!enabled || forex || period !== '1m') return;
     setData(state => {
       if (state.key !== key || state.archive || state.findingWindow) return state;
       const closed = mergeClosedBars(state.closed, minutes, Infinity);
       return closed === state.closed && minuteError === state.barError
         ? state : {...state, closed, barError: minuteError};
     });
-  }, [key, period, minutes, minuteError, data.findingWindow, enabled]);
+  }, [key, period, minutes, minuteError, data.findingWindow, enabled, forex]);
 
   const view = data.key === key ? data : restoreHistory(key, period, anchorTime, cache.current.get(period));
   const useArchiveBars = view.archive || view.findingWindow;
-  const studyBars = useMemo(() => useArchiveBars || spot ? view.closed : candlesFromMinutes(view.closed, minutes, seconds),
-    [useArchiveBars, spot, view.closed, minutes, seconds]);
+  const studyBars = useMemo(() => useArchiveBars || spot || forex ? view.closed : candlesFromMinutes(view.closed, minutes, seconds),
+    [useArchiveBars, spot, forex, view.closed, minutes, seconds]);
   const minuteTime = minutes.at(-1)?.time;
   const lastClosed = view.closed.at(-1);
   const forming = period === '1m' ? feed.minuteForming : view.forming;
   const bars = useMemo(() => {
     if (useArchiveBars) return studyBars;
-    if (spot) return forming && forming.time > (lastClosed?.time ?? 0) ? [...studyBars, forming] : studyBars;
+    if (spot || forex) return forming && forming.time > (lastClosed?.time ?? 0) ? [...studyBars, forming] : studyBars;
     return candlesWithBid(studyBars, lastClosed, minuteTime, sampled, seconds);
-  }, [useArchiveBars, spot, forming, studyBars, lastClosed, minuteTime, sampled, seconds]);
+  }, [useArchiveBars, spot, forex, forming, studyBars, lastClosed, minuteTime, sampled, seconds]);
 
   const loadOlder = useCallback(async (byUser: boolean, limit = olderPageSize) => {
     const run = active.current;
@@ -275,9 +293,10 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
     };
     apply(current => ({...current, historyStatus: 'loading'}));
     try {
-      const dataset = !spot && (all || view.archive) ? await historyCatalog().then(datasets => datasets.find(d => d.calendar === 'eightcap'
+      const dataset = !spot && !forex && (all || view.archive) ? await historyCatalog().then(datasets => datasets.find(d => d.calendar === 'eightcap'
         && d.timeframe === seconds)).catch(() => undefined) : undefined;
       const read = async (before: number) => {
+        if (forex) return forexHistoryPage(symbol, period, before, signal);
         if (dataset && dataset.start < before && dataset.end >= before) {
           try {
             // Join the bundled export only at a matching Eightcap candle.
@@ -306,7 +325,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
       run.backfill = null;
       if (all && !run.signal.aborted) setProgress(null);
     }
-  }, [key, period, seconds, view.closed, view.historyStatus, view.archive, serverNow, spot, symbol]);
+  }, [key, period, seconds, view.closed, view.historyStatus, view.archive, serverNow, spot, forex, symbol]);
 
   const canWarm = enabled && warm && !view.findingWindow &&
     view.closed.length > 0 && view.closed.length < historyTarget;
@@ -317,7 +336,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
     void loadOlder(false, historyTarget - view.closed.length);
   }, [shouldWarm, loadOlder, historyTarget, view.closed.length]);
 
-  const livePrice = spot ? bars.at(-1)?.close : quote?.bid;
+  const livePrice = spot || forex ? bars.at(-1)?.close : quote?.bid;
   return {...view, symbol, calendar: marketInfoFor(symbol).calendar, livePrice, bars, studyBars, warmingHistory, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
     serverNow, loadOlder, progress: progress?.key === key ? progress : null,
     stopHistory: () => active.current?.backfill?.abort()};

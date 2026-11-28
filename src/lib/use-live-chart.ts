@@ -7,7 +7,7 @@ import type {useLiveMarket} from './use-live-market';
 import {usePine} from './use-pine';
 import type {ScriptJob} from './pine.worker';
 import {focusBarCount} from './focused-indicators';
-import {isCryptoSymbol} from './market-symbol.ts';
+import {isCryptoSymbol, isForexSymbol} from './market-symbol.ts';
 
 const emptyBars: Bar[] = [];
 type Market = ReturnType<typeof useLiveMarket>;
@@ -37,7 +37,7 @@ export function useLiveBars(period: Period, market: Market, retry: number, ancho
 
   const historical = needsBackup && backup?.period === period ? backup.bars : emptyBars;
   const bars = market.bars.length ? market.bars : historical;
-  return {bars, historical, needsBackup, backupFailed: isCryptoSymbol(market.symbol)
+  return {bars, historical, needsBackup, backupFailed: isCryptoSymbol(market.symbol) || isForexSymbol(market.symbol)
     ? unavailable : backup?.period === period && backup.failed};
 }
 
@@ -51,7 +51,7 @@ export function useLiveStudies(period: Period, market: Market, historical: Bar[]
   const through = last === undefined ? undefined : candleWindow(last, minuteBased ? 60 : periods[period], market.calendar).close;
   const pineFrame = {asOf: through ?? (sourceBars.length ? candleWindow(sourceBars.at(-1)!.time, periods[period], market.calendar).close : 0),
     minutes: market.archive || historical.length ? emptyBars : market.minutes, nativeHistory: true, symbol: market.symbol};
-  const pineSession = ['live', period, market.archive ? market.key : 'latest', Boolean(historical.length)].join(':');
+  const pineSession = ['live', market.symbol, period, market.archive ? market.key : 'latest', Boolean(historical.length)].join(':');
   const pine = usePine(undefined, jobs.length > 0, sourceBars, periods[period], pineSession, jobs,
     sourceBars, periods[period], market.calendar, false, pineFrame, paused || market.findingWindow);
   const plots = useMemo(() => [...builtInPlots, ...pine.plots], [builtInPlots, pine.plots]);

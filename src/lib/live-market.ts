@@ -126,7 +126,7 @@ export function liveTailUpdate(previous: Bar[], next: Bar[]) {
 // An empty page, rather than a short page, marks the end of the source.
 export async function readHistoryPages(
   before: number, limit: number, signal: AbortSignal,
-  page: (before: number) => Promise<Bar[]>, progress?: (loaded: number) => void,
+  page: (before: number) => Promise<Bar[] | {bars: Bar[]; hasMore: boolean}>, progress?: (loaded: number) => void,
 ) {
   const pages: Bar[][] = [];
   let loaded = 0;
@@ -134,14 +134,19 @@ export async function readHistoryPages(
   let failed = false;
   try {
     while (loaded < limit && !signal.aborted) {
-      const rows = await page(before);
+      const result = await page(before);
+      const rows = Array.isArray(result) ? result : result.bars;
       if (signal.aborted) break;
-      if (!rows.length) { ended = true; break; }
+      if (!rows.length) {
+        if (!Array.isArray(result) && result.hasMore) throw Error('แหล่งข้อมูลส่งหน้าว่างทั้งที่ยังมีข้อมูล');
+        ended = true; break;
+      }
       if (rows.at(-1)!.time >= before) throw Error('หน้าแท่งย้อนหลังไม่ขยับ');
       pages.push(rows);
       loaded += rows.length;
       before = rows[0].time;
       progress?.(loaded);
+      if (!Array.isArray(result) && !result.hasMore) { ended = true; break; }
     }
   } catch {
     failed = !signal.aborted;
