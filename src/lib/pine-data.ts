@@ -2,7 +2,7 @@ import {brokerTimeToUtc,utcToBrokerTime,type Bar,type CandleCalendar} from './en
 import {historyCatalog,loadBefore} from './history.ts';
 import {periods, type Period} from './live-market.ts';
 import {maxPineSourceBars, type PineHistoryLoader} from './live-pine.ts';
-import {defaultMarketSymbol, type MarketSymbol} from './market-symbol.ts';
+import {defaultMarketSymbol, isCryptoSymbol, marketInfoFor, type MarketSymbol} from './market-symbol.ts';
 export function timeframeSeconds(tf:string){
  const v=String(tf||'').trim().toUpperCase();if(/^\d+$/.test(v))return Number(v)*60;
  const m=v.match(/^(\d*)(S|D|W|M)$/);return m?Number(m[1]||1)*({S:1,D:86400,W:604800,M:2592000}[m[2] as 'S'|'D'|'W'|'M']):0;
@@ -121,7 +121,10 @@ export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:Candle
    return toKlines(rows,tf,calendar);
   },
   async getSymbolInfo(){
-   if(symbol==='BTCUSDT')return {ticker:symbol,tickerid:symbol,main_tickerid:symbol,description:'Bitcoin / Tether',type:'crypto',basecurrency:'BTC',currency:'USDT',timezone:'Etc/UTC',session:'24x7',mintick:.01,minmove:1,pricescale:100,pointvalue:1,volumetype:'base'};
+   if(isCryptoSymbol(symbol)){
+    const info=marketInfoFor(symbol),pricescale=10**info.pricePrecision;
+    return {ticker:symbol,tickerid:symbol,main_tickerid:symbol,description:info.label,type:'crypto',basecurrency:info.baseAsset,currency:info.quoteAsset,timezone:'Etc/UTC',session:'24x7',mintick:info.tickSize,minmove:1,pricescale,pointvalue:1,volumetype:'base'};
+   }
    return {ticker:symbol,tickerid:symbol,main_tickerid:symbol,description:'Gold / US Dollar',type:'commodity',basecurrency:'XAU',currency:'USD',timezone:'Etc/UTC',session:'24x5',mintick:.01,minmove:1,pricescale:100,pointvalue:100,mincontract:.01,volumetype:'tick'};
   }
  };

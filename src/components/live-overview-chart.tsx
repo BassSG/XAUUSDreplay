@@ -8,7 +8,7 @@ import type {LiveWorkspaceState} from '../lib/live-layouts';
 import {periods, type Period} from '../lib/live-market';
 import type {InlineReplayChartFrame} from '../lib/use-inline-replay-studies';
 import type {LiveTimeframe} from '../lib/use-live-timeframes';
-import {marketInfo, type MarketSymbol} from '../lib/market-symbol';
+import {marketInfoFor, type MarketSymbol} from '../lib/market-symbol';
 
 const noTrades: Trade[] = [];
 
@@ -20,11 +20,12 @@ export function LiveChartTile({symbol, period, active, onSelect, onExpand, child
   symbol: MarketSymbol; period: Period; active: boolean; available?:boolean; onSelect: () => void; onExpand: () => void; children: ReactNode;
 }) {
   const label = timeframeName(period);
-  return <article className="live-chart-tile" id={'live-tile-' + period} data-active={active} aria-label={marketInfo[symbol].label + ' ' + label}>
+  const instrument = marketInfoFor(symbol);
+  return <article className="live-chart-tile" id={'live-tile-' + period} data-active={active} aria-label={instrument.label + ' ' + label}>
     <header className="live-tile-header">
       <button type="button" className="live-tile-select" aria-pressed={active} disabled={!available} onClick={onSelect}
         aria-label={'เลือกกราฟ ' + label} title={'เลือกกราฟ ' + label + ' สำหรับใช้งานเครื่องมือ'}>
-        <strong>{label}</strong><span>{marketInfo[symbol].label}</span>
+        <strong>{label}</strong><span>{instrument.label}</span>
       </button>
       {active && <span className="live-tile-active">กราฟที่เลือก</span>}
       <button type="button" className="live-tile-expand" disabled={!available} onClick={onExpand}

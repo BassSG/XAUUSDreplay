@@ -7,6 +7,7 @@ import type {useLiveMarket} from './use-live-market';
 import {usePine} from './use-pine';
 import type {ScriptJob} from './pine.worker';
 import {focusBarCount} from './focused-indicators';
+import {isCryptoSymbol} from './market-symbol';
 
 const emptyBars: Bar[] = [];
 type Market = ReturnType<typeof useLiveMarket>;
@@ -36,7 +37,7 @@ export function useLiveBars(period: Period, market: Market, retry: number, ancho
 
   const historical = needsBackup && backup?.period === period ? backup.bars : emptyBars;
   const bars = market.bars.length ? market.bars : historical;
-  return {bars, historical, needsBackup, backupFailed: market.symbol === 'BTCUSDT'
+  return {bars, historical, needsBackup, backupFailed: isCryptoSymbol(market.symbol)
     ? unavailable : backup?.period === period && backup.failed};
 }
 

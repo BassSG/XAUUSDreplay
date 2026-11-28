@@ -8,7 +8,7 @@ import {PineBox,PineLabel,pineDash,pineStroke} from './pine-annotations';
 import './mobile-chart.css';
 import type {PineBand} from '../lib/pine-bands';
 import {LivePriceCountdown,LivePriceMarker} from './live-price-marker';
-import {defaultMarketSymbol,marketInfo,type MarketSymbol} from '../lib/market-symbol';
+import {defaultMarketSymbol,formatMarketPrice,marketInfoFor,type MarketSymbol} from '../lib/market-symbol';
 import {captureLiveViewport,coordinateAtLogical,logicalAtTime,replayRange,restoreLiveViewport,type LiveViewport} from '../lib/chart-tools';
 import {liveTailUpdate, sameMarketBar} from '../lib/live-market';
 import {studyStateLabel, type LiveStudyBadge} from '../lib/live-indicators';
@@ -31,7 +31,8 @@ const noPineTables: PineTable[] = [];
 const dateFmt=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
 const tickTime=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false});
 const tickDate=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short'});
-const ohlcNumber=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const ohlcFormats=new Map<number,Intl.NumberFormat>();
+function ohlcNumber(precision:number){let formatter=ohlcFormats.get(precision);if(!formatter){formatter=new Intl.NumberFormat('en-US',{minimumFractionDigits:precision,maximumFractionDigits:precision});ohlcFormats.set(precision,formatter);}return formatter;}
 const compactChartMedia='(max-width: 720px), (orientation: landscape) and (max-height: 500px) and (pointer: coarse)';
 const prices=[['open','O','เปิด'],['high','H','สูงสุด'],['low','L','ต่ำสุด'],['close','C','ปิด']] as const;
 function latestLiveRange(count:number,width:number){
@@ -71,6 +72,7 @@ export type LiveChartActions = {
 
 export default function ReplayChart({symbol=defaultMarketSymbol,bars,timeline=bars,seconds=60,trades,plots:studyPlots,fills:studyFills=noFills,shapes:studyShapes=noShapes,pineDrawings:studyDrawings=noPineDrawings,pineTables:studyTables=noPineTables,barIndexOffset=0,onPrice,replayPicker,follow=true,drawings=[],drawingMode=null,onDrawing,onDrawingChange,onDrawingSelect,onDrawingEdit,selectedDrawing=null,onDrawingCancel,onDrawingDelete,onDrawingRemove,onDrawingUndo,onDrawingRedo,pricePicking=false,levels=noLevels,onLevelPreview,onLevelCommit,onDragStart,calculating=false,magnet=false,strongMagnet=false,onToggleMagnet,confirmDrawingPlacement,hiddenDrawings=false,live=false,compact=false,readOnlyDrawings=false,alertLevels=noAlertLevels,liveActions,liveViewport,appearance,initialView,liveBid,liveClock,liveLegend,liveStudyBadges,hiddenStudies,onToggleStudy,liveSelection,onHistoryEdge,onLeaveLatest}:{symbol?:MarketSymbol;bars:Bar[];timeline?:Bar[];seconds?:number;trades:Trade[];plots:PinePlot[];fills?:PineBand[];shapes?:PineShape[];pineDrawings?:PineDrawing[];pineTables?:PineTable[];barIndexOffset?:number;follow?:boolean;onPrice?:(price:number)=>void;replayPicker?:ReplayPicker;drawings?:Drawing[];drawingMode?:DrawingKind|null;onDrawing?:(drawing:Drawing)=>void;onDrawingChange?:(drawing:Drawing)=>void;onDrawingSelect?:(id:string|null)=>void;onDrawingEdit?:(id:string)=>void;selectedDrawing?:string|null;onDrawingCancel?:()=>void;onDrawingDelete?:()=>void;onDrawingRemove?:(id:string)=>void;onDrawingUndo?:()=>void;onDrawingRedo?:()=>void;pricePicking?:boolean;levels?:ChartLevel[];onLevelPreview?:(level:ChartLevel,price:number)=>void;onLevelCommit?:(level:ChartLevel,price:number)=>void;onDragStart?:()=>void;calculating?:boolean;magnet?:boolean;strongMagnet?:boolean;confirmDrawingPlacement?: boolean;onToggleMagnet?:()=>void;hiddenDrawings?:boolean;live?:boolean;compact?:boolean;readOnlyDrawings?:boolean;alertLevels?:number[];liveActions?:Ref<LiveChartActions>;liveViewport?:LiveViewport|null;appearance?:ChartAppearance;initialView?:ChartView|null;liveBid?:number;liveClock?:()=>number;liveLegend?:ReactNode;liveStudyBadges?:LiveStudyBadge[];hiddenStudies?:readonly string[];onToggleStudy?:(id:string)=>void;liveSelection?:ReactNode;onHistoryEdge?:()=>void;onLeaveLatest?:()=>void}){
  const hiddenStudyIds=useMemo(()=>new Set(hiddenStudies),[hiddenStudies]);
+ const instrument=marketInfoFor(symbol);
  const [priceExpanded,setPriceExpanded]=useState(false);
  const normalPaneSizes=useRef<ChartView['paneSizes']|null>(null);
  const {plots,fills,shapes,pineDrawings,pineTables}=useMemo(()=>{
@@ -117,8 +119,8 @@ export default function ReplayChart({symbol=defaultMarketSymbol,bars,timeline=ba
  const host=useRef<HTMLDivElement>(null);const placementHost=useRef<HTMLDivElement>(null);const ref=useRef<any>(null);const onPriceRef=useRef(onPrice);onPriceRef.current=onPrice;const drawingsRef=useRef({user:drawings,pine:pineDrawings});drawingsRef.current={user:drawings,pine:pineDrawings};const modeRef=useRef(drawingMode);modeRef.current=drawingMode;const redrawFrame=useRef<number|undefined>(undefined);const [,setViewTick]=useState(0);
  useEffect(()=>{
   if(!host.current)return;
-  const chart=createChart(host.current,{autoSize:true,layout:{attributionLogo:false,background:{type:ColorType.Solid,color:live?'#0d141e':'#10151d'},textColor:live?'#93a4ba':'#8f9caf',fontSize:12,fontFamily:"'Segoe UI',sans-serif",panes:{separatorColor:'#2b3442',separatorHoverColor:'#46546a',enableResize:true}},grid:{vertLines:{color:live?'#1a2635':'#19212c'},horzLines:{color:live?'#1a2635':'#19212c'}},crosshair:{mode:0,vertLine:{color:'#778495',labelBackgroundColor:'#344155'},horzLine:{color:'#778495',labelBackgroundColor:'#344155'}},timeScale:{timeVisible:true,secondsVisible:false,tickMarkFormatter:(t:any,type:number)=>{const d=typeof t==='number'?new Date(t*1000):new Date(Date.UTC(t.year,t.month-1,t.day));return type>=3?tickTime.format(d):tickDate.format(d)},borderColor:'#293241',rightOffset:35,barSpacing:7,minBarSpacing:live?.001:.5,shiftVisibleRangeOnNewBar:false,allowShiftVisibleRangeOnWhitespaceReplacement:false},rightPriceScale:{minimumWidth:live?66:0,borderColor:'#293241',scaleMargins:{top:.12,bottom:.1}},localization:{priceFormatter:(v:number)=>v.toFixed(2),timeFormatter:(t:any)=>dateFmt.format(new Date(Number(t)*1000))}});
-  const series=chart.addSeries(CandlestickSeries,{upColor:'#35c4a0',downColor:'#ef6b79',wickUpColor:'#35c4a0',wickDownColor:'#ef6b79',borderVisible:false,priceFormat:{type:'price',precision:2,minMove:.01}});
+  const chart=createChart(host.current,{autoSize:true,layout:{attributionLogo:false,background:{type:ColorType.Solid,color:live?'#0d141e':'#10151d'},textColor:live?'#93a4ba':'#8f9caf',fontSize:12,fontFamily:"'Segoe UI',sans-serif",panes:{separatorColor:'#2b3442',separatorHoverColor:'#46546a',enableResize:true}},grid:{vertLines:{color:live?'#1a2635':'#19212c'},horzLines:{color:live?'#1a2635':'#19212c'}},crosshair:{mode:0,vertLine:{color:'#778495',labelBackgroundColor:'#344155'},horzLine:{color:'#778495',labelBackgroundColor:'#344155'}},timeScale:{timeVisible:true,secondsVisible:false,tickMarkFormatter:(t:any,type:number)=>{const d=typeof t==='number'?new Date(t*1000):new Date(Date.UTC(t.year,t.month-1,t.day));return type>=3?tickTime.format(d):tickDate.format(d)},borderColor:'#293241',rightOffset:35,barSpacing:7,minBarSpacing:live?.001:.5,shiftVisibleRangeOnNewBar:false,allowShiftVisibleRangeOnWhitespaceReplacement:false},rightPriceScale:{minimumWidth:live?66:0,borderColor:'#293241',scaleMargins:{top:.12,bottom:.1}},localization:{priceFormatter:(v:number)=>formatMarketPrice(symbol,v),timeFormatter:(t:any)=>dateFmt.format(new Date(Number(t)*1000))}});
+  const series=chart.addSeries(CandlestickSeries,{upColor:'#35c4a0',downColor:'#ef6b79',wickUpColor:'#35c4a0',wickDownColor:'#ef6b79',borderVisible:false,priceFormat:{type:'price',precision:instrument.pricePrecision,minMove:instrument.tickSize}});
   const markers=createSeriesMarkers(series,[]);ref.current={chart,series,markers,lines:[],studies:new Map(),horizontals:new Map(),count:0};
   const priceMarker=live?new LivePriceMarker():null;
   if(priceMarker)series.attachPrimitive(priceMarker);
@@ -162,6 +164,12 @@ export default function ReplayChart({symbol=defaultMarketSymbol,bars,timeline=ba
   chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);const el=host.current;el.addEventListener('wheel',redraw);el.addEventListener('pointermove',redraw);const observer=new ResizeObserver(redraw);observer.observe(el);
   return()=>{observer.disconnect();el.removeEventListener('wheel',redraw);el.removeEventListener('pointermove',redraw);chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);if(edgeFrame!==undefined)cancelAnimationFrame(edgeFrame);if(redrawFrame.current!==undefined)cancelAnimationFrame(redrawFrame.current);redrawFrame.current=undefined;ref.current=null;livePriceMarker.current=null;if(priceMarker)series.detachPrimitive(priceMarker);chart.remove()};
  },[]);
+ useEffect(()=>{
+  const r=ref.current;if(!r)return;
+  const current=marketInfoFor(symbol);
+  r.series.applyOptions({priceFormat:{type:'price',precision:current.pricePrecision,minMove:current.tickSize}});
+  r.chart.applyOptions({localization:{priceFormatter:(value:number)=>formatMarketPrice(symbol,value)}});
+ },[symbol,instrument.pricePrecision,instrument.tickSize]);
  useEffect(()=>{
   const chart:IChartApi|undefined=ref.current?.chart;
   if(!chart||!live||drawingMode||pricePicking||replayPicker||(!priceExpanded&&!paneStudies.length))return;
@@ -512,7 +520,7 @@ export default function ReplayChart({symbol=defaultMarketSymbol,bars,timeline=ba
  }
  const brandMarkBottom=(ref.current?.chart.timeScale().height()||26)+brandMarkInset;
  const canvas = <>
-  <div className="chart-canvas" data-chart-utility={drawingMode?"cross":utility} ref={host} tabIndex={live?0:undefined} aria-label={'กราฟแท่งเทียน '+marketInfo[symbol].label+' พร้อมอินดิเคเตอร์'}/>{overlay}{drawingPanes.map(pane=><ChartDrawings key={pane.id} api={ref.current} pane={pane.id ? pane : undefined} host={host.current} controlsHost={placementHost.current} confirmPlacement={live || confirmDrawingPlacement} readOnly={Boolean(replayPicker)||readOnlyDrawings||Boolean(drawingMode&&pane.id!==activePane)} keyboardOwner={pane.id===keyboardPane} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings.filter(d=>(d.pane??'')===pane.id)} mode={pane.id===activePane ? drawingMode : null} hidden={hiddenDrawings} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={onToggleMagnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onEdit={onDrawingEdit} onErase={!drawingMode && utility==='erase' ? onDrawingRemove : undefined} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>)}{!drawingMode&&!selectedDrawing&&handles}{tables}
+  <div className="chart-canvas" data-chart-utility={drawingMode?"cross":utility} ref={host} tabIndex={live?0:undefined} aria-label={'กราฟแท่งเทียน '+marketInfoFor(symbol).label+' พร้อมอินดิเคเตอร์'}/>{overlay}{drawingPanes.map(pane=><ChartDrawings key={pane.id} api={ref.current} pane={pane.id ? pane : undefined} host={host.current} controlsHost={placementHost.current} confirmPlacement={live || confirmDrawingPlacement} readOnly={Boolean(replayPicker)||readOnlyDrawings||Boolean(drawingMode&&pane.id!==activePane)} keyboardOwner={pane.id===keyboardPane} timeline={timeline} offset={barIndexOffset} seconds={seconds} drawings={drawings.filter(d=>(d.pane??'')===pane.id)} mode={pane.id===activePane ? drawingMode : null} hidden={hiddenDrawings} magnet={magnet} strongMagnet={strongMagnet} onToggleMagnet={onToggleMagnet} selected={selectedDrawing} pricePicking={pricePicking} onSelect={id=>onDrawingSelect?.(id)} onEdit={onDrawingEdit} onErase={!drawingMode && utility==='erase' ? onDrawingRemove : undefined} onCreate={d=>onDrawing?.(d)} onChange={d=>onDrawingChange?.(d)} onCancel={()=>onDrawingCancel?.()} onDelete={()=>onDrawingDelete?.()} onUndo={()=>onDrawingUndo?.()} onRedo={()=>onDrawingRedo?.()} onDragStart={()=>{onDragStart?.();if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};}} onDragEnd={()=>{if(ref.current){ref.current.dragRange=null;ref.current.series.applyOptions({});}setViewTick(v=>v+1);}}/>)}{!drawingMode&&!selectedDrawing&&handles}{tables}
   {replayPicker && replayPicker.time!==null && (() => {
     const r=ref.current;
     if(!r)return null;
@@ -574,7 +582,7 @@ export default function ReplayChart({symbol=defaultMarketSymbol,bars,timeline=ba
  </>;
 
  const ohlcValues=shownBar&&<div>{prices.map(([key,label,description])=><span key={key} aria-label={description} data-price={key}>
-  <small>{label}</small> {ohlcNumber.format(shownBar[key])}
+  <small>{label}</small> {ohlcNumber(instrument.pricePrecision).format(shownBar[key])}
  </span>)}</div>;
  const candleTime=shownBar&&<time dateTime={new Date(shownBar.time*1000).toISOString()}>{dateFmt.format(shownBar.time*1000)}</time>;
  const plotTop=live&&paneCount?host.current?.getBoundingClientRect().top:undefined;
@@ -586,7 +594,7 @@ export default function ReplayChart({symbol=defaultMarketSymbol,bars,timeline=ba
    <div className="chart-scroll-content" style={paneCount?{minHeight:compact?168+paneCount*72:240+paneCount*112}:undefined}>
     {canvas}
     {liveBid!==undefined&&liveClock&&livePriceMarker.current&&
-     <LivePriceCountdown marker={livePriceMarker.current} price={liveBid} seconds={seconds} serverNow={liveClock} calendar={marketInfo[symbol].calendar}/>}
+     <LivePriceCountdown marker={livePriceMarker.current} price={liveBid} seconds={seconds} serverNow={liveClock} calendar={marketInfoFor(symbol).calendar} precision={marketInfoFor(symbol).pricePrecision}/>}
     <div className="live-chart-meta">
      {shownBar&&<div className="live-ohlc" aria-label="ราคาแท่งเทียน" data-up={shownBar.close>=shownBar.open}>
       {candleTime}{ohlcValues}

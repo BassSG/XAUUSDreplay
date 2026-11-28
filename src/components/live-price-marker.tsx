@@ -6,12 +6,20 @@ import type {CandleCalendar} from '../lib/engine';
 const mint = '#69d4b6';
 const priceInk = '#102720';
 const timeInk = '#20483d';
-const priceFormat = new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const priceFormats = new Map<number, Intl.NumberFormat>();
+function formatPrice(price: number, precision: number) {
+  let formatter = priceFormats.get(precision);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat('en-US', {minimumFractionDigits: precision, maximumFractionDigits: precision});
+    priceFormats.set(precision, formatter);
+  }
+  return formatter.format(price);
+}
 
 export class LivePriceMarker implements ISeriesPrimitive {
   private attachment?: SeriesAttachedParameter;
   private line?: IPriceLine;
-  private label?: {price: number; formattedPrice: string; countdown: string};
+  private label?: {price: number; formattedPrice: string; countdown: string; precision: number};
   private readonly axisRenderer: IPrimitivePaneRenderer = {
     draw: target => {
       const label = this.label;
@@ -63,13 +71,13 @@ export class LivePriceMarker implements ISeriesPrimitive {
     return this.axisViews;
   }
 
-  setPrice(price: number, countdown: string) {
+  setPrice(price: number, countdown: string, precision: number) {
     const attachment = this.attachment;
     if (!attachment) return;
     const {series, requestUpdate} = attachment;
     const previous = this.label;
-    if (previous?.price === price && previous.countdown === countdown) return;
-    this.label = {price, formattedPrice: priceFormat.format(price), countdown};
+    if (previous?.price === price && previous.countdown === countdown && previous.precision === precision) return;
+    this.label = {price, formattedPrice: formatPrice(price, precision), countdown, precision};
     if (!this.line) {
       this.line = series.createPriceLine({price, color: mint, lineWidth: 1, lineStyle: 2, axisLabelVisible: false});
       series.applyOptions({priceLineVisible: false, lastValueVisible: false});
@@ -97,6 +105,7 @@ type Props = {
   seconds: number;
   serverNow: () => number;
   calendar: CandleCalendar;
+  precision: number;
 };
 
 function windowAt(stamp: number, seconds: number, calendar: CandleCalendar) {
@@ -108,7 +117,7 @@ function windowAt(stamp: number, seconds: number, calendar: CandleCalendar) {
   }
 }
 
-export function LivePriceCountdown({marker, price, seconds, serverNow, calendar}: Props) {
+export function LivePriceCountdown({marker, price, seconds, serverNow, calendar, precision}: Props) {
   const [stamp, setStamp] = useState(serverNow);
   useEffect(() => {
     const update = () => setStamp(previous => Math.max(previous, serverNow()));
@@ -125,7 +134,7 @@ export function LivePriceCountdown({marker, price, seconds, serverNow, calendar}
     ? (minutes >= 60 ? Math.floor(minutes / 60) + ':' : '') + two(minutes % 60) + ':' + two(remaining % 60)
     : '';
 
-  useLayoutEffect(() => { marker.setPrice(price, countdown); }, [marker, price, countdown]);
+  useLayoutEffect(() => { marker.setPrice(price, countdown, precision); }, [marker, price, countdown, precision]);
   useLayoutEffect(() => () => marker.clear(), [marker]);
 
   return window && <time className="live-price-timer" role="timer" aria-label="เวลาที่เหลือก่อนปิดแท่ง"

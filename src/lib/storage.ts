@@ -141,6 +141,10 @@ type LayoutRevision = Pick<SavedLayout, 'id' | 'revision'>;
 const layoutPrefix = 'live-layout/';
 const autoSaveId = '00000000-0000-4000-8000-000000000001';
 const btcAutoSaveId = '00000000-0000-4000-8000-000000000002';
+const cryptoAutoSavePrefix = 'crypto-auto-save-';
+function autoSaveIdFor(symbol: MarketSymbol) {
+ return symbol === defaultMarketSymbol ? autoSaveId : symbol === 'BTCUSDT' ? btcAutoSaveId : cryptoAutoSavePrefix + symbol;
+}
 export function listLiveLayouts(symbol?: MarketSymbol): Promise<SavedLayout[]> {
  return transaction(['meta'], 'readonly', async tx => {
   const range = IDBKeyRange.bound(layoutPrefix, layoutPrefix + '\uffff');
@@ -150,7 +154,7 @@ export function listLiveLayouts(symbol?: MarketSymbol): Promise<SavedLayout[]> {
  });
 }
 export function saveLiveAutoSave(file: LiveLayoutFile): Promise<SavedLayout> {
- const id = file.symbol === 'BTCUSDT' ? btcAutoSaveId : autoSaveId;
+ const id = autoSaveIdFor(file.symbol ?? defaultMarketSymbol);
  return transaction(['meta'], 'readwrite', async tx => {
   const store = tx.objectStore('meta');
   const previous: SavedLayout | undefined = await request(store.get(layoutPrefix + id));
@@ -183,7 +187,7 @@ export function saveLiveLayout(file: LiveLayoutFile, previous?: LayoutRevision):
 }
 export function deleteLiveLayout(previous: LayoutRevision) {
  return transaction(['meta'], 'readwrite', async tx => {
-  if (previous.id === autoSaveId || previous.id === btcAutoSaveId) throw new StorageError('บันทึกอัตโนมัติลบจากรายการนี้ไม่ได้');
+  if (previous.id === autoSaveId || previous.id === btcAutoSaveId || previous.id.startsWith(cryptoAutoSavePrefix)) throw new StorageError('บันทึกอัตโนมัติลบจากรายการนี้ไม่ได้');
   const store = tx.objectStore('meta');
   await checkLayoutRevision(store, previous);
   await request(store.delete(layoutPrefix + previous.id));

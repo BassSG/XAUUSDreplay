@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {Bar} from './engine';
-import {defaultMarketSymbol, marketInfo, type MarketSymbol} from './market-symbol';
+import {defaultMarketSymbol, isCryptoSymbol, marketInfoFor, type MarketSymbol} from './market-symbol';
 import {spotBookQuote, spotPageSize, spotServerTime, spotSnapshot} from './binance-spot';
 import {historyPage, requestMarket as request} from './live-feed';
 import {historyCatalog, loadBefore, loadWindow} from './history';
@@ -60,7 +60,7 @@ export function useLiveFeed(retry: number, symbol: MarketSymbol = defaultMarketS
     let minuteTimer: ReturnType<typeof setTimeout>;
     let refreshMinutes = true;
     let clockRequest: Promise<void> | undefined;
-    const spot = symbol === 'BTCUSDT';
+    const spot = isCryptoSymbol(symbol);
     const recentLimit = spot ? spotPageSize : recentBarsSize;
 
     function syncSpotClock() {
@@ -75,7 +75,7 @@ export function useLiveFeed(retry: number, symbol: MarketSymbol = defaultMarketS
     async function pollQuote() {
       try {
         if (spot) await syncSpotClock();
-        const quote = spot ? await spotBookQuote(signal, serverNow) : readQuote(await request('quote', signal), now());
+        const quote = spot ? await spotBookQuote(symbol, signal, serverNow) : readQuote(await request('quote', signal), now());
         if (signal.aborted) return;
         if (quote.time < latestTick.current) {
           setQuote(previous => previous.quoteError ? previous : {...previous, quoteError: true});
@@ -97,7 +97,7 @@ export function useLiveFeed(retry: number, symbol: MarketSymbol = defaultMarketS
         const last = previous.at(-1);
         if (spot) await syncSpotClock();
         const snapshot = async (limit: number) => spot
-          ? spotSnapshot('1m', signal, serverNow, limit)
+          ? spotSnapshot(symbol, '1m', signal, serverNow, limit)
           : {closed: readBars(await request('bars/1m', signal, {limit}), periods['1m'], serverNow()), forming: null};
         let {closed: rows, forming} = await snapshot(last && !refreshMinutes ? minutePollSize : recentLimit);
         if (last && !refreshMinutes && rows[0]?.time > last.time) {
@@ -126,7 +126,7 @@ export function useLiveFeed(retry: number, symbol: MarketSymbol = defaultMarketS
       clearTimeout(minuteTimer);
     };
   }, [retry, serverNow, symbol]);
-  return {symbol, clockReady: symbol === 'XAUUSD' || clock.current !== null,
+  return {symbol, clockReady: !isCryptoSymbol(symbol) || clock.current !== null,
     ...quoteState, ...minuteState, minuteCache, serverNow, historyCache};
 }
 
@@ -134,7 +134,7 @@ export type LiveFeed = ReturnType<typeof useLiveFeed>;
 
 export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anchorTime: number | null = null, warm = true, enabled = true, historyTarget = focusBarCount) {
   const {symbol} = feed;
-  const spot = symbol === 'BTCUSDT';
+  const spot = isCryptoSymbol(symbol);
   const pollDelay = spot ? 10000 : 15000;
   const key = symbol + ':' + period + ':' + (anchorTime ?? 'latest');
   const seconds = periods[period];
@@ -178,7 +178,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
       try {
         const cachedMinutes = minuteCache.current;
         const snapshot = period === '1m' && cachedMinutes.length ? {closed: cachedMinutes, forming: null}
-          : spot ? await spotSnapshot(period, signal, serverNow)
+          : spot ? await spotSnapshot(symbol, period, signal, serverNow)
           : {closed: readBars(await request('bars/' + period, signal), seconds, serverNow()), forming: null};
         const rows = snapshot.closed;
         if (!rows.length) throw Error('ยังไม่มีแท่งราคาที่ปิดแล้ว');
@@ -318,7 +318,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
   }, [shouldWarm, loadOlder, historyTarget, view.closed.length]);
 
   const livePrice = spot ? bars.at(-1)?.close : quote?.bid;
-  return {...view, symbol, calendar: marketInfo[symbol].calendar, livePrice, bars, studyBars, warmingHistory, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
+  return {...view, symbol, calendar: marketInfoFor(symbol).calendar, livePrice, bars, studyBars, warmingHistory, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
     serverNow, loadOlder, progress: progress?.key === key ? progress : null,
     stopHistory: () => active.current?.backfill?.abort()};
 }

@@ -333,9 +333,25 @@
 
 .live-panel { width: min(440px, 100%); }
 .live-details-head, .live-panel-end { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--live-muted); font-size: 13px; }
-.live-symbol-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
-.live-symbol-options button { flex-direction: column; align-items: flex-start; gap: 4px; min-height: 56px; text-align: start; }
-.live-symbol-options small { color: var(--live-muted); }
+.live-market-groups { display: grid; gap: 15px; margin-bottom: 14px; }
+.live-market-group { display: grid; gap: 8px; min-width: 0; }
+.live-market-group h3 { margin: 0; color: var(--live-gold); font-size: 13px; }
+.live-market-group-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.live-market-group-title span { color: var(--live-muted); font-size: 12px; }
+.live-market-symbol { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; min-height: 52px; text-align: start; }
+.live-market-symbol[aria-pressed=true] { border-color: var(--live-gold); background: #d7b15a17; }
+.live-market-symbol strong, .live-market-symbol small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-market-symbol small { color: var(--live-muted); font-size: 11px; }
+.live-market-search { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 10px; border: 1px solid var(--live-border); border-radius: 7px; background: var(--live-rail); color: var(--live-muted); }
+.live-market-search input { flex: 1; min-width: 0; min-height: 40px; padding: 6px 0; border: 0; outline: 0; background: transparent; color: var(--live-text); }
+.live-market-search input::placeholder { color: var(--live-muted); }
+.live-market-filters { display: flex; gap: 6px; overflow-x: auto; padding: 1px 0 4px; overscroll-behavior-inline: contain; }
+.live-market-filters button { flex: none; min-height: 32px; padding: 4px 9px; font-size: 12px; }
+.live-market-filters button[aria-pressed=true] { border-color: var(--live-gold); color: var(--live-gold); }
+.live-market-filters small { margin-left: 5px; color: var(--live-muted); }
+.live-symbol-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: min(38vh, 360px); overflow-y: auto; margin-bottom: 4px; align-content: start; overscroll-behavior: contain; }
+.live-market-message { margin: 2px 0; color: var(--live-muted); font-size: 12px; }
+.live-market-message button { margin-left: 8px; min-height: 32px; }
 .live-quotes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 14px 0; padding: 11px 0; border-block: 1px solid var(--live-border); }
 .live-quotes dt { color: var(--live-muted); font-size: 12px; }
 .live-quotes dd { margin: 4px 0 0; font-size: 19px; font-variant-numeric: tabular-nums; }

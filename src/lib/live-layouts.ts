@@ -3,7 +3,7 @@ import {drawingKinds, drawingTools, isStroke, strokeMax, variableDrawingsMax} fr
 import {periods, type Period} from './live-market.ts';
 import {studyDefinitions, type LiveStudy} from './live-indicators.ts';
 import {drawingSchema, indicatorSchema} from './storage.ts';
-import {marketSymbols, defaultMarketSymbol, type MarketSymbol} from './market-symbol.ts';
+import {defaultMarketSymbol, type MarketSymbol} from './market-symbol.ts';
 
 export const workspaceKey = 'xau-live-workspace-v1';
 export const workspaceStorageKey = (symbol: MarketSymbol) => symbol === defaultMarketSymbol ? workspaceKey : workspaceKey + '-' + symbol;
@@ -95,7 +95,7 @@ export const defaultChartView: ChartView = {follow: true, viewport: null, rightO
 export const layoutName = z.string().trim().min(1).max(100);
 const fileSchema = z.object({
   format: z.literal('xau-live-layout'), version: z.literal(1), name: layoutName,
-  symbol: z.enum(marketSymbols).optional(),
+  symbol: z.string().regex(/^[A-Z0-9]{4,32}$/).optional(),
   workspace: workspaceSchema, view: viewSchema, library: z.array(indicatorSchema).max(500).optional(),
 });
 export type LiveLayoutFile = z.infer<typeof fileSchema>;

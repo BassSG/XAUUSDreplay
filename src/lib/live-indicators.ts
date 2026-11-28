@@ -1,6 +1,7 @@
 import type {Bar} from './engine';
 import type {PinePlot} from '../components/replay-chart';
 import type {MarketSymbol} from './market-symbol';
+import {isCryptoSymbol, marketInfoFor} from './market-symbol';
 
 export const studyDefinitions = {
   ema20: {name: 'EMA', length: 20, color: '#e2bb70', help: 'ค่าเฉลี่ยราคาแบบเอ็กซ์โพเนนเชียล ให้น้ำหนักแท่งล่าสุดมากขึ้น'},
@@ -21,13 +22,12 @@ export const studyDefinitions = {
   obv: {name: 'OBV (Tick Volume)', length: null, color: '#7cc6c3', help: 'สะสมจำนวน Tick โดยบวกเมื่อราคาปิดขึ้นและลบเมื่อราคาปิดลง'},
 };
 export type LiveStudy = keyof typeof studyDefinitions;
-const spotLabels: Partial<Record<LiveStudy, {name: string; help: string}>> = {
-  vwma: {name: 'VWMA (BTC Volume)', help: 'ค่าเฉลี่ยราคาปิดถ่วงน้ำหนักด้วยปริมาณ BTC ที่ซื้อขายในแต่ละแท่ง'},
-  volume: {name: 'Volume (BTC)', help: 'แสดงปริมาณ BTC ที่ซื้อขายในแต่ละแท่ง'},
-  obv: {name: 'OBV (BTC Volume)', help: 'สะสมปริมาณ BTC โดยบวกเมื่อราคาปิดขึ้นและลบเมื่อราคาปิดลง'},
-};
 export function studyCopy(study: LiveStudy, symbol?: MarketSymbol) {
-  return (symbol === 'BTCUSDT' ? spotLabels[study] : undefined) ?? studyDefinitions[study];
+  const asset = symbol && isCryptoSymbol(symbol) ? marketInfoFor(symbol).baseAsset : '';
+  if (asset && study === 'vwma') return {name: 'VWMA (' + asset + ' Volume)', help: 'ค่าเฉลี่ยราคาปิดถ่วงน้ำหนักด้วยปริมาณ ' + asset + ' ที่ซื้อขายในแต่ละแท่ง'};
+  if (asset && study === 'volume') return {name: 'Volume (' + asset + ')', help: 'แสดงปริมาณ ' + asset + ' ที่ซื้อขายในแต่ละแท่ง'};
+  if (asset && study === 'obv') return {name: 'OBV (' + asset + ' Volume)', help: 'สะสมปริมาณ ' + asset + ' โดยบวกเมื่อราคาปิดขึ้นและลบเมื่อราคาปิดลง'};
+  return studyDefinitions[study];
 }
 export type LiveStudyBadge = {id: string; label: string; state: 'loading' | 'ready' | 'error'};
 export const studyStateLabel = {loading: 'กำลังคำนวณ', ready: 'พร้อมใช้งาน', error: 'คำนวณไม่สำเร็จ'};

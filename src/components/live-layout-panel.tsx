@@ -2,7 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import {Download, FolderOpen, Plus, Save, Trash2, Upload} from 'lucide-react';
 import {layoutName, readLayoutFile, type LiveLayoutFile} from '../lib/live-layouts';
 import {deleteLiveLayout, listLiveLayouts, saveLiveLayout, type SavedLayout} from '../lib/storage';
-import {defaultMarketSymbol, marketInfo, type MarketSymbol} from '../lib/market-symbol';
+import {defaultMarketSymbol, marketInfoFor, type MarketSymbol} from '../lib/market-symbol';
 
 export type ActiveLayout = Pick<SavedLayout, 'id' | 'revision'> & {name: string};
 type Props = {
@@ -69,7 +69,7 @@ export default function LiveLayoutPanel({symbol, active, capture, onSave, onOpen
   }
   return <div className="layout-manager">
     <label className="chart-field">ชื่อเลย์เอาต์
-      <input value={name} placeholder={marketInfo[symbol].label + ' 15m'} maxLength={100}
+      <input value={name} placeholder={marketInfoFor(symbol).label + ' 15m'} maxLength={100}
         onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && name.trim() && !busy) save(!active); }}/>
     </label>
     <div className="layout-actions">
@@ -94,7 +94,7 @@ export default function LiveLayoutPanel({symbol, active, capture, onSave, onOpen
     <div className="layout-transfer">
       <p className="chart-hint">ย้ายกราฟไปอีกเครื่องได้ด้วยการส่งออกไฟล์แล้วนำเข้า ส่วนซิงก์อัตโนมัติข้ามเครื่องจะต้องเชื่อมต่อบริการคลาวด์</p>
       <div className="layout-actions">
-        <button onClick={() => downloadLayout(capture(name.trim() || marketInfo[symbol].label))}><Download size={16}/>ส่งออกกราฟนี้</button>
+        <button onClick={() => downloadLayout(capture(name.trim() || marketInfoFor(symbol).label))}><Download size={16}/>ส่งออกกราฟนี้</button>
         <button disabled={busy} onClick={() => fileInput.current?.click()}><Upload size={16}/>นำเข้าเลย์เอาต์</button>
         <input type="file" hidden ref={fileInput} aria-label="ไฟล์เลย์เอาต์" accept=".json,application/json"
           onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importLayout(() => f.text()); }}/>
