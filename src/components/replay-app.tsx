@@ -10,6 +10,7 @@ import PineInputs from './pine-inputs';
 import ChartBoundary from './chart-boundary';
 import LiveDrawingSettings from './live-drawing-settings';
 import {DrawingPicker} from './live-drawing-toolbar';
+import {DrawingToolIcon} from './drawing-tool-icon';
 import DrawingObjects from './drawing-objects';
 import {aggregate,defaultSettings,simulate,appendCommand,normalizeBars,type Bar,type Command,type Session,type Settings,type Side,type Trade,type CandleCalendar,type OrderType,type DrawingKind,type Drawing,type IndicatorSpec} from '../lib/engine';
 import {drawingNames,replayBatch} from '../lib/chart-tools';
@@ -166,7 +167,20 @@ export default function ReplayApp({onLive}: {onLive: () => void}){
     <div className="premium-toolbar"><div className="date-jump"><CalendarDays size={16}/><input aria-label="ไปวันที่" type="datetime-local" value={jumpDate} onChange={e=>setJumpDate(e.target.value)}/><button onClick={()=>void goToDate()}>Go to Date</button></div><div className="quick-date"><button onClick={()=>{const t=(bars[session?.cursor??0]?.time??0)-86400;setJumpDate(bangkokInput(t))}}>−1D</button><button onClick={()=>{const t=(bars[session?.cursor??0]?.time??0)-7*86400;setJumpDate(bangkokInput(t))}}>−1W</button><button onClick={()=>{const t=(bars[session?.cursor??0]?.time??0)-30*86400;setJumpDate(bangkokInput(t))}}>−1M</button></div><span className="workspace-note">เลือกวันที่จากหน้า chart ได้โดยตรง · ระบบจะใช้ข้อมูลละเอียดที่สุดที่มี</span></div>
     <div className="drawing-tools" role="toolbar" aria-label="เครื่องมือกราฟ">
      <button aria-pressed={drawingMode===null} className={drawingMode===null?'active':''} onClick={cancelDrawing} title="เลือกและลากเส้น · เลื่อนกราฟในพื้นที่ว่าง">✛ Cursor</button>
-     {([['hline','━ H-Line'],['vline','│ V-Line'],['trend','↗ Trend'],['ray','⤴ Ray'],['rect','▧ Zone'],['fib','≋ Fib'],['ruler','↔ Measure'],['position','▥ Range'],['text','T Text']] as const).map(([kind,label])=><button key={kind} aria-pressed={drawingMode===kind} className={drawingMode===kind?'active':''} title={drawingNames[kind]} onClick={()=>{setDrawingMode(v=>v===kind?null:kind);setSelectedDrawing(null);setHiddenDrawings(false);setPickPrice(null);setProtectPick(null);setPlaying(false);setFollow(false)}}>{label}</button>)}
+     {([['hline','H-Line'],['vline','V-Line'],['trend','Trend'],['ray','Ray'],['rect','Zone'],
+       ['fib','Fib'],['ruler','Measure'],['position','Range'],['text','Text']] as const).map(([kind,label])=>
+       <button key={kind} aria-pressed={drawingMode===kind} className={drawingMode===kind?'active':''}
+         title={drawingNames[kind]} onClick={()=>{
+           setDrawingMode(value=>value===kind?null:kind);
+           setSelectedDrawing(null);
+           setHiddenDrawings(false);
+           setPickPrice(null);
+           setProtectPick(null);
+           setPlaying(false);
+           setFollow(false);
+         }}>
+         <DrawingToolIcon kind={kind} size={16}/>{label}
+       </button>)}
      <button type="button" onClick={()=>setDrawingPicker(true)} aria-haspopup="dialog">เครื่องมือวาดทั้งหมด</button>
      <button aria-pressed={magnet} className={magnet?'active':''} onClick={()=>setMagnet(v=>!v)} title="จับจุด Open / High / Low / Close ใกล้เมาส์">⌁ Magnet</button>
      <button aria-pressed={keepDrawing} className={keepDrawing?'active':''} onClick={()=>setKeepDrawing(v=>!v)} title="วาดเสร็จแล้วยังใช้เครื่องมือเดิม">วาดต่อเนื่อง</button>

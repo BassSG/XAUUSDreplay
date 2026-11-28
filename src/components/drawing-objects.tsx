@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import type {Drawing} from '../lib/engine';
 import {drawingTools} from '../lib/drawing-definitions';
+import {DrawingToolIcon} from './drawing-tool-icon';
 
 export default function DrawingObjects({drawings,onChange,onEdit}: {
   drawings: Drawing[]; onChange: (drawings: Drawing[]) => void; onEdit: (id: string) => void;
@@ -51,7 +52,9 @@ export default function DrawingObjects({drawings,onChange,onEdit}: {
       {matches.filter(drawing=>(drawing.group??'')===name).map(drawing=><div className="object-manager-row" key={drawing.id}>
         <input type="checkbox" aria-label={'เลือก '+(drawing.text||drawingTools[drawing.kind].name)}
           checked={selected.includes(drawing.id)} onChange={event=>setSelected(ids=>event.target.checked?[...ids,drawing.id]:ids.filter(id=>id!==drawing.id))}/>
-        <button type="button" onClick={()=>onEdit(drawing.id)}>{drawingTools[drawing.kind].name}{drawing.text&&' · '+drawing.text.slice(0,48)}</button>
+        <button type="button" onClick={()=>onEdit(drawing.id)}><DrawingToolIcon kind={drawing.kind} size={17}/>
+          {drawingTools[drawing.kind].name}{drawing.text&&' · '+drawing.text.slice(0,48)}
+        </button>
         <small>{[drawing.locked&&'ล็อก',drawing.hidden&&'ซ่อน'].filter(Boolean).join(' · ')}</small>
       </div>)}
     </section>)}

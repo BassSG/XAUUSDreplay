@@ -1,34 +1,18 @@
 import {useRef, useState, type HTMLAttributes, type ReactNode} from 'react';
 import {
-  ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Brush, CalendarRange, ChartCandlestick,
-  ChartColumnIncreasing, ChartLine, ChartNoAxesCombined, ChevronLeft, Circle, CornerUpRight, Crosshair,
-  Diamond, Ellipsis, Eye, EyeOff, Fan, Flag, GitFork, Grid2X2, Highlighter, Info,
-  ListTree, Magnet, MessageSquare, Minus, MousePointer2, MoveHorizontal, MoveUpRight,
-  MoveVertical, PanelsLeftBottom, PencilRuler, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
-  StickyNote, Tag, Trash2, TrendingDown, TrendingUp, Triangle, TriangleRight, Type,
-  GripVertical, Repeat, Star, Undo2, Waypoints, Workflow, X, type LucideIcon,
+  ChevronLeft, Eye, EyeOff, GripVertical, Magnet, MousePointer2, PencilRuler,
+  Redo2, Repeat, Search, Star, Trash2, Undo2, X,
 } from 'lucide-react';
+import {DrawingToolIcon} from './drawing-tool-icon';
 import {drawingGroups, drawingKinds, drawingTools, type DrawingKind} from '../lib/drawing-definitions';
 import {useDialog} from '../lib/use-dialog';
 import type {LiveWorkspaceState} from '../lib/live-layouts';
 
 type ToolGroup = keyof typeof drawingGroups;
 const groups = Object.keys(drawingGroups) as ToolGroup[];
-const groupIcons: Record<ToolGroup, LucideIcon> = {
-  lines: TrendingUp, channels: PanelsLeftBottom, levels: ListTree, shapes: Shapes,
-  patterns: Waypoints, measure: Ruler, annotations: Type,
-};
-const icons: Partial<Record<DrawingKind, LucideIcon>> = {
-  trend: MoveUpRight, ray: CornerUpRight, extended: Slash, arrow: ArrowUpRight, info: Info,
-  hline: Minus, hray: ArrowRight, vline: MoveVertical, cross: Crosshair, channel: PanelsLeftBottom,
-  regression: ChartNoAxesCombined, pitchfork: GitFork, fib: ListTree, fibExtension: ChartColumnIncreasing,
-  fibChannel: Workflow, fibTime: CalendarRange, fibFan: Fan, gannBox: Grid2X2, gannFan: TriangleRight,
-  rect: Square, rotated: Diamond, circle: Circle, ellipse: Ellipsis, triangle: Triangle,
-  polyline: Route, brush: Brush, highlighter: Highlighter, curve: Spline, doubleCurve: Workflow, arc: Fan,
-  abcd: Waypoints, xabcd: Workflow, headShoulders: ChartNoAxesCombined, elliott: ChartLine, elliottABC: Route,
-  cycle: CalendarRange, ruler: Ruler, priceRange: MoveVertical, dateRange: MoveHorizontal,
-  position: ChartCandlestick, long: TrendingUp, short: TrendingDown, vwap: ChartLine,
-  text: Type, note: StickyNote, priceLabel: Tag, callout: MessageSquare, flag: Flag, markUp: ArrowUp, markDown: ArrowDown,
+const groupIcons: Record<ToolGroup, DrawingKind> = {
+  lines: 'trend', channels: 'channel', levels: 'fib', shapes: 'rect',
+  patterns: 'xabcd', measure: 'ruler', annotations: 'text',
 };
 const keywords: Partial<Record<DrawingKind, string>> = {
   hline: 'horizontal line support resistance แนวรับ แนวต้าน',
@@ -78,12 +62,11 @@ export function DrawingPicker({group, enabled, actions, onClose, onPick, favorit
             {(scope === 'all' || filter) && <h3>{drawingGroups[group].name}</h3>}
             <div className="live-picker-options">
               {tools.map(kind => {
-                const Icon = icons[kind] ?? groupIcons[groups.find(group => drawingGroups[group].tools.includes(kind as never)) ?? "shapes"];
                 const tool = drawingTools[kind];
                 return <div className="live-picker-item" key={kind}>
                 <button className="live-picker-option" type="button" title={tool.help} disabled={!enabled}
                   aria-label={tool.name} aria-describedby={'drawing-help-' + kind} onClick={() => onPick(kind)}>
-                  <Icon size={19} aria-hidden="true"/>
+                  <DrawingToolIcon kind={kind} size={24}/>
                   <span><strong>{tool.name}</strong><small id={'drawing-help-' + kind}>{tool.help}</small></span>
                 </button>
                 {toggleFavorite && <button type="button" className="live-favorite-star" aria-label={'รายการโปรด: ' + tool.name}
@@ -190,10 +173,11 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
         onClick={() => props.onResizeFavorites(nextSize)}>{sizeNames[props.favoriteSize]}</button>
       <div className="live-favorite-list">
         {props.favorites.map(kind => {
-          const Icon = icons[kind] ?? groupIcons[groups.find(group => drawingGroups[group].tools.includes(kind as never)) ?? "shapes"];
           const tool = drawingTools[kind];
           return <button type="button" key={kind} title={tool.name + ' · ' + tool.help} aria-label={tool.name}
-            aria-pressed={props.mode === kind} disabled={!props.enabled} onClick={() => pick(kind)}><Icon size={17}/></button>;
+            aria-pressed={props.mode === kind} disabled={!props.enabled} onClick={() => pick(kind)}>
+            <DrawingToolIcon kind={kind} size={17}/>
+          </button>;
         })}
       </div></>}
     </div>
@@ -224,7 +208,6 @@ export default function LiveDrawingToolbar(props: Props) {
   const [picker, setPicker] = useState<ToolGroup | 'all' | null>(null);
   const [recent, setRecent] = useState<DrawingKind>('hline');
   const current = props.mode ?? recent;
-  const CurrentIcon = icons[current] ?? groupIcons[groups.find(group => drawingGroups[group].tools.includes(current as never)) ?? "shapes"];
   const currentTool = drawingTools[current];
 
   function pick(kind: DrawingKind) {
@@ -242,15 +225,16 @@ export default function LiveDrawingToolbar(props: Props) {
         aria-haspopup="dialog" onClick={() => setPicker('all')}><PencilRuler size={19}/><span>วาด</span></button>
       <button className="live-desktop-tool" type="button" aria-label={currentTool.name} title={currentTool.name + ' · ' + currentTool.help}
         aria-pressed={props.mode === current} disabled={!props.enabled}
-        onClick={() => props.mode === current ? props.onSelect() : pick(current)}><CurrentIcon size={19}/><span>ด่วน</span></button>
+        onClick={() => props.mode === current ? props.onSelect() : pick(current)}><DrawingToolIcon kind={current}/><span>ด่วน</span></button>
       {props.desktopAction}
       {props.mobileEnd}
       <div className="live-tool-groups" role="group" aria-label="หมวดเครื่องมือ">
         {groups.map(group => {
-          const Icon = groupIcons[group];
           const {name} = drawingGroups[group];
           return <button key={group} type="button" aria-label={name} title={name}
-            aria-haspopup="dialog" disabled={!props.enabled} onClick={() => setPicker(group)}><Icon size={18}/></button>;
+            aria-haspopup="dialog" disabled={!props.enabled} onClick={() => setPicker(group)}>
+            <DrawingToolIcon kind={groupIcons[group]} size={18}/>
+          </button>;
         })}
       </div>
       <DrawingActions props={props}/>
@@ -262,7 +246,7 @@ export default function LiveDrawingToolbar(props: Props) {
             <MousePointer2 size={16}/>เลือกวัตถุ
           </button>
           <button type="button" disabled={!props.enabled} onClick={() => pick(current)}>
-            <CurrentIcon size={16}/>ใช้ล่าสุด · {currentTool.name}
+            <DrawingToolIcon kind={current} size={16}/>ใช้ล่าสุด · {currentTool.name}
           </button>
         </div>
         <DrawingActions props={props} inPicker/>

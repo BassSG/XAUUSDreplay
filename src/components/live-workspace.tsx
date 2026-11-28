@@ -14,6 +14,7 @@ import ChartBoundary from './chart-boundary';
 import ReplayChart, {type LiveChartActions} from './replay-chart';
 import LiveOverviewChart, {LiveChartTile, timeframeName} from './live-overview-chart';
 import LiveDrawingToolbar from './live-drawing-toolbar';
+import {DrawingToolIcon} from './drawing-tool-icon';
 import LiveDrawingSettings, {drawingInputColor} from './live-drawing-settings';
 import LiveStudyPanel from './live-study-panel';
 import LiveStudyLegend from './live-study-legend';
@@ -542,7 +543,7 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
   const drawingToolsOverlay = activeDrawing && <section className="live-object-tools" aria-label="แก้ไขวัตถุที่เลือก">
     <button type="button" className="live-object-name" title={drawingTools[activeDrawing.kind].name + ' · ตั้งค่าวัตถุ'}
       aria-label="ตั้งค่าวัตถุที่เลือก" aria-haspopup="dialog"
-      onClick={() => editDrawing(activeDrawing.id)}><Pencil size={15}/><span>{drawingTools[activeDrawing.kind].name}</span>
+      onClick={() => editDrawing(activeDrawing.id)}><DrawingToolIcon kind={activeDrawing.kind} size={16}/><span>{drawingTools[activeDrawing.kind].name}</span>
       <i className="live-object-swatch" style={{background: drawingInputColor(activeDrawing.color)}} aria-hidden="true"/></button>
     {activeMetrics && <span className="live-object-ratio">R/R {activeMetrics.ratio.toFixed(2)}</span>}
     <div className="live-object-actions">
