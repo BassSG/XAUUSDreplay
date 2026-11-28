@@ -388,6 +388,8 @@ test('Focus preserves both timeframe zones at a one-tick overlap and merges thei
    const bars=rows.map(([open,high,low,close],i)=>({time:1700000100+i*60,volume:10,open,high,low,close}));
    const boxes=await chartZoneBoxes(bars,{showParent:true,sdBoxLimit:8,mergeOverlapPct:threshold});
    const demand=boxes.filter(b=>b.text.includes(' · D ·')).sort((a,b)=>a.bottom-b.bottom);
+   assert.ok(demand.every(b=>b.layer==='zone'));
+   assert.equal(demand.filter(b=>b.bgcolor.startsWith('#FFD166')).length,expected.length===1?1:0);
    assert.deepEqual(demand.map(b=>[b.bottom,b.top]),expected);
    if(demand.length===1){
      assert.equal(demand[0].text,'1m+5m · D · Tested');

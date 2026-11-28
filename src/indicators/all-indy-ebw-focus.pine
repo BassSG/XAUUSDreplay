@@ -169,14 +169,14 @@ f_offer(float lo, float hi, int origin, int right, int kind, string tf, bool tes
 f_shared(float aLo, float aHi, float bLo, float bHi) =>
     math.round((math.min(aHi, bHi) - math.max(aLo, bLo)) / syminfo.mintick)
 
-f_draw(int slot, float lo, float hi, int origin, int right, string caption, color tint, bool tested = false, int emphasis = 1) =>
+f_draw(int slot, float lo, float hi, int origin, int right, string caption, color tint, bool tested = false, int emphasis = 1, bool clustered = false) =>
     box item = boxes.get(slot)
     if not na(lo) and not na(hi) and not na(origin)
         int borderFade = emphasis == 2 ? 0 : emphasis == 1 ? 24 : 55
         int fillFade = emphasis == 2 ? 87 : emphasis == 1 ? 93 : 97
         float borderTransparency = math.min(85, borderFade + (tested ? 15 : 0))
         color border = color.new(tint, borderTransparency)
-        color interior = color.new(tint, math.min(99, fillFade + (tested ? 3 : 0)))
+        color interior = clustered ? color.new(#FFD166, 68) : color.new(tint, math.min(99, fillFade + (tested ? 3 : 0)))
         string pattern = tested ? line.style_dashed : line.style_solid
         if na(item)
             item := box.new(origin, hi, right, lo, xloc=xloc.bar_time, text_size=size.tiny, text_halign=text.align_right, force_overlay=true)
@@ -770,7 +770,7 @@ if drawNow
                 if showStatus
                     caption += g.defended ? " · Defended" : g.tested ? " · Tested" : " · Fresh"
             color tint = g.kind == 2 ? structBuyColor : g.kind == -2 ? structSellColor : g.kind == 1 ? demandColor : supplyColor
-            f_draw(drawn, g.lo, g.hi, g.origin, g.right, caption, tint, g.tested, g.emphasis)
+            f_draw(drawn, g.lo, g.hi, g.origin, g.right, caption, tint, g.tested, g.emphasis, str.contains(g.names, "+"))
             drawn += 1
             if structure
                 structureShown += 1

@@ -2,6 +2,7 @@
 import {useEffect,useId,useImperativeHandle,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
 import {createChart,CrosshairMode,CandlestickSeries,LineSeries,HistogramSeries,AreaSeries,ColorType,createSeriesMarkers,type IChartApi,type Logical,type MouseEventParams,type UTCTimestamp} from 'lightweight-charts';
 import ChartDrawings from './chart-drawings';
+import type {IPrimitivePaneRenderer} from 'lightweight-charts';
 import {PineBandLayer} from './pine-band-layer';
 import {PineBox,PineLabel,pineDash,pineStroke} from './pine-annotations';
 import './mobile-chart.css';
@@ -296,6 +297,37 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
   }
   return ()=>{if(ref.current===r)for(const layer of layers)hosts.get(layer).detachPrimitive(layer);};
  },[fills,plots]);
+ useEffect(()=>{
+  const r=ref.current;
+  if(!r || !timeline.length)return;
+  const frames=pineDrawings.filter(d=>d.layer==='background' && pineDash(d.border_style)==='1 3' && d.overlay!==false);
+  if(!frames.length)return;
+  const scale=r.chart.timeScale();
+  const anchors=frames.map(d=>({d,
+   left:logicalAtTime(d.left/1000,timeline,seconds)-barIndexOffset,
+   right:logicalAtTime(d.right/1000,timeline,seconds)-barIndexOffset}));
+  const renderer:IPrimitivePaneRenderer={draw:target=>target.useMediaCoordinateSpace(({context})=>{
+   const barX=(slot:number)=>scale.logicalToCoordinate(slot as Logical);
+   context.save();
+   for(const {d,left,right} of anchors){
+    const x=scale.timeToCoordinate((d.left/1000 as UTCTimestamp))??coordinateAtLogical(left,barX);
+    const end=scale.timeToCoordinate((d.right/1000 as UTCTimestamp))??coordinateAtLogical(right,barX);
+    const y=r.series.priceToCoordinate(d.top),base=r.series.priceToCoordinate(d.bottom);
+    if(x===null||end===null||y===null||base===null)continue;
+    context.fillStyle=d.bgcolor||'transparent';
+    context.fillRect(x,y,end-x,base-y);
+    context.strokeStyle=d.border_color||'transparent';
+    context.lineWidth=d.border_width||1;
+    context.setLineDash((pineDash(d.border_style)||'').split(' ').filter(Boolean).map(Number));
+    context.strokeRect(x,y,end-x,base-y);
+   }
+   context.restore();
+  })};
+  const views=[{zOrder:()=>'bottom' as const,renderer:()=>renderer}];
+  const primitive={paneViews:()=>views};
+  r.series.attachPrimitive(primitive);
+  return ()=>{if(ref.current===r)r.series.detachPrimitive(primitive);};
+ },[pineDrawings,timeline,seconds,barIndexOffset]);
  const overlay=(()=>{
   const r=ref.current;
   if(!r||!host.current||!pineDrawings.length)return null;
@@ -316,16 +348,32 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
    if (exact !== null) return exact;
    return coordinateAtLogical(logicalAtTime(time,timeline,seconds)-barIndexOffset,barX);
   }
-  const items:ReactNode[]=[];
+  const items:ReactNode[]=[], backgrounds:ReactNode[]=[], zones:ReactNode[]=[];
+  const zoneBounds:{left:number;right:number;top:number;bottom:number;study:string}[]=[];
+  const clusterPath:string[]=[];
   for(const d of [...pineDrawings.filter(d=>d.kind==='linefill'),...pineDrawings.filter(d=>d.kind!=='linefill')]){if(d.overlay===false)continue;
    if(d.kind==='linefill'&&d.line1&&d.line2&&!d.line1._deleted&&!d.line2._deleted){const points=[d.line1,d.line2].map(line=>{let ax=pineX(line.x1,line.xloc),bx=pineX(line.x2,line.xloc),ay=r.series.priceToCoordinate(Number(line.y1)),by=r.series.priceToCoordinate(Number(line.y2));if(ax===null||bx===null||ay===null||by===null)return null;const slope=(by-ay)/(bx-ax||1);if(['l','b','left','both'].includes(String(line.extend))){ay+=slope*(0-ax);ax=0;}if(['r','b','right','both'].includes(String(line.extend))){by+=slope*(w-bx);bx=w;}return [[ax,ay],[bx,by]];});if(points.every(Boolean)){const [a,b]=points as number[][][];items.push(<polygon key={'p-f-'+d.indicatorId+'-'+d.id} points={[...a,...b.slice().reverse()].map(p=>p.join(',')).join(' ')} fill={cssColor(d.color)}/>);}}
 
    if(d.kind==='line'){let x1=pineX(d.x1,d.xloc),x2=pineX(d.x2,d.xloc),y1=r.series.priceToCoordinate(Number(d.y1)),y2=r.series.priceToCoordinate(Number(d.y2));if(x1===null||x2===null||y1===null||y2===null)continue;const ax=x1,ay=y1,bx=x2,by=y2;const slope=(by-ay)/(bx-ax||1);if(['l','b','left','both'].includes(String(d.extend))){x1=0;y1=ay+slope*(x1-ax);}if(['r','b','right','both'].includes(String(d.extend))){x2=w;y2=ay+slope*(x2-ax);}items.push(<line key={'p-l-'+d.indicatorId+'-'+d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={cssColor(d.color,'#d7b46a')} strokeWidth={Math.max(1,Number(d.width)||1)} strokeDasharray={pineDash(d.style)}/>);}
    if(d.kind==='box'){
+    if(d.layer==='background' && pineDash(d.border_style)==='1 3')continue;
     const left=pineX(d.left,d.xloc),right=pineX(d.right,d.xloc);
     if(left===null||right===null||!Number.isFinite(d.top)||!Number.isFinite(d.bottom))continue;
     const top=r.series.priceToCoordinate(d.top),bottom=r.series.priceToCoordinate(d.bottom);
-    if(top!==null&&bottom!==null)items.push(<PineBox key={'p-b-'+d.indicatorId+'-'+d.id} d={d} left={left} right={right} top={top} bottom={bottom} paneWidth={w} showText={showPineText} compact={narrow}/>);
+    if(top===null||bottom===null)continue;
+    const layer=d.layer==='zone'?zones:d.layer==='background'?backgrounds:items;
+    layer.push(<PineBox key={'p-b-'+d.indicatorId+'-'+d.id} d={d} left={left} right={right} top={top} bottom={bottom} paneWidth={w} showText={showPineText} compact={narrow}/>);
+    if(d.layer==='zone'){
+     const bounds={left:Math.max(0,Math.min(left,right)),right:Math.min(w,Math.max(left,right)),
+      top:Math.max(0,Math.min(top,bottom)),bottom:Math.min(paneHeight,Math.max(top,bottom)),study:d.indicatorId};
+     for(const prior of zoneBounds){
+      if(prior.study!==bounds.study)continue;
+      const x=Math.max(prior.left,bounds.left),end=Math.min(prior.right,bounds.right);
+      const y=Math.max(prior.top,bounds.top),base=Math.min(prior.bottom,bounds.bottom);
+      if(end>x&&base>y)clusterPath.push(`M${x} ${y}H${end}V${base}H${x}Z`);
+     }
+     zoneBounds.push(bounds);
+    }
    }
    if(d.kind==='label'&&showPineText&&Number.isFinite(d.y)){
     const x=pineX(d.x,d.xloc),y=r.series.priceToCoordinate(d.y);
@@ -333,7 +381,8 @@ export default function ReplayChart({bars,timeline=bars,seconds=60,trades,plots:
      bounds={narrow ? {width:w,height:paneHeight} : undefined}/>);
    }
   }
-  return <svg className="drawing-overlay" width={w} height={h}><defs><clipPath id={pricePaneClip}><rect width={w} height={paneHeight}/></clipPath></defs><g clipPath={'url(#'+pricePaneClip+')'}>{items}</g></svg>})();
+  return <svg className="drawing-overlay" width={w} height={h} pointerEvents="none"><defs><clipPath id={pricePaneClip}><rect width={w} height={paneHeight}/></clipPath></defs>
+   <g clipPath={'url(#'+pricePaneClip+')'}>{backgrounds}{zones}{clusterPath.length>0&&<path className="pine-cluster" d={clusterPath.join(' ')} fill="#ffd166" fillOpacity={.32}/>} {items}</g></svg>})();
  const priceAt=(clientY:number)=>{const r=ref.current;if(!r||!host.current)return null;const y=clientY-host.current.getBoundingClientRect().top;if(y<0||y>r.chart.panes()[0].getHeight())return null;const value=r.series.coordinateToPrice(y);return value===null?null:Math.round(value*100)/100;};
  const groups=[...new Set(levels.map(l=>l.tradeId||l.orderId||'draft'))];const handles=levels.filter(l=>(l.tradeId||l.orderId||'draft')===(groups.includes(focus)?focus:'draft')).map(l=>{const r=ref.current;if(!r)return null;const price=preview?.id===l.id?preview.price:l.price;const y=r.series.priceToCoordinate(price);if(y===null||y<0||y>r.chart.panes()[0].getHeight())return null;return <button key={l.id} className={'chart-price-handle '+l.kind+(l.pending?' pending-level':'')} style={{top:y-17,borderColor:l.color,color:l.color}} aria-label={l.label+' '+price.toFixed(2)+(l.editable?' ลากเพื่อปรับราคา':'')} disabled={!l.editable} onPointerDown={e=>{e.preventDefault();e.stopPropagation();levelRef.current.onDragStart?.();e.currentTarget.setPointerCapture(e.pointerId);if(ref.current?.lastRange)ref.current.dragRange={...ref.current.lastRange};activeDrag.current={level:l,price:l.price};setPreview({id:l.id,price:l.price});}} onPointerMove={e=>{if(!activeDrag.current||activeDrag.current.level.id!==l.id)return;const value=priceAt(e.clientY);if(value===null)return;activeDrag.current.price=value;setPreview({id:l.id,price:value});if(l.draft)levelRef.current.onLevelPreview?.(l,value);}} onPointerUp={e=>{if(!activeDrag.current)return;const drag=activeDrag.current;activeDrag.current=null;if(ref.current)ref.current.dragRange=null;e.currentTarget.releasePointerCapture(e.pointerId);setPreview(null);if(drag.price!==drag.level.price)levelRef.current.onLevelCommit?.(drag.level,drag.price);}} onPointerCancel={()=>{if(activeDrag.current?.level.draft)levelRef.current.onLevelPreview?.(activeDrag.current.level,activeDrag.current.level.price);activeDrag.current=null;if(ref.current)ref.current.dragRange=null;setPreview(null);}} onKeyDown={e=>{if(e.key==='Escape'){if(activeDrag.current?.level.draft)levelRef.current.onLevelPreview?.(activeDrag.current.level,activeDrag.current.level.price);activeDrag.current=null;if(ref.current)ref.current.dragRange=null;setPreview(null);}if(e.key==='ArrowUp'||e.key==='ArrowDown'){e.preventDefault();levelRef.current.onDragStart?.();levelRef.current.onLevelCommit?.(l,Math.round((l.price+(e.key==='ArrowUp'?1:-1)*(e.shiftKey?1:.01))*100)/100);}}}><span>{l.label}</span><strong>{price.toFixed(2)}</strong>{l.editable&&<span className="handle-grip">⠿</span>}</button>;});
  async function chartPng(): Promise<Blob> {

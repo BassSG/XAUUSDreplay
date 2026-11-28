@@ -5,7 +5,7 @@ import {periodEnd,replayProvider} from './pine-data.ts';
 import {installReplaySnapshots} from './pine-stream.ts';
 import {checkPineIndicator,type LivePineFrame,type PineHistoryLoader} from './live-pine.ts';
 import {sameMarketBar} from './live-market.ts';
-import {focusedChartBars,focusHistoryBars,focusHistoryInput,isFocusedIndicator} from './focused-indicators.ts';
+import {focusedChartBars,focusHistoryBars,focusHistoryInput,isFocusedIndicator,focusIds} from './focused-indicators.ts';
 import {readPineBand,type PineBand} from './pine-bands.ts';
 installReplaySnapshots();
 const secondaryRun=PineTS.prototype.runPretranspiled;
@@ -144,7 +144,8 @@ context.onmessage=async(event:MessageEvent)=>{
     plots.push({indicatorId:job.id,indicatorName:job.name,name:p.title||key,style,overlay,lineStyle:p.options?.linestyle??(style==='hline'?'dashed':'solid'),color:color(p.options?.color),width:Math.max(1,Math.min(4,p.options?.linewidth||1)),data:p.data.slice(lo).map((d:any)=>({time:Math.floor(d.time/1000),value:Number.isFinite(d.value)?d.value:null,color:typeof d.options?.color==='string'?d.options.color:undefined}))});
    }
    for(const [kind,key,overlay] of [['line','__lines__',false],['line','__lines_overlay__',true],['box','__boxes__',false],['box','__boxes_overlay__',true],['label','__labels__',false],['label','__labels_overlay__',true],['linefill','__linefills__',false],['linefill','__linefills_overlay__',true]] as const){
-    for(const d of latestObjects(raw,key)??[])if(d&&!d._deleted)drawings.push(plain({...d,kind,overlay:overlay||d.force_overlay||raw.indicator?.overlay,indicatorId:job.id,indicatorName:job.name}));
+    const layer=kind==='box' ? (job.builtinId===focusIds[0]?'zone':job.builtinId===focusIds[1]?'background':undefined) : undefined;
+    for(const d of latestObjects(raw,key)??[])if(d&&!d._deleted)drawings.push(plain({...d,kind,layer,overlay:overlay||d.force_overlay||raw.indicator?.overlay,indicatorId:job.id,indicatorName:job.name}));
    }
    for(const t of latestObjects(raw,'__tables__')??[])if(t&&!t._deleted)tables.push(plain({...t,indicatorId:job.id,indicatorName:job.name}));
    warnings.push(...(raw.warnings??[]).slice(0,3).map((w:any)=>job.name+': '+String(w?.message??w)));

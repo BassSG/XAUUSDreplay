@@ -35,7 +35,7 @@ const dateTime = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 });
 
-function projectedMark(mark: DrawingMark, drawing: Drawing, selected: boolean, hit: boolean) {
+function projectedMark(mark: DrawingMark, drawing: Drawing, selected: boolean, hit: boolean, coarsePointer=false) {
   if (mark.kind === 'image') return !hit && <image href={mark.src} x={mark.at.x} y={mark.at.y}
     width={mark.width} height={mark.height} preserveAspectRatio="xMidYMid meet"/>;
   const visual = drawing.style;
@@ -46,7 +46,7 @@ function projectedMark(mark: DrawingMark, drawing: Drawing, selected: boolean, h
   const strokeWidth = visual?.width ?? mark.width ?? (selected ? 2 : 1.5);
   const strokeDasharray = visual?.line === 'solid' ? undefined : visual?.line === 'dashed' ? '6 4' : visual?.line === 'dotted' ? '1 4' : mark.dash;
   const style = hit ? {
-    stroke: 'transparent', strokeWidth: Math.max(17, strokeWidth), fill: mark.fill ? 'transparent' : 'none',
+    stroke: 'transparent', strokeWidth: Math.max(coarsePointer ? 26 : 17, strokeWidth), fill: mark.fill ? 'transparent' : 'none',
     pointerEvents: mark.fill ? 'all' : 'stroke',
   } : {
     stroke: mark.noStroke ? 'none' : stroke, strokeWidth, fill: mark.fill ? drawing.fillColor ?? stroke : 'none',
@@ -675,7 +675,7 @@ export default function ChartDrawings(props: Props) {
       {interactive && <g data-drawing-interaction="body" className={drawing.locked ? 'drawing-locked' : 'drawing-hit'}
         onPointerDown={event => beginMove(event, drawing, null)} onPointerMove={dragDrawing}
         onPointerUp={endMove} onPointerCancel={cancelPress} onLostPointerCapture={() => { if (active.current) cancelPress(); }}>
-        {marks.map((mark, index) => <g key={index}>{projectedMark(mark, drawing, selected, true)}</g>)}
+        {marks.map((mark, index) => <g key={index}>{projectedMark(mark, drawing, selected, true, coarsePointer)}</g>)}
         {!marks.length && drawing.points.slice(0, 3).map((point, index) => {
           const {x, y} = xy(point);
           return Number.isFinite(x) && Number.isFinite(y)
