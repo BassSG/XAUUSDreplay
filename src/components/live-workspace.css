@@ -60,6 +60,19 @@
 .live-feed { display: inline-flex; align-items: center; gap: 4px; color: var(--live-gold); white-space: nowrap; font-size: 12px; }
 .live-feed i { inline-size: 6px; block-size: 6px; flex: none; border-radius: 50%; background: currentColor; }
 .live-feed[data-live=true] { color: var(--live-green); }
+.live-header-shortcuts { position: relative; display: flex; align-items: center; gap: 3px; flex: none; }
+.live-header-shortcuts button {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px;
+  padding: 4px 7px; border: 1px solid transparent; border-radius: 5px; background: transparent;
+  color: var(--live-muted); touch-action: manipulation;
+}
+.live-header-shortcuts .live-mobile-save { display: none; color: var(--live-gold); }
+.live-copy-feedback {
+  position: absolute; z-index: 30; inset-block-start: calc(100% + 5px); inset-inline-end: 0;
+  padding: 6px 9px; border: 1px solid var(--live-border); border-radius: 6px; background: var(--live-rail);
+  color: var(--live-green); font-size: 12px; white-space: nowrap; box-shadow: 0 6px 20px #0006;
+}
+.live-copy-feedback.is-error { color: #ff929e; }
 .live-replay { margin-inline-start: auto; flex: none; gap: 6px; color: var(--live-muted); font-size: 13px; }
 
 .live-controls {
@@ -761,9 +774,12 @@
   .live-symbol img { width: 34px; }
   .live-symbol > svg { width: 11px; flex: none; }
   .live-market-readout { flex: none; gap: 6px; }
-  .live-market-readout > strong { font-size: 15px; }
+  .live-market-readout > strong { display: none; }
   .live-header .live-feed { font-size: 10px; }
-  .live-header .live-feed > span { position: static; clip-path: none; max-width: 66px; overflow: hidden; text-overflow: ellipsis; }
+  .live-header .live-feed > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .live-header-shortcuts { gap: 1px; }
+  .live-header-shortcuts button { min-width: 40px; min-height: 40px; padding: 4px; }
+  .live-header-shortcuts .live-mobile-save { display: inline-flex; }
   .live-workspace :is(.live-chart-settings, .live-header .live-replay, .live-controls) { display: none; }
 
   .live-chart-layout { grid-template: "plot" minmax(0, 1fr) "rail" auto / minmax(0, 1fr); }

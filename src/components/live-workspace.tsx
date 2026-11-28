@@ -6,7 +6,7 @@ import {useInlineReplay} from '../lib/use-inline-replay';
 import {useReplayChartFrames} from '../lib/use-inline-replay-studies';
 import {useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {
-  ArrowLeft, Bell, BookOpen, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
+  ArrowLeft, Bell, BookOpen, Camera, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
   Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, Search, SkipBack, SkipForward, Trash2, X,
   CalendarDays, Code2, Copy, PanelsTopLeft, Redo2, Settings2, Target, Undo2,
 } from 'lucide-react';
@@ -104,8 +104,8 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
     history.replaceState(history.state, '', url);
     setSymbol(next);
   }
-  // A symbol switch stops in-flight market and Pine work and restores that symbol's own chart.
-  return <MarketWorkspace key={symbol} symbol={symbol} onSelectSymbol={selectSymbol} onReplay={onReplay}/>;
+  // Symbol switches update the URL while keeping the chart workspace mounted.
+  return <MarketWorkspace symbol={symbol} onSelectSymbol={selectSymbol} onReplay={onReplay}/>;
 }
 
 function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
@@ -116,6 +116,8 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   const workspaceKey = workspaceStorageKey(symbol);
   const cameraKey = workspaceKey + '-camera';
   const [initial] = useState(() => readWorkingChart(symbol));
+  const [workspaceSymbol, setWorkspaceSymbol] = useState(symbol);
+  const symbolSwitch = useRef<{symbol: MarketSymbol; target: ReturnType<typeof readWorkingChart>} | null>(null);
   const [workspace, setWorkspace] = useState(initial.workspace);
   const [indicatorBoot,setIndicatorBoot]=useState(true);
   useEffect(()=>{
@@ -202,6 +204,28 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   }, []);
   useEffect(() => () => spotCatalogController.current?.abort(), []);
   useEffect(() => { if (spot) void ensureSpotCatalog(); }, [spot, ensureSpotCatalog]);
+  useEffect(() => {
+    if (workspaceSymbol === symbol) return;
+    const pending = symbolSwitch.current?.symbol === symbol ? symbolSwitch.current.target : readWorkingChart(symbol);
+    symbolSwitch.current = null;
+    // Keep the active chart and study configuration while restoring this symbol's own drawings.
+    setWorkspace(current => ({...pending.workspace, ...current,
+      drawings: pending.workspace.drawings,
+      hiddenDrawings: pending.workspace.hiddenDrawings,
+      removedGlobal: pending.workspace.removedGlobal,
+    }));
+    setLibrary(current => mergeScripts(current, pending.library));
+    setActiveLayout(pending.active);
+    setSaveState('ready');
+    setSavedAt(null);
+    setSaveError('');
+    setSelected(null);
+    setMode(null);
+    setEditingDrawing(null);
+    undo.current = [];
+    redo.current = [];
+    setWorkspaceSymbol(symbol);
+  }, [symbol, workspaceSymbol]);
   function openQuotes() {
     setPanel('quotes');
     void ensureSpotCatalog();
@@ -216,7 +240,11 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   }
   function chooseSymbol(next: MarketSymbol) {
     closePanel();
-    if (next !== symbol) { saveCamera.current(); onSelectSymbol(next); }
+    if (next !== symbol) {
+      saveCamera.current();
+      symbolSwitch.current = {symbol: next, target: readWorkingChart(next)};
+      onSelectSymbol(next);
+    }
   }
 
   const quoteAssets = useMemo(() => [...new Set(spotMarkets.map(market => market.quoteAsset))], [spotMarkets]);
@@ -290,6 +318,7 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   }, [focusMode, mode, selected, panel]);
 
   useEffect(() => {
+    if (workspaceSymbol !== symbol) return;
     try {
       const extraScripts = library.filter(script => !workspace.scripts.some(active =>
         active.id === script.id && active.name === script.name && active.source === script.source));
@@ -298,7 +327,7 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
     } catch {
       setStorageFailed(true);
     }
-  }, [workspace, activeLayout, library, workspaceKey]);
+  }, [workspace, activeLayout, library, workspaceKey, workspaceSymbol, symbol]);
 
   function currentView() {
     if(replay.active&&liveCamera.current)return liveCamera.current;
@@ -306,7 +335,7 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   }
   const saveCamera = useRef(() => {});
   saveCamera.current = () => {
-    if(replay.active)return;
+    if(replay.active || workspaceSymbol !== symbol)return;
     try { localStorage.setItem(cameraKey, JSON.stringify({version: cameraVersion, period:livePeriod, active: activeLayout?.id ?? null, view: currentView(), savedAt: Date.now()})); }
     catch { /* Named layouts are stored independently in IndexedDB. */ }
   };
@@ -319,7 +348,7 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   }, []);
 
   saveWorkingCopy.current = async () => {
-    if (saveInProgress.current) return;
+    if (saveInProgress.current || workspaceSymbol !== symbol) return;
     saveInProgress.current = true;
     setSaveState('saving');
     saveCamera.current();
@@ -559,7 +588,10 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
     setSnapshot({busy:true, message:'กำลังสร้างภาพกราฟ…'});
     try {
       await (action === 'copy' ? current.copyPng() : current.exportPng());
-      setSnapshot({busy:false, message:action === 'download' ? 'เริ่มดาวน์โหลด PNG แล้ว' : ''});
+      const message = action === 'download' ? 'เริ่มดาวน์โหลด PNG แล้ว' : 'คัดลอกรูปกราฟแล้ว';
+      setSnapshot({busy:false, message});
+      window.setTimeout(() => setSnapshot(previous =>
+        previous.message === message ? {...previous, message: ''} : previous), 1800);
       if (action === 'copy') setPanel(previous => previous === 'view' ? null : previous);
     } catch (error) {
       setSnapshot({busy:false, error:true, message:error instanceof Error ? error.message : 'สร้างภาพกราฟไม่สำเร็จ'});
@@ -691,6 +723,9 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   }
   const saveLabel = saveState === 'saving' ? 'กำลังบันทึก…' : saveState === 'error' ? 'บันทึกไม่สำเร็จ'
     : savedAt ? 'บันทึก ' + shortClock.format(savedAt) : 'อัตโนมัติ 5 นาที';
+  const saveTitle = saveError || (saveState === 'error' ? 'บันทึกไม่สำเร็จ' : saveState === 'saved' && savedAt
+    ? 'บันทึกล่าสุด ' + new Date(savedAt).toLocaleTimeString('th-TH', {hour: '2-digit', minute: '2-digit'}) + ' · เก็บในเครื่องนี้'
+    : 'บันทึกกราฟตอนนี้ · เก็บในเครื่องนี้');
   const layoutAction = sixCharts ? 'สลับเป็นกราฟเดียว' : 'เปิดกราฟ 6 ไทม์เฟรม';
   return <main className="live-workspace" data-focus={focusMode} data-replay-controls={replay.active||replay.picking}>
     {focusMode && <button className="live-focus-exit" type="button" aria-label="ออกจากโหมดโฟกัส"
@@ -710,6 +745,13 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
           <i aria-hidden="true"/><span role="status" aria-label={replaying?'Replay':status}>{replaying?'Replay':shortStatus}</span>
         </span>
       </div>
+      <div className="live-header-shortcuts">
+        <button className="live-mobile-save" type="button" aria-label="บันทึกกราฟตอนนี้" title={saveTitle}
+          disabled={saveState === 'saving'} onClick={() => void saveWorkingCopy.current()}><Save size={18}/></button>
+        <button className="live-copy-chart" type="button" aria-label="คัดลอกรูปกราฟ" title={snapshot.busy ? 'กำลังสร้างภาพกราฟ…' : 'คัดลอกรูปกราฟ'}
+          disabled={!bars.length || snapshot.busy} onClick={() => void captureImage('copy')}><Camera size={18}/></button>
+        {snapshot.message && <span className={'live-copy-feedback' + (snapshot.error ? ' is-error' : '')} role="status" aria-live="polite">{snapshot.message}</span>}
+      </div>
       <div className="live-history-actions" role="group" aria-label="ย้อนและทำซ้ำการวาด">
         <button type="button" aria-label="ย้อนการวาด" title="ย้อนการวาด · Ctrl+Z"
           disabled={!undo.current.length} onClick={undoDrawing}><Undo2 size={17}/></button>
@@ -717,7 +759,7 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
           disabled={!redo.current.length} onClick={redoDrawing}><Redo2 size={17}/></button>
       </div>
       <div className="live-chart-settings">
-        <button className="header-save" type="button" aria-label="บันทึกกราฟตอนนี้" title={saveError || (saveState === 'error' ? 'บันทึกไม่สำเร็จ' : saveState === 'saved' && savedAt ? 'บันทึกล่าสุด ' + new Date(savedAt).toLocaleTimeString('th-TH', {hour: '2-digit', minute: '2-digit'}) + ' · เก็บในเครื่องนี้' : 'บันทึกกราฟตอนนี้ · เก็บในเครื่องนี้')} disabled={saveState === 'saving'} onClick={() => void saveWorkingCopy.current()}>
+        <button className="header-save" type="button" aria-label="บันทึกกราฟตอนนี้" title={saveTitle} disabled={saveState === 'saving'} onClick={() => void saveWorkingCopy.current()}>
           <Save size={17}/><span>บันทึก</span>
         </button>
         <span className="live-save-status" data-state={saveState} role="status" aria-live="polite">
