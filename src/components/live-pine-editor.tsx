@@ -10,11 +10,12 @@ import PineInputs from './pine-inputs';
 export type ScriptDraft = {id: string | null; name: string; source: string};
 export const newScriptDraft: ScriptDraft = {id: null, name: '', source: ''};
 type Props = {
+  marketName: string;
   scripts: IndicatorSpec[]; studies: StudyStatus[]; draft: ScriptDraft; setDraft: (v: ScriptDraft) => void;
   pending: boolean; hasBars: boolean; status: string; error: string;
   onApply: (s: IndicatorSpec) => void; onChange: (s: IndicatorSpec[]) => void; onRetry: () => void; onShowChart: () => void;
 };
-export default function LivePineEditor({scripts, studies, draft, setDraft, pending, hasBars, status, error, onApply, onChange, onRetry, onShowChart}: Props) {
+export default function LivePineEditor({marketName, scripts, studies, draft, setDraft, pending, hasBars, status, error, onApply, onChange, onRetry, onShowChart}: Props) {
   const [issue, setIssue] = useState('');
   const [inputsFor, setInputsFor] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
@@ -76,7 +77,7 @@ export default function LivePineEditor({scripts, studies, draft, setDraft, pendi
       onChange={e => edit({...draft, source: e.target.value})} onKeyDown={e => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !pending && hasBars && draft.source.trim()) { e.preventDefault(); apply(); }
       }}/>
-    <p className="chart-hint">ใช้ซอร์สของ indicator() ใน Pine v5/v6 กับข้อมูล XAUUSD ของ Eightcap ผ่าน PineTS ส่วน strategy() และ library import ยังใช้ไม่ได้</p>
+    <p className="chart-hint">ใช้ซอร์สของ indicator() ใน Pine v5/v6 กับข้อมูล {marketName} ผ่าน PineTS ส่วน strategy() และ library import ยังใช้ไม่ได้</p>
     {(issue || error) && <p role="alert" className="chart-error">{issue || error}</p>}
     {status && <p role="status" className="chart-feedback">{status}</p>}
     <div className="script-run">

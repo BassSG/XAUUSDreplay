@@ -1,6 +1,7 @@
 import {useEffect, useLayoutEffect, useState} from 'react';
 import type {IPriceLine, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, SeriesAttachedParameter} from 'lightweight-charts';
 import {candleWindow} from '../lib/live-market';
+import type {CandleCalendar} from '../lib/engine';
 
 const mint = '#69d4b6';
 const priceInk = '#102720';
@@ -95,18 +96,19 @@ type Props = {
   price: number;
   seconds: number;
   serverNow: () => number;
+  calendar: CandleCalendar;
 };
 
-function windowAt(stamp: number, seconds: number) {
+function windowAt(stamp: number, seconds: number, calendar: CandleCalendar) {
   try {
-    return candleWindow(stamp, seconds);
+    return candleWindow(stamp, seconds, calendar);
   } catch {
     // There is no broker session in the gap when the server clock changes.
     return null;
   }
 }
 
-export function LivePriceCountdown({marker, price, seconds, serverNow}: Props) {
+export function LivePriceCountdown({marker, price, seconds, serverNow, calendar}: Props) {
   const [stamp, setStamp] = useState(serverNow);
   useEffect(() => {
     const update = () => setStamp(previous => Math.max(previous, serverNow()));
@@ -115,7 +117,7 @@ export function LivePriceCountdown({marker, price, seconds, serverNow}: Props) {
     return () => clearInterval(interval);
   }, [serverNow]);
 
-  const window = windowAt(stamp, seconds);
+  const window = windowAt(stamp, seconds, calendar);
   const remaining = window ? Math.max(0, window.close - stamp) : 0;
   const minutes = Math.floor(remaining / 60);
   const two = (value: number) => String(value).padStart(2, '0');

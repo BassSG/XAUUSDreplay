@@ -4,6 +4,7 @@ import {drawingKinds, maxFibLevels, strokeMax} from './drawing-definitions.ts';
 import type { Bar, Session } from './engine';
 import type { Dataset } from './types';
 import type {LiveLayoutFile} from './live-layouts.ts';
+import {defaultMarketSymbol, type MarketSymbol} from './market-symbol.ts';
 
 /** Every browser owns its journal. No account, token or remote writes are used. */
 export const DATABASE_NAME = 'xau-replay-v1';
@@ -139,18 +140,21 @@ export type SavedLayout = {id: string; revision: number; updated: number; file: 
 type LayoutRevision = Pick<SavedLayout, 'id' | 'revision'>;
 const layoutPrefix = 'live-layout/';
 const autoSaveId = '00000000-0000-4000-8000-000000000001';
-export function listLiveLayouts(): Promise<SavedLayout[]> {
+const btcAutoSaveId = '00000000-0000-4000-8000-000000000002';
+export function listLiveLayouts(symbol?: MarketSymbol): Promise<SavedLayout[]> {
  return transaction(['meta'], 'readonly', async tx => {
   const range = IDBKeyRange.bound(layoutPrefix, layoutPrefix + '\uffff');
   const records: SavedLayout[] = await request(tx.objectStore('meta').getAll(range));
-  return records.sort((a, b) => b.updated - a.updated);
+  return records.filter(row => !symbol || (row.file.symbol ?? defaultMarketSymbol) === symbol)
+    .sort((a, b) => b.updated - a.updated);
  });
 }
 export function saveLiveAutoSave(file: LiveLayoutFile): Promise<SavedLayout> {
+ const id = file.symbol === 'BTCUSDT' ? btcAutoSaveId : autoSaveId;
  return transaction(['meta'], 'readwrite', async tx => {
   const store = tx.objectStore('meta');
-  const previous: SavedLayout | undefined = await request(store.get(layoutPrefix + autoSaveId));
-  const row: SavedLayout = {id: autoSaveId, revision: (previous?.revision ?? 0) + 1, updated: Date.now(), file, isAutoSave: true};
+  const previous: SavedLayout | undefined = await request(store.get(layoutPrefix + id));
+  const row: SavedLayout = {id, revision: (previous?.revision ?? 0) + 1, updated: Date.now(), file, isAutoSave: true};
   await request(store.put({...row, key: layoutPrefix + row.id}));
   return row;
  }).then(row => {
@@ -161,11 +165,17 @@ export function saveLiveAutoSave(file: LiveLayoutFile): Promise<SavedLayout> {
 async function checkLayoutRevision(store: IDBObjectStore, previous: LayoutRevision) {
  const row: SavedLayout | undefined = await request(store.get(layoutPrefix + previous.id));
  if (!row || row.revision !== previous.revision) throw new StorageError('เลย์เอาต์นี้เปลี่ยนไปแล้ว กรุณาเปิดรายการล่าสุด', 409);
+ return row;
 }
 export function saveLiveLayout(file: LiveLayoutFile, previous?: LayoutRevision): Promise<SavedLayout> {
  return transaction(['meta'], 'readwrite', async tx => {
   const store = tx.objectStore('meta');
-  if (previous) await checkLayoutRevision(store, previous);
+  if (previous) {
+   const current = await checkLayoutRevision(store, previous);
+   if ((current.file.symbol ?? defaultMarketSymbol) !== (file.symbol ?? defaultMarketSymbol)) {
+    throw new StorageError('เลย์เอาต์เป็นของคนละ Symbol', 409);
+   }
+  }
   const row = {id: previous?.id ?? crypto.randomUUID(), revision: (previous?.revision ?? 0) + 1, updated: Date.now(), file};
   await request(store.put({...row, key: layoutPrefix + row.id}));
   return row;
@@ -173,7 +183,7 @@ export function saveLiveLayout(file: LiveLayoutFile, previous?: LayoutRevision):
 }
 export function deleteLiveLayout(previous: LayoutRevision) {
  return transaction(['meta'], 'readwrite', async tx => {
-  if (previous.id === autoSaveId) throw new StorageError('บันทึกอัตโนมัติลบจากรายการนี้ไม่ได้');
+  if (previous.id === autoSaveId || previous.id === btcAutoSaveId) throw new StorageError('บันทึกอัตโนมัติลบจากรายการนี้ไม่ได้');
   const store = tx.objectStore('meta');
   await checkLayoutRevision(store, previous);
   await request(store.delete(layoutPrefix + previous.id));

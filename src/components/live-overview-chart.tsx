@@ -8,6 +8,7 @@ import type {LiveWorkspaceState} from '../lib/live-layouts';
 import {periods, type Period} from '../lib/live-market';
 import type {InlineReplayChartFrame} from '../lib/use-inline-replay-studies';
 import type {LiveTimeframe} from '../lib/use-live-timeframes';
+import {marketInfo, type MarketSymbol} from '../lib/market-symbol';
 
 const noTrades: Trade[] = [];
 
@@ -15,15 +16,15 @@ export function timeframeName(period: Period) {
   return period === '1d' ? '1D' : period;
 }
 
-export function LiveChartTile({period, active, onSelect, onExpand, children, available=true}: {
-  period: Period; active: boolean; available?:boolean; onSelect: () => void; onExpand: () => void; children: ReactNode;
+export function LiveChartTile({symbol, period, active, onSelect, onExpand, children, available=true}: {
+  symbol: MarketSymbol; period: Period; active: boolean; available?:boolean; onSelect: () => void; onExpand: () => void; children: ReactNode;
 }) {
   const label = timeframeName(period);
-  return <article className="live-chart-tile" id={'live-tile-' + period} data-active={active} aria-label={'XAUUSD ' + label}>
+  return <article className="live-chart-tile" id={'live-tile-' + period} data-active={active} aria-label={marketInfo[symbol].label + ' ' + label}>
     <header className="live-tile-header">
       <button type="button" className="live-tile-select" aria-pressed={active} disabled={!available} onClick={onSelect}
         aria-label={'เลือกกราฟ ' + label} title={'เลือกกราฟ ' + label + ' สำหรับใช้งานเครื่องมือ'}>
-        <strong>{label}</strong><span>XAUUSD</span>
+        <strong>{label}</strong><span>{marketInfo[symbol].label}</span>
       </button>
       {active && <span className="live-tile-active">กราฟที่เลือก</span>}
       <button type="button" className="live-tile-expand" disabled={!available} onClick={onExpand}
@@ -57,9 +58,9 @@ export default function LiveOverviewChart({period, frame, onRetry, workspace, la
     {!replay && backupFailed && <button type="button" onClick={onRetry}><RefreshCw size={14}/>ลองอีกครั้ง</button>}
   </div>;
 
-  return <ChartBoundary resetKey={chartKey}><ReplayChart live compact readOnlyDrawings key={chartKey} liveActions={chart}
+  return <ChartBoundary resetKey={chartKey}><ReplayChart live symbol={market.symbol} compact readOnlyDrawings key={chartKey} liveActions={chart}
     appearance={appearance} replayPicker={replayPicker} seconds={periods[period]} bars={bars} trades={noTrades}
-    liveBid={live ? market.quote?.bid : undefined} liveClock={market.serverNow}
+    liveBid={live && (market.symbol === 'XAUUSD' || !market.barError) ? market.livePrice : undefined} liveClock={market.serverNow}
     plots={plots} fills={pine.fills} shapes={pine.shapes} pineDrawings={pine.drawings} pineTables={pine.tables}
     calculating={pine.calculating} drawings={visibleDrawings} hiddenDrawings={hiddenDrawings}
     follow={follow} onLeaveLatest={() => setFollow(false)} onHistoryEdge={() => { if(!replay)void market.loadOlder(false); }}

@@ -18,7 +18,7 @@ function useTimeframe(period: Period, settings: Settings, historyTarget:number, 
   const run = selected || target === period;
   const anchor = selected ? settings.anchor : null;
   const loaded = useRef(false);
-  const fetch = run || settings.grid && loaded.current;
+  const fetch = settings.feed.clockReady && (run || settings.grid && loaded.current);
   const market = useLiveMarket(period, settings.retry, settings.feed, anchor, run, fetch, historyTarget);
   const prices = useLiveBars(period, market, settings.retry, anchor !== null, fetch, historyTarget);
   const waitingForNative = period !== '1m' && !market.closed.length && !market.barError;

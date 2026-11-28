@@ -2,6 +2,7 @@ import {brokerTimeToUtc,utcToBrokerTime,type Bar,type CandleCalendar} from './en
 import {historyCatalog,loadBefore} from './history.ts';
 import {periods, type Period} from './live-market.ts';
 import {maxPineSourceBars, type PineHistoryLoader} from './live-pine.ts';
+import {defaultMarketSymbol, type MarketSymbol} from './market-symbol.ts';
 export function timeframeSeconds(tf:string){
  const v=String(tf||'').trim().toUpperCase();if(/^\d+$/.test(v))return Number(v)*60;
  const m=v.match(/^(\d*)(S|D|W|M)$/);return m?Number(m[1]||1)*({S:1,D:86400,W:604800,M:2592000}[m[2] as 'S'|'D'|'W'|'M']):0;
@@ -28,7 +29,7 @@ export function aggregatePineBars(bars:Bar[],tf:string,calendar:CandleCalendar){
 export function toKlines(bars:Bar[],tf:string,calendar:CandleCalendar){
  return bars.map(b=>({openTime:b.time*1000,closeTime:periodEnd(b.time,tf,calendar)*1000-1,open:b.open,high:b.high,low:b.low,close:b.close,volume:b.volume,quoteAssetVolume:0,numberOfTrades:0,takerBuyBaseAssetVolume:0,takerBuyQuoteAssetVolume:0,ignore:0}));
 }
-export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:CandleCalendar,asOf:number,bundled:boolean,warnings:string[],injected?:Record<string,Bar[]>,primary?:{tf:string;bars:Bar[]},liveMinutes?:Bar[],liveHistory?:PineHistoryLoader,replay=false){
+export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:CandleCalendar,asOf:number,bundled:boolean,warnings:string[],injected?:Record<string,Bar[]>,primary?:{tf:string;bars:Bar[]},liveMinutes?:Bar[],liveHistory?:PineHistoryLoader,replay=false,symbol:MarketSymbol=defaultMarketSymbol){
  const cache=new Map<string,Promise<Bar[]>>();const baseTF=String(baseSeconds/60);const known=baseBars.filter(b=>periodEnd(b.time,baseTF,calendar)<=asOf);
  const getRows=(tf:string,limit=2000)=>{
   const key=tf+':'+limit;if(!cache.has(key))cache.set(key,(async()=>{
@@ -112,13 +113,16 @@ export function replayProvider(baseBars:Bar[],baseSeconds:number,calendar:Candle
  return {
   configure(){},
   async getMarketData(ticker:string,tf:string,limit?:number,sDate?:number,eDate?:number){
-   if(ticker.split(':').at(-1)!=='XAUUSD')throw Error('ชุดข้อมูลนี้รองรับ XAUUSD เท่านั้น');
+   if(ticker.split(':').at(-1)!==symbol)throw Error('ชุดข้อมูลนี้รองรับ '+symbol+' เท่านั้น');
    if(!timeframeSeconds(tf))throw Error('Timeframe ไม่รองรับ: '+tf);
    let rows=primary&&timeframeSeconds(tf)===timeframeSeconds(primary.tf)?primary.bars:await getRows(tf,limit||Math.max(2000,known.length));
    if(Number.isFinite(sDate))rows=rows.filter(b=>b.time*1000>=sDate!);
    if(Number.isFinite(eDate))rows=rows.filter(b=>b.time*1000<=Math.min(eDate!,asOf*1000));
    return toKlines(rows,tf,calendar);
   },
-  async getSymbolInfo(){return {ticker:'XAUUSD',tickerid:'XAUUSD',main_tickerid:'XAUUSD',description:'Gold / US Dollar',type:'commodity',basecurrency:'XAU',currency:'USD',timezone:'Etc/UTC',session:'24x5',mintick:.01,minmove:1,pricescale:100,pointvalue:100,mincontract:.01,volumetype:'tick'};}
+  async getSymbolInfo(){
+   if(symbol==='BTCUSDT')return {ticker:symbol,tickerid:symbol,main_tickerid:symbol,description:'Bitcoin / Tether',type:'crypto',basecurrency:'BTC',currency:'USDT',timezone:'Etc/UTC',session:'24x7',mintick:.01,minmove:1,pricescale:100,pointvalue:1,volumetype:'base'};
+   return {ticker:symbol,tickerid:symbol,main_tickerid:symbol,description:'Gold / US Dollar',type:'commodity',basecurrency:'XAU',currency:'USD',timezone:'Etc/UTC',session:'24x5',mintick:.01,minmove:1,pricescale:100,pointvalue:100,mincontract:.01,volumetype:'tick'};
+  }
  };
 }

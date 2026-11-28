@@ -3,8 +3,10 @@ import {drawingKinds, drawingTools, isStroke, strokeMax, variableDrawingsMax} fr
 import {periods, type Period} from './live-market.ts';
 import {studyDefinitions, type LiveStudy} from './live-indicators.ts';
 import {drawingSchema, indicatorSchema} from './storage.ts';
+import {marketSymbols, defaultMarketSymbol, type MarketSymbol} from './market-symbol.ts';
 
 export const workspaceKey = 'xau-live-workspace-v1';
+export const workspaceStorageKey = (symbol: MarketSymbol) => symbol === defaultMarketSymbol ? workspaceKey : workspaceKey + '-' + symbol;
 export const periodList = Object.keys(periods) as [Period, ...Period[]];
 const studyIds = Object.keys(studyDefinitions) as [LiveStudy, ...LiveStudy[]];
 const color = z.string().regex(/^#[0-9a-f]{6}$/i);
@@ -93,11 +95,14 @@ export const defaultChartView: ChartView = {follow: true, viewport: null, rightO
 export const layoutName = z.string().trim().min(1).max(100);
 const fileSchema = z.object({
   format: z.literal('xau-live-layout'), version: z.literal(1), name: layoutName,
+  symbol: z.enum(marketSymbols).optional(),
   workspace: workspaceSchema, view: viewSchema, library: z.array(indicatorSchema).max(500).optional(),
 });
 export type LiveLayoutFile = z.infer<typeof fileSchema>;
-export function makeLayoutFile(name: string, workspace: LiveWorkspaceState, view: ChartView, library?: LiveWorkspaceState['scripts']): LiveLayoutFile {
-  return fileSchema.parse({format: 'xau-live-layout', version: 1, name, workspace, view, library});
+export function makeLayoutFile(name: string, workspace: LiveWorkspaceState, view: ChartView, library?: LiveWorkspaceState['scripts'],
+  symbol: MarketSymbol = defaultMarketSymbol): LiveLayoutFile {
+  return fileSchema.parse({format: 'xau-live-layout', version: 1, name, workspace, view, library,
+    ...(symbol === defaultMarketSymbol ? {} : {symbol})});
 }
 export function readLayoutFile(value: unknown): LiveLayoutFile {
   const result = fileSchema.safeParse(value);

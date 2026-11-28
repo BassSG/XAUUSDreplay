@@ -30,7 +30,8 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  const pauseWork=useRef<(()=>void)|null>(null);
  const lastLive=useRef<{scope:string;through:number;frame:Snapshot}|null>(null);
  const completedLive=useRef<{scope:string;frame:Snapshot}|null>(null);
- const loadHistory=useMemo(createPineHistoryLoader,[]);
+ const symbol=live?.symbol;
+ const loadHistory=useMemo(()=>createPineHistoryLoader(symbol),[symbol]);
  // The broker can revise earlier OHLC without changing the length or last candle.
  if(live && (liveData.current?.bars!==bars || liveData.current.minutes!==live.minutes)){
   liveData.current={bars,minutes:live.minutes,revision:(liveData.current?.revision??0)+1};
@@ -41,7 +42,7 @@ export function usePine(source:string|undefined,enabled:boolean|undefined,bars:B
  // A Live history prepend queues a new snapshot without cancelling work on
  // the already loaded bars. Replay still keys caches by the revealed start.
  const replayStart=live?'':[bars[0]?.time,baseBars[0]?.time].join(':');
- const scope=[sessionId,seconds,baseSeconds,calendar,bundled,!!live,replayStart,scriptKey,run].join('|');
+ const scope=[sessionId,seconds,baseSeconds,calendar,symbol,bundled,!!live,replayStart,scriptKey,run].join('|');
  const key=frameKey(scope,bars,baseBars,live,revision),expected=useRef(key);expected.current=key;
  const needed=!!enabled&&!!(source||scripts?.length);
  const params=useRef({scope,source:source||'',seconds,baseSeconds,calendar,scripts,bundled,needed,live,revision,paused});params.current={scope,source:source||'',seconds,baseSeconds,calendar,scripts,bundled,needed,live,revision,paused};

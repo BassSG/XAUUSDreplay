@@ -1,5 +1,6 @@
 import type {Bar} from './engine';
 import type {PinePlot} from '../components/replay-chart';
+import type {MarketSymbol} from './market-symbol';
 
 export const studyDefinitions = {
   ema20: {name: 'EMA', length: 20, color: '#e2bb70', help: 'ค่าเฉลี่ยราคาแบบเอ็กซ์โพเนนเชียล ให้น้ำหนักแท่งล่าสุดมากขึ้น'},
@@ -20,6 +21,14 @@ export const studyDefinitions = {
   obv: {name: 'OBV (Tick Volume)', length: null, color: '#7cc6c3', help: 'สะสมจำนวน Tick โดยบวกเมื่อราคาปิดขึ้นและลบเมื่อราคาปิดลง'},
 };
 export type LiveStudy = keyof typeof studyDefinitions;
+const spotLabels: Partial<Record<LiveStudy, {name: string; help: string}>> = {
+  vwma: {name: 'VWMA (BTC Volume)', help: 'ค่าเฉลี่ยราคาปิดถ่วงน้ำหนักด้วยปริมาณ BTC ที่ซื้อขายในแต่ละแท่ง'},
+  volume: {name: 'Volume (BTC)', help: 'แสดงปริมาณ BTC ที่ซื้อขายในแต่ละแท่ง'},
+  obv: {name: 'OBV (BTC Volume)', help: 'สะสมปริมาณ BTC โดยบวกเมื่อราคาปิดขึ้นและลบเมื่อราคาปิดลง'},
+};
+export function studyCopy(study: LiveStudy, symbol?: MarketSymbol) {
+  return (symbol === 'BTCUSDT' ? spotLabels[study] : undefined) ?? studyDefinitions[study];
+}
 export type LiveStudyBadge = {id: string; label: string; state: 'loading' | 'ready' | 'error'};
 export const studyStateLabel = {loading: 'กำลังคำนวณ', ready: 'พร้อมใช้งาน', error: 'คำนวณไม่สำเร็จ'};
 export type LiveStudyLengths = Partial<Record<LiveStudy, number>>;
@@ -35,8 +44,8 @@ export function studyLength(study: LiveStudy, value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 500 ? value : length;
 }
 
-export function studyLabel(study: LiveStudy, lengths: LiveStudyLengths) {
-  const name = studyDefinitions[study].name;
+export function studyLabel(study: LiveStudy, lengths: LiveStudyLengths, symbol?: MarketSymbol) {
+  const {name} = studyCopy(study, symbol);
   const length = studyLength(study, lengths[study]);
   return length === null ? name : name + ' ' + length;
 }
@@ -139,13 +148,13 @@ function supertrend(bars: Bar[], length: number) {
   });
 }
 
-export function livePlots(bars: Bar[], studies: LiveStudy[], lengths: LiveStudyLengths = {}): PinePlot[] {
+export function livePlots(bars: Bar[], studies: LiveStudy[], lengths: LiveStudyLengths = {}, symbol?: MarketSymbol): PinePlot[] {
   if (!bars.length || !studies.length) return [];
   const closes = bars.map(bar => bar.close);
   return studies.flatMap(study => {
     const {color} = studyDefinitions[study];
     const length = studyLength(study, lengths[study]) ?? 1;
-    const name = studyLabel(study, lengths);
+    const name = studyLabel(study, lengths, symbol);
     function plot(label: string, values: (number | null)[], options: Partial<PinePlot> = {}, colors?: string[]): PinePlot {
       return {
         name: label, indicatorId: 'live-' + study, indicatorName: name, style: 'line',

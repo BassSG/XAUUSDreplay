@@ -2,6 +2,8 @@ import {barsQuery, olderBarsEnd, periods, readHistoryPages, readOlderBars, type 
 import type {Bar} from './engine';
 import {maxPineSourceBars, type PineHistoryQuery} from './live-pine';
 import {historyCatalog, loadBefore} from './history';
+import {spotSnapshot} from './binance-spot';
+import {defaultMarketSymbol, type MarketSymbol} from './market-symbol';
 
 const pagesOrigin = 'https://basssg.github.io';
 const pagesBridge = 'https://anything-mrna-work-voted.trycloudflare.com';
@@ -29,13 +31,15 @@ export async function requestMarket(route: string, signal: AbortSignal, options:
   }
 }
 
-export function historyPage(period: Period, before: number, now: number, signal: AbortSignal) {
+export function historyPage(period: Period, before: number, now: number, signal: AbortSignal, symbol: MarketSymbol = defaultMarketSymbol) {
+  if (symbol === 'BTCUSDT') return spotSnapshot(period, signal, () => now, undefined, before).then(result => result.closed);
   return requestMarket('bars/' + period, signal, {end: olderBarsEnd(before)})
     .then(payload => readOlderBars(payload, before, periods[period], now));
 }
 
-export function createPineHistoryLoader() {
+export function createPineHistoryLoader(symbol: MarketSymbol = defaultMarketSymbol) {
   const windows = new Map<string, {bars: Bar[]; ended: boolean}>();
+  const broker = symbol === 'XAUUSD';
   return async ({period, before, limit}: PineHistoryQuery, asOf: number, signal: AbortSignal, preferArchive = false) => {
     // Only accept read requests for the six known market routes up to this frame.
     if (!Object.hasOwn(periods, period) || !Number.isSafeInteger(before) ||
@@ -43,7 +47,7 @@ export function createPineHistoryLoader() {
     const key = period + ':' + before;
     const saved = windows.get(key);
     if (saved && (saved.ended || saved.bars.length >= limit)) return saved.bars.slice(-limit);
-    if (preferArchive) {
+    if (broker && preferArchive) {
       const archive=(await historyCatalog().catch(()=>[])).find(d=>d.calendar==='eightcap' && d.timeframe===periods[period]
         && d.start<before && d.end+periods[period]>=before);
       if (archive) {
@@ -57,10 +61,10 @@ export function createPineHistoryLoader() {
     }
     const now = Date.now() / 1000;
     const result = await readHistoryPages(saved?.bars[0]?.time ?? before, limit - (saved?.bars.length ?? 0), signal,
-      edge => historyPage(period, edge, now, signal));
+      edge => historyPage(period, edge, now, signal, symbol));
     if (signal.aborted) return [];
     let bars = [...result.bars, ...(saved?.bars ?? [])];
-    if (!bars.length) {
+    if (broker && !bars.length) {
       const dataset = (await historyCatalog().catch(() => [])).find(d =>
         d.calendar === 'eightcap' && d.timeframe === periods[period] && d.start < before &&
         d.end + periods[period] >= before);

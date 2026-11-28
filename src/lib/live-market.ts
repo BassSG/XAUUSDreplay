@@ -1,4 +1,4 @@
-import {aggregate, brokerTimeToUtc, utcToBrokerTime, type Bar} from './engine.ts';
+import {aggregate, brokerTimeToUtc, utcToBrokerTime, type Bar, type CandleCalendar} from './engine.ts';
 
 export const periods = {'1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400};
 export type Period = keyof typeof periods;
@@ -38,7 +38,11 @@ export function olderBarsEnd(before: number) {
   return utcToBrokerTime(before) - 1;
 }
 
-export function candleWindow(time: number, seconds: number) {
+export function candleWindow(time: number, seconds: number, calendar: CandleCalendar = 'eightcap') {
+  if (calendar === 'utc') {
+    const open = Math.floor(time / seconds) * seconds;
+    return {open, close: open + seconds};
+  }
   const open = Math.floor(utcToBrokerTime(time) / seconds) * seconds;
   return {open: brokerTimeToUtc(open), close: brokerTimeToUtc(open + seconds)};
 }

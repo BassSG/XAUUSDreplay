@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import 'fake-indexeddb/auto';
 import {loadLiveWorkspace, readLayoutFile, makeLayoutFile, defaultChartView} from '../src/lib/live-layouts.ts';
-import {listLiveLayouts, saveLiveLayout, deleteLiveLayout} from '../src/lib/storage.ts';
+import {listLiveLayouts, saveLiveLayout, saveLiveAutoSave, deleteLiveLayout} from '../src/lib/storage.ts';
+
+
 
 test('a saved layout restores the migrated workspace, styling, camera, drawings and Pine inputs on another device', async () => {
   const drawing = {id: 'old-line', kind: 'hline', points: [{time: 1700000000, price: 2000}], locked: true};
@@ -76,4 +78,19 @@ test('saved drawings keep indicator pane coordinates, grouping, visibility and s
   const workspace=loadLiveWorkspace({drawings:[drawing,pinned]});
   const file=makeLayoutFile('Indicators',workspace,defaultChartView);
   assert.deepEqual(readLayoutFile(JSON.parse(JSON.stringify(file))).workspace.drawings,[drawing,pinned]);
+});
+
+test('BTC and legacy gold layouts save separately and cannot overwrite each other', async () => {
+  const gold = makeLayoutFile('ทอง', loadLiveWorkspace({period: '15m'}), defaultChartView);
+  const btc = makeLayoutFile('BTC', loadLiveWorkspace({period: '4h'}), defaultChartView, undefined, 'BTCUSDT');
+  const goldAuto = await saveLiveAutoSave(gold);
+  const btcAuto = await saveLiveAutoSave(btc);
+  assert.notEqual(goldAuto.id, btcAuto.id);
+  assert.equal((await listLiveLayouts('XAUUSD')).find(row => row.isAutoSave)?.file.workspace.period, '15m');
+  assert.equal((await listLiveLayouts('BTCUSDT')).find(row => row.isAutoSave)?.file.workspace.period, '4h');
+  assert.equal(readLayoutFile(JSON.parse(JSON.stringify(btc))).symbol, 'BTCUSDT');
+  const named = await saveLiveLayout(gold);
+  await assert.rejects(saveLiveLayout(btc, named), /Symbol/);
+  assert.ok(!(await listLiveLayouts('BTCUSDT')).some(row => row.id === named.id));
+  await deleteLiveLayout(named);
 });

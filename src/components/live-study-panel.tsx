@@ -4,7 +4,8 @@ import {
   Activity, BarChart3, ChartArea, ChartLine, ChartSpline, ChevronUp, CircleHelp, Gauge,
   Code2, MoveVertical, Pencil, Search, SlidersHorizontal, TrendingUp, Waves, X, type LucideIcon,
 } from 'lucide-react';
-import {studyDefinitions, studyLabel, studyLength, type LiveStudy, type LiveStudyLengths} from '../lib/live-indicators';
+import {studyCopy, studyDefinitions, studyLabel, studyLength, type LiveStudy, type LiveStudyLengths} from '../lib/live-indicators';
+import type {MarketSymbol} from '../lib/market-symbol';
 import {useDialog} from '../lib/use-dialog';
 import type {IndicatorSpec} from '../lib/engine';
 import type {StudyStatus} from '../lib/use-pine';
@@ -12,6 +13,7 @@ import PineInputs from './pine-inputs';
 import {StudyVisibilityButton} from './live-study-legend';
 
 type Props = {
+  symbol: MarketSymbol;
   selected: LiveStudy[];
   lengths: LiveStudyLengths;
   onToggle: (study: LiveStudy) => void;
@@ -41,7 +43,7 @@ const icons: Record<LiveStudy, LucideIcon> = {
 };
 
 export default function LiveStudyPanel({
-  selected, lengths, onToggle, showTitles, onShowTitles, hiddenStudies, onToggleVisibility, onLength, onClose, onPine, message, scripts, evaluations,
+  symbol, selected, lengths, onToggle, showTitles, onShowTitles, hiddenStudies, onToggleVisibility, onLength, onClose, onPine, message, scripts, evaluations,
   pendingId, pendingStatus, onCancelApply, onEdit, onScriptChange,
 }: Props) {
   const [query, setQuery] = useState('');
@@ -49,7 +51,7 @@ export default function LiveStudyPanel({
   const [inputsFor, setInputsFor] = useState<string | null>(null);
   useDialog(true, onClose);
   const search = query.trim().toLocaleLowerCase();
-  const matches = studies.filter(study => [studyLabel(study, lengths), studyDefinitions[study].help]
+  const matches = studies.filter(study => [studyLabel(study, lengths, symbol), studyCopy(study, symbol).help]
     .some(value => value.toLocaleLowerCase().includes(search)));
   const custom = scripts.filter(script => (script.name + ' Pine').toLocaleLowerCase().includes(search));
   return <div className="modal-shade" onMouseDown={event => {
@@ -104,8 +106,8 @@ export default function LiveStudyPanel({
         {custom.length > 0 && matches.length > 0 && <h3>อินดิเคเตอร์ในตัว</h3>}
         {matches.map(study => {
           const length = studyLength(study, lengths[study]);
-          const label = studyLabel(study, lengths);
-          const description = studyDefinitions[study].help;
+          const label = studyLabel(study, lengths, symbol);
+          const description = studyCopy(study, symbol).help;
           const Icon = icons[study];
           return <div className="live-study-item" key={study}>
             <div className="live-study-row">

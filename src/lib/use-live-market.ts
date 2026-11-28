@@ -1,5 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {Bar} from './engine';
+import {defaultMarketSymbol, marketInfo, type MarketSymbol} from './market-symbol';
+import {spotBookQuote, spotPageSize, spotServerTime, spotSnapshot} from './binance-spot';
 import {historyPage, requestMarket as request} from './live-feed';
 import {historyCatalog, loadBefore, loadWindow} from './history';
 import {focusBarCount} from './focused-indicators';
@@ -14,6 +16,7 @@ type MarketHistory = {
   key: string;
   period: Period;
   closed: Bar[];
+  forming: Bar | null;
   archive: boolean;
   findingWindow: boolean;
   windowUnavailable: boolean;
@@ -28,7 +31,7 @@ function restoreHistory(
 ): MarketHistory {
   const findingWindow = anchorTime !== null && (!saved?.closed.length || saved.closed[0].time > anchorTime);
   return {
-    key, period, closed: findingWindow ? emptyBars : saved?.closed ?? emptyBars, archive: false,
+    key, period, closed: findingWindow ? emptyBars : saved?.closed ?? emptyBars, forming: null, archive: false,
     findingWindow, windowUnavailable: false, barError: false,
     historyStatus: !findingWindow && saved?.ended ? 'end' : 'ready',
   };
@@ -36,10 +39,12 @@ function restoreHistory(
 
 const now = () => Math.floor(Date.now() / 1000);
 
-export function useLiveFeed(retry: number) {
+export function useLiveFeed(retry: number, symbol: MarketSymbol = defaultMarketSymbol) {
   const historyCache = useRef(new Map<Period, SavedHistory>());
   const [quoteState, setQuote] = useState<{quote: Quote | null; quoteError: boolean; sampled: Bar[]}>({quote: null, quoteError: false, sampled: emptyBars});
-  const [minuteState, setMinutes] = useState({rows: emptyBars, minuteError: false});
+  const [minuteState, setMinutes] = useState<{rows: Bar[]; minuteError: boolean; minuteForming: Bar | null}>({
+    rows: emptyBars, minuteError: false, minuteForming: null,
+  });
   const minuteCache = useRef(emptyBars);
   const clock = useRef<{utc: number; receivedAt: number} | null>(null);
   const latestTick = useRef(0);
@@ -54,22 +59,35 @@ export function useLiveFeed(retry: number) {
     let quoteTimer: ReturnType<typeof setTimeout>;
     let minuteTimer: ReturnType<typeof setTimeout>;
     let refreshMinutes = true;
+    let clockRequest: Promise<void> | undefined;
+    const spot = symbol === 'BTCUSDT';
+    const recentLimit = spot ? spotPageSize : recentBarsSize;
+
+    function syncSpotClock() {
+      if (clock.current && performance.now() - clock.current.receivedAt < 60000) return Promise.resolve();
+      return clockRequest ??= spotServerTime(signal).then(utc => {
+        if (!signal.aborted) clock.current = {utc, receivedAt: performance.now()};
+      }).catch(error => {
+        if (!clock.current || signal.aborted) throw error;
+      }).finally(() => { clockRequest = undefined; });
+    }
 
     async function pollQuote() {
       try {
-        const quote = readQuote(await request('quote', signal), now());
+        if (spot) await syncSpotClock();
+        const quote = spot ? await spotBookQuote(signal, serverNow) : readQuote(await request('quote', signal), now());
         if (signal.aborted) return;
         if (quote.time < latestTick.current) {
           setQuote(previous => previous.quoteError ? previous : {...previous, quoteError: true});
           return;
         }
         latestTick.current = quote.time;
-        clock.current = {utc: quote.serverTime, receivedAt: performance.now()};
-        setQuote(previous => ({quote, quoteError: false, sampled: recordBidMinute(previous.sampled, quote)}));
+        if (!spot) clock.current = {utc: quote.serverTime, receivedAt: performance.now()};
+        setQuote(previous => ({quote, quoteError: false, sampled: spot ? emptyBars : recordBidMinute(previous.sampled, quote)}));
       } catch {
         if (!signal.aborted) setQuote(previous => previous.quoteError ? previous : {...previous, quoteError: true});
       } finally {
-        if (!signal.aborted) quoteTimer = setTimeout(pollQuote, 2500);
+        if (!signal.aborted) quoteTimer = setTimeout(pollQuote, spot ? 5000 : 2500);
       }
     }
 
@@ -77,17 +95,22 @@ export function useLiveFeed(retry: number) {
       try {
         const previous = minuteCache.current;
         const last = previous.at(-1);
-        let rows = readBars(await request('bars/1m', signal, {limit: last && !refreshMinutes ? minutePollSize : recentBarsSize}),
-          periods['1m'], serverNow());
-        if (last && !refreshMinutes && rows[0].time > last.time) {
-          rows = readBars(await request('bars/1m', signal), periods['1m'], serverNow());
+        if (spot) await syncSpotClock();
+        const snapshot = async (limit: number) => spot
+          ? spotSnapshot('1m', signal, serverNow, limit)
+          : {closed: readBars(await request('bars/1m', signal, {limit}), periods['1m'], serverNow()), forming: null};
+        let {closed: rows, forming} = await snapshot(last && !refreshMinutes ? minutePollSize : recentLimit);
+        if (last && !refreshMinutes && rows[0]?.time > last.time) {
+          ({closed: rows, forming} = await snapshot(recentLimit));
         }
         if (signal.aborted) return;
+        if (!rows.length) throw Error('ยังไม่มีแท่ง 1 นาทีที่ปิดแล้ว');
         if (last && rows.at(-1)!.time < last.time) throw Error('แท่งหนึ่งนาทีจาก Bridge ถอยหลัง');
-        const merged = mergeClosedBars(previous, rows, recentBarsSize);
+        const merged = mergeClosedBars(previous, rows, recentLimit);
         minuteCache.current = merged;
         refreshMinutes = false;
-        setMinutes(state => state.rows === merged && !state.minuteError ? state : {rows: merged, minuteError: false});
+        setMinutes(state => state.rows === merged && !state.minuteError && !forming && !state.minuteForming
+          ? state : {rows: merged, minuteError: false, minuteForming: forming});
       } catch {
         if (!signal.aborted) setMinutes(state => state.minuteError ? state : {...state, minuteError: true});
       } finally {
@@ -102,14 +125,18 @@ export function useLiveFeed(retry: number) {
       clearTimeout(quoteTimer);
       clearTimeout(minuteTimer);
     };
-  }, [retry, serverNow]);
-  return {...quoteState, ...minuteState, minuteCache, serverNow, historyCache};
+  }, [retry, serverNow, symbol]);
+  return {symbol, clockReady: symbol === 'XAUUSD' || clock.current !== null,
+    ...quoteState, ...minuteState, minuteCache, serverNow, historyCache};
 }
 
 export type LiveFeed = ReturnType<typeof useLiveFeed>;
 
 export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anchorTime: number | null = null, warm = true, enabled = true, historyTarget = focusBarCount) {
-  const key = period + ':' + (anchorTime ?? 'latest');
+  const {symbol} = feed;
+  const spot = symbol === 'BTCUSDT';
+  const pollDelay = spot ? 10000 : 15000;
+  const key = symbol + ':' + period + ':' + (anchorTime ?? 'latest');
   const seconds = periods[period];
   const {quote, quoteError, sampled: liveSampled, rows: liveMinutes, minuteError, minuteCache, serverNow, historyCache: cache} = feed;
   const retained = useRef({minutes:liveMinutes, sampled:liveSampled});
@@ -150,13 +177,16 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
     async function pollBars() {
       try {
         const cachedMinutes = minuteCache.current;
-        const rows = period === '1m' && cachedMinutes.length ? cachedMinutes
-          : readBars(await request('bars/' + period, signal), seconds, serverNow());
+        const snapshot = period === '1m' && cachedMinutes.length ? {closed: cachedMinutes, forming: null}
+          : spot ? await spotSnapshot(period, signal, serverNow)
+          : {closed: readBars(await request('bars/' + period, signal), seconds, serverNow()), forming: null};
+        const rows = snapshot.closed;
+        if (!rows.length) throw Error('ยังไม่มีแท่งราคาที่ปิดแล้ว');
         if (checkWindow && anchorTime !== null && rows[0].time > anchorTime) {
           try {
             const before = Math.min(serverNow(), anchorTime + seconds * 128);
             const {bars: past} = await readHistoryPages(before, historyTarget + 128, signal,
-              edge => historyPage(period, edge, serverNow(), signal));
+              edge => historyPage(period, edge, serverNow(), signal, symbol));
             if (!past.length || past[0].time > anchorTime) {
               throw Error('ช่วงนี้ไม่มีแท่งราคาที่ขอ');
             }
@@ -168,7 +198,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
           } catch {
             if (signal.aborted) return;
             try {
-              const source = (await historyCatalog()).find(d => d.calendar === 'eightcap'
+              const source = spot ? undefined : (await historyCatalog()).find(d => d.calendar === 'eightcap'
                 && d.timeframe === seconds && d.start <= anchorTime && d.end >= anchorTime);
               if (source) {
                 const {bars} = await loadWindow(source.id, anchorTime, historyTarget, 128);
@@ -184,19 +214,19 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
         checkWindow = false;
         apply(state => rows.at(-1)!.time < (state.closed.at(-1)?.time ?? 0)
           ? {...state, barError: true, findingWindow: false}
-          : {...state, closed: mergeClosedBars(state.closed, rows, Infinity), barError: false, findingWindow: false});
+          : {...state, closed: mergeClosedBars(state.closed, rows, Infinity), forming: snapshot.forming, barError: false, findingWindow: false});
       } catch {
         apply(state => ({...state, barError: true, findingWindow: false}));
       } finally {
         if (!signal.aborted) lastPoll.current = {key,retry,at:performance.now()};
-        if (!signal.aborted && !archive && (period !== '1m' || checkWindow)) timer = setTimeout(pollBars, 15000);
+        if (!signal.aborted && !archive && (period !== '1m' || checkWindow)) timer = setTimeout(pollBars, pollDelay);
       }
     }
 
     if (!archive && (period !== '1m' || checkWindow)) {
       const previous = lastPoll.current;
       const delay = !checkWindow && previous?.key === key && previous.retry === retry
-        ? 15000 - (performance.now() - previous.at) : 0;
+        ? pollDelay - (performance.now() - previous.at) : 0;
       if (delay > 0) timer = setTimeout(pollBars,delay);
       else void pollBars();
     }
@@ -205,7 +235,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
       if (active.current === run) active.current = null;
       clearTimeout(timer);
     };
-  }, [key, period, seconds, retry, anchorTime, minuteCache, serverNow, enabled, historyTarget]);
+  }, [key, period, seconds, retry, anchorTime, minuteCache, serverNow, enabled, historyTarget, spot, pollDelay, symbol]);
 
   useEffect(() => {
     if (!enabled || period !== '1m') return;
@@ -219,12 +249,16 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
 
   const view = data.key === key ? data : restoreHistory(key, period, anchorTime, cache.current.get(period));
   const useArchiveBars = view.archive || view.findingWindow;
-  const studyBars = useMemo(() => useArchiveBars ? view.closed : candlesFromMinutes(view.closed, minutes, seconds),
-    [useArchiveBars, view.closed, minutes, seconds]);
+  const studyBars = useMemo(() => useArchiveBars || spot ? view.closed : candlesFromMinutes(view.closed, minutes, seconds),
+    [useArchiveBars, spot, view.closed, minutes, seconds]);
   const minuteTime = minutes.at(-1)?.time;
   const lastClosed = view.closed.at(-1);
-  const bars = useMemo(() => useArchiveBars ? studyBars : candlesWithBid(studyBars, lastClosed, minuteTime, sampled, seconds),
-    [useArchiveBars, studyBars, lastClosed, minuteTime, sampled, seconds]);
+  const forming = period === '1m' ? feed.minuteForming : view.forming;
+  const bars = useMemo(() => {
+    if (useArchiveBars) return studyBars;
+    if (spot) return forming && forming.time > (lastClosed?.time ?? 0) ? [...studyBars, forming] : studyBars;
+    return candlesWithBid(studyBars, lastClosed, minuteTime, sampled, seconds);
+  }, [useArchiveBars, spot, forming, studyBars, lastClosed, minuteTime, sampled, seconds]);
 
   const loadOlder = useCallback(async (byUser: boolean, limit = olderPageSize) => {
     const run = active.current;
@@ -241,7 +275,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
     };
     apply(current => ({...current, historyStatus: 'loading'}));
     try {
-      const dataset = all || view.archive ? await historyCatalog().then(datasets => datasets.find(d => d.calendar === 'eightcap'
+      const dataset = !spot && (all || view.archive) ? await historyCatalog().then(datasets => datasets.find(d => d.calendar === 'eightcap'
         && d.timeframe === seconds)).catch(() => undefined) : undefined;
       const read = async (before: number) => {
         if (dataset && dataset.start < before && dataset.end >= before) {
@@ -259,7 +293,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
             }
           } catch { /* Continue with broker pages if the export is unavailable. */ }
         }
-        return historyPage(period, before, serverNow(), signal);
+        return historyPage(period, before, serverNow(), signal, symbol);
       };
       const result = await readHistoryPages(first.time, limit, signal, read,
         all ? loaded => { if (!signal.aborted) setProgress({key, loaded}); } : undefined);
@@ -272,7 +306,7 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
       run.backfill = null;
       if (all && !run.signal.aborted) setProgress(null);
     }
-  }, [key, period, seconds, view.closed, view.historyStatus, view.archive, serverNow]);
+  }, [key, period, seconds, view.closed, view.historyStatus, view.archive, serverNow, spot, symbol]);
 
   const canWarm = enabled && warm && !view.findingWindow &&
     view.closed.length > 0 && view.closed.length < historyTarget;
@@ -283,7 +317,8 @@ export function useLiveMarket(period: Period, retry: number, feed: LiveFeed, anc
     void loadOlder(false, historyTarget - view.closed.length);
   }, [shouldWarm, loadOlder, historyTarget, view.closed.length]);
 
-  return {...view, bars, studyBars, warmingHistory, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
+  const livePrice = spot ? bars.at(-1)?.close : quote?.bid;
+  return {...view, symbol, calendar: marketInfo[symbol].calendar, livePrice, bars, studyBars, warmingHistory, provisional: bars !== studyBars, minutes, quote, quoteError, minuteError, minuteTime,
     serverNow, loadOlder, progress: progress?.key === key ? progress : null,
     stopHistory: () => active.current?.backfill?.abort()};
 }

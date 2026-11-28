@@ -6,10 +6,40 @@ import {
   barsQuery, candleWindow, candlesFromMinutes, candlesWithBid, recordBidMinute, liveTailUpdate, mergeClosedBars, olderBarsEnd, prependOlderBars, readBars, readHistoryPages, readOlderBars, readQuote,
 } from '../src/lib/live-market.ts';
 import {livePlots, studyLabel} from '../src/lib/live-indicators.ts';
+import {readSpotKlines, spotSnapshot} from '../src/lib/binance-spot.ts';
 
 const now = 1795620180;
 const minute = now - 60;
 const candle = {time: minute, open: 4000, high: 4010, low: 3990, close: 4005, tick_volume: 20, spread: 14};
+
+test('Binance Spot preserves fractional BTC volume and closes its daily bars at UTC midnight', () => {
+  const openMs = Date.UTC(2026, 10, 27);
+  const nextMs = openMs + 86400000;
+  const row = [openMs, '59933.70', '59939.11', '59913.70', '59913.71', '10.88530', nextMs - 1];
+  const bar = {time: openMs / 1000, open: 59933.7, high: 59939.11, low: 59913.7, close: 59913.71, volume: 10.8853};
+  assert.deepEqual(readSpotKlines([row], '1d', nextMs - 1), {closed: [], forming: bar});
+  assert.deepEqual(readSpotKlines([row], '1d', nextMs), {closed: [bar], forming: null});
+  assert.equal(candleWindow(bar.time, 86400, 'utc').close, nextMs / 1000);
+  assert.notEqual(candleWindow(bar.time, 86400).close, nextMs / 1000);
+  const shortened = [...row.slice(0, 6), openMs + 1694788];
+  assert.deepEqual(readSpotKlines([shortened], '1d', nextMs), {closed: [bar], forming: null});
+  assert.deepEqual(readSpotKlines([shortened], '1d', nextMs - 1), {closed: [], forming: bar});
+  assert.throws(() => readSpotKlines([row, row], '1d', nextMs), /Binance TH/);
+});
+
+test('Binance Spot history sends an exclusive millisecond cursor and caps its page at 1000', async t => {
+  const before = Date.UTC(2026, 10, 27) / 1000;
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response('[]'));
+  const result = await spotSnapshot('1m', new AbortController().signal, () => before + 3600, 1500, before);
+  const url = new URL(fetch.mock.calls[0].arguments[0]);
+  assert.equal(url.origin, 'https://api.binance.th');
+  assert.equal(url.pathname, '/api/v1/klines');
+  assert.equal(url.searchParams.get('symbol'), 'BTCUSDT');
+  assert.equal(url.searchParams.get('interval'), '1m');
+  assert.equal(url.searchParams.get('limit'), '1000');
+  assert.equal(url.searchParams.get('endTime'), String(before * 1000 - 1));
+  assert.deepEqual(result, {closed: [], forming: null});
+});
 test('history can cross short source pages and stops at the first empty page', async () => {
   const seen = [];
   const result = await readHistoryPages(now, Infinity, new AbortController().signal, async before => {

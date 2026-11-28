@@ -46,7 +46,7 @@ export function alertText(event: AlertEvent) {
   return 'Bid ' + prices.format(event.bid) + ' ถึงระดับ ' + prices.format(event.level);
 }
 
-export function usePriceAlerts(quote: Quote | null | undefined) {
+export function usePriceAlerts(quote: Quote | null | undefined, enabled = true) {
   const [local, setLocal] = useState(localAlerts);
   const [connection, setConnection] = useState(() => readLocal<Connection | null>(connectionKey, null));
   const [remote, setRemote] = useState<CloudAlertState | null>(null);
@@ -70,16 +70,16 @@ export function usePriceAlerts(quote: Quote | null | undefined) {
   }
 
   useEffect(() => {
-    if (connection) return;
+    if (!enabled || connection) return;
     const sync = (event: StorageEvent) => {
       if (event.key === alertKey) setLocal(localAlerts());
     };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
-  }, [connection]);
+  }, [connection, enabled]);
 
   useEffect(() => {
-    if (connection || !local.rules.some(rule => rule.status === 'armed') || !isFreshAlertQuote(quote) || !quote) return;
+    if (!enabled || connection || !local.rules.some(rule => rule.status === 'armed') || !isFreshAlertQuote(quote) || !quote) return;
     const processQuote = () => {
       const state = localAlerts();
       const result = checkAlerts(state, quote.bid, quote.time);
@@ -95,10 +95,10 @@ export function usePriceAlerts(quote: Quote | null | undefined) {
     };
     if (navigator.locks) void navigator.locks.request(alertKey, processQuote);
     else processQuote();
-  }, [connection, quote, local.rules.length]);
+  }, [connection, quote, local.rules.length, enabled]);
 
   useEffect(() => {
-    if (!connection) return;
+    if (!enabled || !connection) return;
     let timer: ReturnType<typeof setTimeout>;
     let active = true;
     let inFlight = false;
@@ -124,7 +124,7 @@ export function usePriceAlerts(quote: Quote | null | undefined) {
       clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [connection]);
+  }, [connection, enabled]);
 
   useEffect(() => {
     if (!notice) return;

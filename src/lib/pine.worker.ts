@@ -7,6 +7,7 @@ import {checkPineIndicator,type LivePineFrame,type PineHistoryLoader} from './li
 import {sameMarketBar} from './live-market.ts';
 import {focusedChartBars,focusHistoryBars,focusHistoryInput,isFocusedIndicator,focusIds} from './focused-indicators.ts';
 import {readPineBand,type PineBand} from './pine-bands.ts';
+import {defaultMarketSymbol} from './market-symbol.ts';
 installReplaySnapshots();
 const secondaryRun=PineTS.prototype.runPretranspiled;
 const preparedSlices=new WeakMap<Function,Function>();
@@ -60,7 +61,8 @@ context.onmessage=async(event:MessageEvent)=>{
   return;
  }
  const {id,key,source,bars,baseBars=bars,seconds,baseSeconds=seconds,calendar='utc',scripts,bundled=false,history,plotLimit,live}=event.data as Payload;
- const cacheKey=key?key+'|output:'+(plotLimit||'all'):undefined;
+ const symbol=live?.symbol??defaultMarketSymbol;
+ const cacheKey=key?symbol+'|'+key+'|output:'+(plotLimit||'all'):undefined;
  if(cacheKey&&results.has(cacheKey)){context.postMessage({...results.get(cacheKey),id});return;}
  const jobs=(scripts?.length?scripts:[{id:'legacy',name:'Pine',source:source||''}]).slice().sort((a,b)=>Number(b.source.includes('indicator("All Indy (EBW) V10.4.4'))-Number(a.source.includes('indicator("All Indy (EBW) V10.4.4')));
  const plots:any[]=[],shapes:any[]=[],drawings:any[]=[],tables:any[]=[],warnings:string[]=[],errors:string[]=[],studies:any[]=[];
@@ -110,8 +112,8 @@ context.onmessage=async(event:MessageEvent)=>{
    const outputLimit=lookback??plotLimit;
    const outputFrom=outputLimit&&outputLimit>0?(bars[Math.max(0,bars.length-Math.floor(outputLimit))]?.time??0):0;
    const chartBars=focused?focusedChartBars(bars,prior?.bars,lookback):bars;
-   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars:chartBars},live?.minutes,liveHistory,live?.replay);
-   const settings=JSON.stringify([seconds,baseSeconds,calendar,bundled,job.inputs,focused]);
+   const dataSource=replayProvider(baseBars,baseSeconds,calendar,asOf,bundled,warnings,history,{tf:timeframe,bars:chartBars},live?.minutes,liveHistory,live?.replay,symbol);
+   const settings=JSON.stringify([symbol,seconds,baseSeconds,calendar,bundled,job.inputs,focused]);
    const prefix=(previous:Bar[],next:Bar[])=>next.length>=previous.length&&previous.length>1&&previous.slice(0,-1).every((b,i)=>sameMarketBar(b,next[i]));
    let raw:any;
    if(prior&&prior.settings===settings&&prefix(prior.bars,chartBars)&&prefix(prior.baseBars,baseBars)&&unchangedMinutes(prior.minutes,live?.minutes)){
@@ -120,7 +122,7 @@ context.onmessage=async(event:MessageEvent)=>{
     await prior.pine.updateTail(prior.raw);raw=prior.raw;prior.bars=chartBars;prior.baseBars=baseBars;prior.minutes=live?.minutes;
    }else{
     const provider={current:dataSource};const liveProvider={configure(){},getMarketData:(...args:any[])=>(provider.current.getMarketData as any)(...args),getSymbolInfo:()=>provider.current.getSymbolInfo()};
-    const pine=new PineTS(liveProvider as any,'XAUUSD',timeframe,undefined,chartBars[0]?.time*1000,asOf*1000);
+    const pine=new PineTS(liveProvider as any,symbol,timeframe,undefined,chartBars[0]?.time*1000,asOf*1000);
     pine.setMaxLoops(100000);pine.setTimezone('Asia/Bangkok');raw=await pine.run(item.indicator) as any;
     item.runtime={pine,raw,provider,bars:chartBars,baseBars,minutes:live?.minutes,settings};
    }

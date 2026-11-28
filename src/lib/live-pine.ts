@@ -1,6 +1,7 @@
 import type {Bar} from './engine';
 import type {Period} from './live-market.ts';
-export type LivePineFrame = {asOf: number; minutes: Bar[]; nativeHistory?: boolean; replay?: boolean};
+import type {MarketSymbol} from './market-symbol.ts';
+export type LivePineFrame = {asOf: number; minutes: Bar[]; nativeHistory?: boolean; replay?: boolean; symbol?: MarketSymbol};
 export const maxPineSourceBars = 6000;
 export type PineHistoryQuery = {period: Period; before: number; limit: number};
 export type PineHistoryLoader = (query: PineHistoryQuery) => Promise<Bar[]>;

@@ -333,6 +333,9 @@
 
 .live-panel { width: min(440px, 100%); }
 .live-details-head, .live-panel-end { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--live-muted); font-size: 13px; }
+.live-symbol-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+.live-symbol-options button { flex-direction: column; align-items: flex-start; gap: 4px; min-height: 56px; text-align: start; }
+.live-symbol-options small { color: var(--live-muted); }
 .live-quotes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 14px 0; padding: 11px 0; border-block: 1px solid var(--live-border); }
 .live-quotes dt { color: var(--live-muted); font-size: 12px; }
 .live-quotes dd { margin: 4px 0 0; font-size: 19px; font-variant-numeric: tabular-nums; }

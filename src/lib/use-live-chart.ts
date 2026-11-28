@@ -13,7 +13,8 @@ type Market = ReturnType<typeof useLiveMarket>;
 
 export function useLiveBars(period: Period, market: Market, retry: number, anchored = false, enabled = true, historyTarget = focusBarCount) {
   const [backup, setBackup] = useState<{period: Period; bars: Bar[]; failed?: boolean}>();
-  const needsBackup = !anchored && market.barError && market.bars.length === 0;
+  const unavailable = !anchored && market.barError && market.bars.length === 0;
+  const needsBackup = market.symbol === 'XAUUSD' && unavailable;
 
   useEffect(() => {
     if (!enabled || !needsBackup) return;
@@ -35,25 +36,27 @@ export function useLiveBars(period: Period, market: Market, retry: number, ancho
 
   const historical = needsBackup && backup?.period === period ? backup.bars : emptyBars;
   const bars = market.bars.length ? market.bars : historical;
-  return {bars, historical, needsBackup, backupFailed: backup?.period === period && backup.failed};
+  return {bars, historical, needsBackup, backupFailed: market.symbol === 'BTCUSDT'
+    ? unavailable : backup?.period === period && backup.failed};
 }
 
 export function useLiveStudies(period: Period, market: Market, historical: Bar[],
   studies: LiveStudy[], lengths: Partial<Record<LiveStudy, number>>, jobs: ScriptJob[], paused = false) {
   const sourceBars = historical.length ? historical : market.studyBars;
-  const builtInPlots = useMemo(() => livePlots(sourceBars, studies, lengths), [sourceBars, studies, lengths]);
+  const builtInPlots = useMemo(() => livePlots(sourceBars, studies, lengths, market.symbol),
+    [sourceBars, studies, lengths, market.symbol]);
   const minuteBased = market.studyBars.length > market.closed.length;
   const last = minuteBased ? market.minuteTime : market.closed.at(-1)?.time;
-  const through = last === undefined ? undefined : candleWindow(last, minuteBased ? 60 : periods[period]).close;
-  const pineFrame = {asOf: through ?? (sourceBars.length ? candleWindow(sourceBars.at(-1)!.time, periods[period]).close : 0),
-    minutes: market.archive || historical.length ? emptyBars : market.minutes, nativeHistory: true};
+  const through = last === undefined ? undefined : candleWindow(last, minuteBased ? 60 : periods[period], market.calendar).close;
+  const pineFrame = {asOf: through ?? (sourceBars.length ? candleWindow(sourceBars.at(-1)!.time, periods[period], market.calendar).close : 0),
+    minutes: market.archive || historical.length ? emptyBars : market.minutes, nativeHistory: true, symbol: market.symbol};
   const pineSession = ['live', period, market.archive ? market.key : 'latest', Boolean(historical.length)].join(':');
   const pine = usePine(undefined, jobs.length > 0, sourceBars, periods[period], pineSession, jobs,
-    sourceBars, periods[period], 'eightcap', false, pineFrame, paused || market.findingWindow);
+    sourceBars, periods[period], market.calendar, false, pineFrame, paused || market.findingWindow);
   const plots = useMemo(() => [...builtInPlots, ...pine.plots], [builtInPlots, pine.plots]);
   const completed = pine.completed.key === pine.requestedKey ? pine.completed.studies : [];
   const badges: LiveStudyBadge[] = studies.map(study => ({
-    id: 'live-' + study, label: studyLabel(study, lengths), state: sourceBars.length ? 'ready' : 'loading',
+    id: 'live-' + study, label: studyLabel(study, lengths, market.symbol), state: sourceBars.length ? 'ready' : 'loading',
   }));
   for (const job of jobs) {
     const result = completed.find(study => study.id === job.id);

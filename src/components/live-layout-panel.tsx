@@ -2,9 +2,11 @@ import {useEffect, useRef, useState} from 'react';
 import {Download, FolderOpen, Plus, Save, Trash2, Upload} from 'lucide-react';
 import {layoutName, readLayoutFile, type LiveLayoutFile} from '../lib/live-layouts';
 import {deleteLiveLayout, listLiveLayouts, saveLiveLayout, type SavedLayout} from '../lib/storage';
+import {defaultMarketSymbol, marketInfo, type MarketSymbol} from '../lib/market-symbol';
 
 export type ActiveLayout = Pick<SavedLayout, 'id' | 'revision'> & {name: string};
 type Props = {
+  symbol: MarketSymbol;
   active: ActiveLayout | null;
   capture: (name: string) => LiveLayoutFile;
   onSave: (layout: SavedLayout | null) => void;
@@ -19,7 +21,7 @@ function downloadLayout(file: LiveLayoutFile) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props) {
+export default function LiveLayoutPanel({symbol, active, capture, onSave, onOpen}: Props) {
   const [rows, setRows] = useState<SavedLayout[]>([]);
   const [name, setName] = useState(active?.name ?? '');
   const [busy, setBusy] = useState(false);
@@ -30,18 +32,18 @@ export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     let mounted = true;
-    const refresh = () => listLiveLayouts().then(records => { if (mounted) setRows(records); }).catch(e => { if (mounted) setError(e.message); });
+    const refresh = () => listLiveLayouts(symbol).then(records => { if (mounted) setRows(records); }).catch(e => { if (mounted) setError(e.message); });
     void refresh();
     window.addEventListener('xau-live-layouts-changed', refresh);
     return () => { mounted = false; window.removeEventListener('xau-live-layouts-changed', refresh); };
-  }, []);
+  }, [symbol]);
 
   async function act(task: () => Promise<void>) {
     setBusy(true); setError(''); setMessage('');
     try { await task(); }
     catch (e) { setError(e instanceof Error ? e.message : 'บันทึกเลย์เอาต์ไม่สำเร็จ'); }
     finally {
-      try { setRows(await listLiveLayouts()); } catch (e) { setError(String(e)); }
+      try { setRows(await listLiveLayouts(symbol)); } catch (e) { setError(String(e)); }
       setBusy(false);
     }
   }
@@ -59,6 +61,7 @@ export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props
       let json: unknown;
       try { json = JSON.parse(await read()); } catch { throw Error('อ่านข้อมูลเลย์เอาต์ JSON ไม่ได้'); }
       const imported = readLayoutFile(json);
+      if ((imported.symbol ?? defaultMarketSymbol) !== symbol) throw Error('เลือก Symbol ของเลย์เอาต์นี้ก่อนนำเข้า');
       const saved = await saveLiveLayout(imported);
       setPastedLayout('');
       setMessage('นำเข้า ' + saved.file.name + ' แล้ว กดชื่อเพื่อเปิด');
@@ -66,7 +69,7 @@ export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props
   }
   return <div className="layout-manager">
     <label className="chart-field">ชื่อเลย์เอาต์
-      <input value={name} placeholder="เช่น ทองคำ 15 นาที" maxLength={100}
+      <input value={name} placeholder={marketInfo[symbol].label + ' 15m'} maxLength={100}
         onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && name.trim() && !busy) save(!active); }}/>
     </label>
     <div className="layout-actions">
@@ -91,7 +94,7 @@ export default function LiveLayoutPanel({active, capture, onSave, onOpen}: Props
     <div className="layout-transfer">
       <p className="chart-hint">ย้ายกราฟไปอีกเครื่องได้ด้วยการส่งออกไฟล์แล้วนำเข้า ส่วนซิงก์อัตโนมัติข้ามเครื่องจะต้องเชื่อมต่อบริการคลาวด์</p>
       <div className="layout-actions">
-        <button onClick={() => downloadLayout(capture(name.trim() || 'XAUUSD'))}><Download size={16}/>ส่งออกกราฟนี้</button>
+        <button onClick={() => downloadLayout(capture(name.trim() || marketInfo[symbol].label))}><Download size={16}/>ส่งออกกราฟนี้</button>
         <button disabled={busy} onClick={() => fileInput.current?.click()}><Upload size={16}/>นำเข้าเลย์เอาต์</button>
         <input type="file" hidden ref={fileInput} aria-label="ไฟล์เลย์เอาต์" accept=".json,application/json"
           onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importLayout(() => f.text()); }}/>
