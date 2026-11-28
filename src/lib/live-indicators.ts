@@ -1,7 +1,7 @@
 import type {Bar} from './engine';
 import type {PinePlot} from '../components/replay-chart';
-import type {MarketSymbol} from './market-symbol';
-import {isCryptoSymbol, marketInfoFor} from './market-symbol';
+import type {MarketSymbol} from './market-symbol.ts';
+import {isCryptoSymbol, marketInfoFor} from './market-symbol.ts';
 
 export const studyDefinitions = {
   ema20: {name: 'EMA', length: 20, color: '#e2bb70', help: 'ค่าเฉลี่ยราคาแบบเอ็กซ์โพเนนเชียล ให้น้ำหนักแท่งล่าสุดมากขึ้น'},

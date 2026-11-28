@@ -7,7 +7,7 @@ import type {useLiveMarket} from './use-live-market';
 import {usePine} from './use-pine';
 import type {ScriptJob} from './pine.worker';
 import {focusBarCount} from './focused-indicators';
-import {isCryptoSymbol} from './market-symbol';
+import {isCryptoSymbol} from './market-symbol.ts';
 
 const emptyBars: Bar[] = [];
 type Market = ReturnType<typeof useLiveMarket>;

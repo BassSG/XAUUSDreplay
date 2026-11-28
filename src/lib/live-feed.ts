@@ -3,7 +3,7 @@ import type {Bar} from './engine';
 import {maxPineSourceBars, type PineHistoryQuery} from './live-pine';
 import {historyCatalog, loadBefore} from './history';
 import {spotSnapshot} from './binance-spot';
-import {defaultMarketSymbol, isCryptoSymbol, type MarketSymbol} from './market-symbol';
+import {defaultMarketSymbol, isCryptoSymbol, type MarketSymbol} from './market-symbol.ts';
 
 const pagesOrigin = 'https://basssg.github.io';
 const pagesBridge = 'https://anything-mrna-work-voted.trycloudflare.com';

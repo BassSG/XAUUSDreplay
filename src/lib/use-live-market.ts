@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {Bar} from './engine';
-import {defaultMarketSymbol, isCryptoSymbol, marketInfoFor, type MarketSymbol} from './market-symbol';
+import {defaultMarketSymbol, isCryptoSymbol, marketInfoFor, type MarketSymbol} from './market-symbol.ts';
 import {spotBookQuote, spotPageSize, spotServerTime, spotSnapshot} from './binance-spot';
 import {historyPage, requestMarket as request} from './live-feed';
 import {historyCatalog, loadBefore, loadWindow} from './history';
