@@ -30,7 +30,7 @@ test('Binance Spot preserves fractional BTC volume and closes its daily bars at 
 test('Binance Spot history sends an exclusive millisecond cursor and caps its page at 1000', async t => {
   const before = Date.UTC(2026, 10, 27) / 1000;
   const fetch = t.mock.method(globalThis, 'fetch', async () => new Response('[]'));
-  const result = await spotSnapshot('1m', new AbortController().signal, () => before + 3600, 1500, before);
+  const result = await spotSnapshot('BTCUSDT', '1m', new AbortController().signal, () => before + 3600, 1500, before);
   const url = new URL(fetch.mock.calls[0].arguments[0]);
   assert.equal(url.origin, 'https://api.binance.th');
   assert.equal(url.pathname, '/api/v1/klines');
