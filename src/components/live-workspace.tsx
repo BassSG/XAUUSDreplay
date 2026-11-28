@@ -692,6 +692,15 @@ export default function LiveWorkspace({onReplay}: {onReplay: () => void}) {
         onToggleFavorites={() => setWorkspace(value => ({...value, favoriteCollapsed: !value.favoriteCollapsed}))}
         onFavorite={kind => setWorkspace(value => ({...value, favoriteTools: value.favoriteTools.includes(kind)
           ? value.favoriteTools.filter(tool => tool !== kind) : [...value.favoriteTools, kind]}))}
+        onReorderFavorite={(kind, target) => setWorkspace(value => {
+          const from = value.favoriteTools.indexOf(kind);
+          const to = value.favoriteTools.indexOf(target);
+          if (from < 0 || to < 0 || from === to) return value;
+          const favoriteTools = [...value.favoriteTools];
+          favoriteTools.splice(from, 1);
+          favoriteTools.splice(to, 0, kind);
+          return {...value, favoriteTools};
+        })}
         onMoveFavorites={position => setWorkspace(value => ({...value, favoritePosition: position}))}
         magnet={magnet} strongMagnet={strongMagnet} hidden={hiddenDrawings} stayInDrawingMode={stayInDrawingMode}
         canUndo={undo.current.length > 0} canRedo={redo.current.length > 0}

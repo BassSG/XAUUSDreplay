@@ -1,6 +1,6 @@
 import {useRef, useState, type HTMLAttributes, type ReactNode} from 'react';
 import {
-  ChevronLeft, Eye, EyeOff, GripVertical, Magnet, MousePointer2, PencilRuler,
+  ArrowDown, ArrowUp, ChevronLeft, Eye, EyeOff, GripVertical, ListOrdered, Magnet, MousePointer2, PencilRuler,
   Redo2, Repeat, Search, Star, Trash2, Undo2, X,
 } from 'lucide-react';
 import {DrawingToolIcon} from './drawing-tool-icon';
@@ -91,16 +91,112 @@ type Props = {
   favoriteCollapsed: boolean; onToggleFavorites: () => void;
   favoriteSize: LiveWorkspaceState['favoriteSize']; onResizeFavorites: (size: Props['favoriteSize']) => void;
   onFavorite: (kind: DrawingKind) => void; onMoveFavorites: (position: Props['favoritePosition']) => void;
+  onReorderFavorite: (kind: DrawingKind, target: DrawingKind) => void;
   onPick: (kind: DrawingKind) => void; onSelect: () => void; onMagnet: () => void;
   onStayInDrawingMode: () => void;
   onHide: () => void; onUndo: () => void; onRedo: () => void; onDelete: () => void;
 };
+
+function FavoriteOrderDialog({favorites, onReorder, onClose}: {
+  favorites: DrawingKind[]; onReorder: Props['onReorderFavorite']; onClose: () => void;
+}) {
+  const list = useRef<HTMLOListElement>(null);
+  const drag = useRef<{pointerId: number; kind: DrawingKind} | null>(null);
+  const touchStart = useRef<{id: number; x: number; y: number} | null>(null);
+  const [dropTarget, setDropTarget] = useState<DrawingKind | null>(null);
+  useDialog(true, onClose);
+
+  function targetAt(x: number, y: number) {
+    const row = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-favorite-kind]');
+    return row && list.current?.contains(row)
+      ? favorites.find(kind => kind === row.dataset.favoriteKind) : undefined;
+  }
+
+  function clearDrag() {
+    drag.current = null;
+    setDropTarget(null);
+  }
+
+  // A tap after a drag can reach touchend without producing a browser click.
+  function tapAction(action: () => void): Pick<HTMLAttributes<HTMLButtonElement>,
+    'onClick' | 'onTouchStart' | 'onTouchEnd' | 'onTouchCancel'> {
+    return {
+      onClick: action,
+      onTouchStart: event => {
+        const touch = event.touches[0];
+        touchStart.current = event.touches.length === 1
+          ? {id: touch.identifier, x: touch.clientX, y: touch.clientY} : null;
+      },
+      onTouchEnd: event => {
+        const start = touchStart.current;
+        touchStart.current = null;
+        const touch = event.changedTouches[0];
+        if (!start || touch?.identifier !== start.id ||
+          Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > 10) return;
+        event.preventDefault();
+        action();
+      },
+      onTouchCancel: () => { touchStart.current = null; },
+    };
+  }
+
+  return <div className="modal-shade" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="modal live-favorite-order" role="dialog" aria-modal="true" aria-labelledby="favorite-order-title">
+      <header className="modal-head">
+        <h2 id="favorite-order-title">จัดลำดับเครื่องมือโปรด</h2>
+        <button type="button" {...tapAction(onClose)}>เสร็จ</button>
+      </header>
+      <p>ลากจากจุดจับ หรือแตะลูกศรเพื่อย้ายขึ้นลง เครื่องมือด้านบนจะแสดงก่อนบนแถบ</p>
+      <ol ref={list}>
+        {favorites.map((kind, index) => {
+          const {name} = drawingTools[kind];
+          const previous = favorites[index - 1], next = favorites[index + 1];
+          return <li key={kind} data-favorite-kind={kind} data-drop-target={kind === dropTarget}>
+            <button type="button" className="live-favorite-order-grip" aria-label={'ลากเพื่อย้าย ' + name}
+              title={'ลากเพื่อย้าย ' + name}
+              onPointerDown={event => {
+                if (!event.isPrimary || event.button !== 0 || drag.current) return;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                drag.current = {pointerId: event.pointerId, kind};
+                setDropTarget(kind);
+              }}
+              onPointerMove={event => {
+                if (drag.current?.pointerId !== event.pointerId) return;
+                setDropTarget(targetAt(event.clientX, event.clientY) ?? null);
+              }}
+              onPointerUp={event => {
+                if (drag.current?.pointerId !== event.pointerId) return;
+                const target = targetAt(event.clientX, event.clientY);
+                if (target && target !== kind) onReorder(kind, target);
+                clearDrag();
+              }}
+              onPointerCancel={clearDrag} onLostPointerCapture={clearDrag}
+              onKeyDown={event => {
+                const target = event.key === 'ArrowUp' ? previous : event.key === 'ArrowDown' ? next : undefined;
+                if (!target) return;
+                event.preventDefault();
+                event.stopPropagation();
+                onReorder(kind, target);
+              }}><GripVertical size={18}/></button>
+            <DrawingToolIcon kind={kind}/>
+            <span>{name}</span>
+            <button type="button" aria-label={'ย้าย ' + name + ' ขึ้น'} disabled={!previous}
+              {...tapAction(() => onReorder(kind, previous))}><ArrowUp size={17}/></button>
+            <button type="button" aria-label={'ย้าย ' + name + ' ลง'} disabled={!next}
+              {...tapAction(() => onReorder(kind, next))}><ArrowDown size={17}/></button>
+          </li>;
+        })}
+      </ol>
+    </section>
+  </div>;
+}
 
 function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => void}) {
   const bounds = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDivElement>(null);
   const drag = useRef<{id: number; x: number; y: number; start: Props['favoritePosition']; next: Props['favoritePosition']} | null>(null);
   const [preview, setPreview] = useState<Props['favoritePosition'] | null>(null);
+  const [ordering, setOrdering] = useState(false);
   const position = preview ?? props.favoritePosition;
   const sizeNames = {small: 'เล็ก', medium: 'กลาง', large: 'ใหญ่'};
   const nextSize = ({small: 'medium', medium: 'large', large: 'small'} as const)[props.favoriteSize];
@@ -144,7 +240,7 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
       props.onMoveFavorites({x: clamp(position.x + shift[0] * .05), y: clamp(position.y + shift[1] * .05)});
     },
   };
-  return <div className="live-favorite-area" ref={bounds}>
+  return <><div className="live-favorite-area" ref={bounds}>
     <div className="live-favorite-bar" ref={bar} role="toolbar" aria-label="เครื่องมือโปรด" data-collapsed={props.favoriteCollapsed} data-size={props.favoriteSize}
       style={{left: position.x * 100 + '%', top: position.y * 100 + '%',
         transform: `translate(${-position.x * 100}%, ${-position.y * 100}%)`}}>
@@ -171,6 +267,8 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
         aria-label={'ขนาดแถบเครื่องมือโปรด ' + sizeNames[props.favoriteSize] + ' · เปลี่ยนเป็น' + sizeNames[nextSize]}
         title={'เปลี่ยนเป็นขนาด' + sizeNames[nextSize]}
         onClick={() => props.onResizeFavorites(nextSize)}>{sizeNames[props.favoriteSize]}</button>
+      {props.favorites.length > 1 && <button type="button" aria-label="จัดลำดับเครื่องมือโปรด"
+        title="จัดลำดับเครื่องมือโปรด" aria-haspopup="dialog" onClick={() => setOrdering(true)}><ListOrdered size={17}/></button>}
       <div className="live-favorite-list">
         {props.favorites.map(kind => {
           const tool = drawingTools[kind];
@@ -181,7 +279,9 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
         })}
       </div></>}
     </div>
-  </div>;
+  </div>
+  {ordering && <FavoriteOrderDialog favorites={props.favorites} onReorder={props.onReorderFavorite} onClose={() => setOrdering(false)}/>}
+  </>;
 }
 
 function DrawingActions({props, inPicker = false}: {props: Props; inPicker?: boolean}) {
