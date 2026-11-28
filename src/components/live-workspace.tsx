@@ -7,7 +7,7 @@ import {useReplayChartFrames} from '../lib/use-inline-replay-studies';
 import {useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode} from 'react';
 import {
   ArrowLeft, Bell, BookOpen, Camera, ChartSpline, ChevronDown, Download, Ellipsis, History, LayoutGrid, LockKeyhole, LockKeyholeOpen,
-  Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, Search, SkipBack, SkipForward, Trash2, X,
+  Maximize2, Minimize2, Pencil, Radio, RefreshCw, Save, ScanLine, List, SkipBack, SkipForward, Trash2, X,
   CalendarDays, Code2, Copy, PanelsTopLeft, Redo2, Settings2, Target, Undo2,
 } from 'lucide-react';
 import ChartBoundary from './chart-boundary';
@@ -20,11 +20,12 @@ import LiveStudyPanel from './live-study-panel';
 import LiveStudyLegend from './live-study-legend';
 import LiveAppearance from './live-appearance';
 import LiveAlertPanel from './live-alert-panel';
+import LiveWatchlists from './live-watchlists';
 import LiveForwardPanel from './live-forward-panel';
 import LiveLayoutPanel, {type ActiveLayout} from './live-layout-panel';
 import LivePineEditor, {newScriptDraft, type ScriptDraft} from './live-pine-editor';
 import {defaultChartView, loadLiveWorkspace, makeLayoutFile, periodList, readChartView, workspaceStorageKey} from '../lib/live-layouts';
-import {defaultMarketSymbol, forexSymbols, formatMarketPrice, isCryptoSymbol, isForexSymbol, isMarketSymbol, marketInfoFor, type MarketSymbol, type SpotMarket} from '../lib/market-symbol';
+import {defaultMarketSymbol, formatMarketPrice, isCryptoSymbol, isForexSymbol, isMarketSymbol, marketInfoFor, type MarketSymbol, type SpotMarket} from '../lib/market-symbol';
 import {loadSpotMarkets} from '../lib/binance-spot';
 import {saveLiveAutoSave, saveLiveLayout, type SavedLayout} from '../lib/storage';
 import {useLiveTimeframes} from '../lib/use-live-timeframes';
@@ -158,8 +159,6 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
   const [spotMarkets, setSpotMarkets] = useState<SpotMarket[]>([fallbackBtcMarket]);
   const [spotCatalogState, setSpotCatalogState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [spotCatalogError, setSpotCatalogError] = useState('');
-  const [symbolSearch, setSymbolSearch] = useState('');
-  const [quoteAssetFilter, setQuoteAssetFilter] = useState('ALL');
   const spotCatalogLoad = useRef<Promise<void> | null>(null);
   const spotCatalogController = useRef<AbortController | null>(null);
   const spotCatalogLoaded = useRef(false);
@@ -251,17 +250,6 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
       onSelectSymbol(next);
     }
   }
-
-  const quoteAssets = useMemo(() => [...new Set(spotMarkets.map(market => market.quoteAsset))], [spotMarkets]);
-  const quoteAssetCounts = useMemo(() => spotMarkets.reduce<Record<string, number>>((counts, market) => {
-    counts[market.quoteAsset] = (counts[market.quoteAsset] ?? 0) + 1;
-    return counts;
-  }, {}), [spotMarkets]);
-  const matchingSpotMarkets = useMemo(() => {
-    const query = symbolSearch.trim().toUpperCase().replaceAll('/', '');
-    return spotMarkets.filter(market => (quoteAssetFilter === 'ALL' || market.quoteAsset === quoteAssetFilter) &&
-      (!query || market.symbol.includes(query) || market.baseAsset.includes(query) || market.quoteAsset.includes(query)));
-  }, [spotMarkets, symbolSearch, quoteAssetFilter]);
 
   useEffect(() => {
     if (spot) return;
@@ -861,11 +849,10 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
             <span className="live-dock-icon"><ChartSpline size={19}/>{totalStudies > 0 && <small>{totalStudies}</small>}</span>
             <span>อินดิเคเตอร์</span>
           </button>
-          {!spot && <button className="live-mobile-command" type="button"
-            aria-label={replay.picking ? 'ยกเลิกเลือก Replay' : replaying ? 'กลับสู่กราฟ Live' : 'เปิด Replay'}
-            aria-pressed={replay.picking || replay.active} onClick={replay.picking ? beginReplay : replaying ? exitReplay : beginReplay}>
-            {replaying ? <ArrowLeft size={18}/> : <History size={19}/>}<span>{replaying ? 'กลับ Live' : 'Replay'}</span>
-          </button>}
+          <button className="live-mobile-command" type="button" disabled={replaying || replay.picking}
+            aria-label="รายการ Symbol" aria-haspopup="dialog" aria-expanded={panel === 'quotes'} onClick={openQuotes}>
+            <List size={19}/><span>รายการ</span>
+          </button>
           <button className="live-mobile-command" type="button" aria-label="เพิ่มเติม" aria-haspopup="dialog"
             aria-expanded={panel === 'view'} onClick={openChartMenu}>
             <span className="live-dock-icon"><Ellipsis size={20}/>{armedAlerts.length > 0 && <i aria-label="มีการแจ้งเตือนที่เปิดอยู่"/>}</span>
@@ -924,46 +911,9 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
     </LivePanel>}
 
     {panel === 'quotes' && <LivePanel title={'เลือกสินทรัพย์ · ' + instrument.label} onClose={closePanel}>
-      <div className="live-market-groups">
-        <section className="live-market-group">
-          <h3>CFD · Eightcap</h3>
-          <button type="button" className="live-market-symbol" aria-pressed={symbol === defaultMarketSymbol}
-            onClick={() => chooseSymbol(defaultMarketSymbol)}>
-            <strong>XAUUSD</strong><small>Eightcap MT5 · Gold CFD</small>
-          </button>
-        </section>
-        <section className="live-market-group">
-          <h3>Forex · Eightcap</h3>
-          {forexSymbols.map(item => <button key={item} type="button" className="live-market-symbol"
-            aria-pressed={symbol === item} onClick={() => chooseSymbol(item)}>
-            <strong>{item.slice(0,3)}/{item.slice(3)}</strong><small>Eightcap MT5 · Forex</small>
-          </button>)}
-        </section>
-        <section className="live-market-group">
-          <div className="live-market-group-title"><h3>Crypto · Binance TH</h3>
-            <span>{spotCatalogState === 'ready' ? counts.format(spotMarkets.length) + ' คู่' : spotCatalogState === 'loading' ? 'กำลังโหลดรายการ…' : ''}</span>
-          </div>
-          <label className="live-market-search"><Search size={16}/><input type="search" value={symbolSearch}
-            placeholder="ค้นหาเหรียญหรือคู่ เช่น ETH / ETHUSDT" aria-label="ค้นหาคู่ Crypto"
-            onChange={event => setSymbolSearch(event.target.value)}/></label>
-          <div className="live-market-filters" role="group" aria-label="กรองสกุลเงินอ้างอิง">
-            <button type="button" aria-pressed={quoteAssetFilter === 'ALL'} onClick={() => setQuoteAssetFilter('ALL')}>ทั้งหมด</button>
-            {quoteAssets.map(asset => <button key={asset} type="button" aria-pressed={quoteAssetFilter === asset}
-              onClick={() => setQuoteAssetFilter(asset)}>{asset}<small>{quoteAssetCounts[asset]}</small></button>)}
-          </div>
-          {spotCatalogState === 'loading' && <p className="live-market-message" role="status">กำลังดึงคู่ Spot ที่เปิดซื้อขายทั้งหมดจาก Binance TH…</p>}
-          {spotCatalogState === 'error' && <p className="live-market-message" role="status">โหลดรายการล่าสุดไม่สำเร็จ · {spotCatalogError}
-            <button type="button" onClick={retrySpotCatalog}>ลองอีกครั้ง</button></p>}
-          <div className="live-symbol-options" role="group" aria-label="คู่ Crypto จาก Binance TH">
-            {matchingSpotMarkets.map(item => <button key={item.symbol} type="button" className="live-market-symbol"
-              aria-pressed={symbol === item.symbol} onClick={() => chooseSymbol(item.symbol)}>
-              <strong>{item.baseAsset}/{item.quoteAsset}</strong><small>{item.symbol} · Spot</small>
-            </button>)}
-            {spotCatalogState === 'ready' && !matchingSpotMarkets.length && <p className="live-market-message">ไม่พบคู่ที่ตรงกับคำค้นหา</p>}
-          </div>
-        </section>
-      </div>
-      <div className="live-details-head">
+            <LiveWatchlists symbol={symbol} markets={spotMarkets} catalogState={spotCatalogState} catalogError={spotCatalogError} retry={retrySpotCatalog} onSelect={chooseSymbol}/>
+      <details className="watchlists-details"><summary>รายละเอียดราคาปัจจุบัน</summary>
+<div className="live-details-head">
         <span>{instrument.source} · {instrument.description}</span>
         <strong className="live-feed" data-live={quote?.status === 'live' && !market.quoteError}><i aria-hidden="true"/>{status}</strong>
       </div>
@@ -976,7 +926,8 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
         <span>{quote ? clock.format(quote.time * 1000) + ' กรุงเทพฯ' : status}</span>
         <button type="button" onClick={reconnect}><RefreshCw size={16}/>เชื่อมต่อใหม่</button>
       </div>
-    </LivePanel>}
+          </details>
+</LivePanel>}
 
     {panel === 'timeframe' && <LivePanel title="ไทม์เฟรม" onClose={closePanel}>
       <div className="live-timeframe-options" role="group" aria-label="ช่วงเวลาแท่งราคา">
@@ -994,6 +945,9 @@ function MarketWorkspace({symbol, onSelectSymbol, onReplay}: {
           <span role="status">{saveLabel}</span>
         </div>
         <div className="live-panel-options">
+          {!spot && <button type="button" onClick={() => {closePanel(); if (replay.picking) beginReplay(); else if (replaying) exitReplay(); else beginReplay();}}>
+            <History size={18}/><span>{replay.picking ? 'ยกเลิกเลือก Replay' : replaying ? 'กลับสู่กราฟ Live' : 'เปิด Replay'}</span>
+          </button>}
           <button type="button" disabled={saveState === 'saving'} onClick={() => void saveWorkingCopy.current()}>
             <Save size={18}/><span>บันทึกกราฟตอนนี้</span>
           </button>
