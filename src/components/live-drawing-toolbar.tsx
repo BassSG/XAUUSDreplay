@@ -4,7 +4,7 @@ import {
   ChartColumnIncreasing, ChartLine, ChartNoAxesCombined, ChevronLeft, Circle, CornerUpRight, Crosshair,
   Diamond, Ellipsis, Eye, EyeOff, Fan, Flag, GitFork, Grid2X2, Highlighter, Info,
   ListTree, Magnet, MessageSquare, Minus, MousePointer2, MoveHorizontal, MoveUpRight,
-  MoveVertical, PanelsLeftBottom, PencilRuler, Plus, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
+  MoveVertical, PanelsLeftBottom, PencilRuler, Redo2, Route, Ruler, Search, Shapes, Slash, Spline, Square,
   StickyNote, Tag, Trash2, TrendingDown, TrendingUp, Triangle, TriangleRight, Type,
   GripVertical, Repeat, Star, Undo2, Waypoints, Workflow, X, type LucideIcon,
 } from 'lucide-react';
@@ -119,6 +119,8 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
   const drag = useRef<{id: number; x: number; y: number; start: Props['favoritePosition']; next: Props['favoritePosition']} | null>(null);
   const [preview, setPreview] = useState<Props['favoritePosition'] | null>(null);
   const position = preview ?? props.favoritePosition;
+  const sizeNames = {small: 'เล็ก', medium: 'กลาง', large: 'ใหญ่'};
+  const nextSize = ({small: 'medium', medium: 'large', large: 'small'} as const)[props.favoriteSize];
   const clamp = (n: number) => Math.min(1, Math.max(0, n));
   const dragged = useRef(false);
   const touchToggle = useRef(-Infinity);
@@ -182,18 +184,10 @@ function FavoriteBar({props, pick}: {props: Props; pick: (kind: DrawingKind) => 
         }}>{props.favoriteCollapsed ? <Star size={17}/> : <ChevronLeft size={17}/>}</button>
       {!props.favoriteCollapsed && <><button type="button" className="live-favorite-grip" title="ลากเพื่อย้ายแถบเครื่องมือโปรด"
         aria-label="ย้ายแถบเครื่องมือโปรด" {...positionHandle}><GripVertical size={17}/></button>
-      <select className="live-favorite-size" aria-label="ขนาดแถบเครื่องมือโปรด" value={props.favoriteSize}
-        onChange={event => props.onResizeFavorites(event.currentTarget.value as Props['favoriteSize'])}>
-        <option value="small">เล็ก</option>
-        <option value="medium">กลาง</option>
-        <option value="large">ใหญ่</option>
-      </select>
-      <div className="live-favorite-size-actions" role="group" aria-label="ขนาดแถบเครื่องมือโปรด">
-        {props.favoriteSize !== 'small' && <button type="button" aria-label="ย่อแถบเครื่องมือโปรด"
-          onClick={() => props.onResizeFavorites('small')}><Minus size={14}/>ย่อ</button>}
-        {props.favoriteSize !== 'large' && <button type="button" aria-label="เพิ่มขนาดแถบเครื่องมือโปรด"
-          onClick={() => props.onResizeFavorites(props.favoriteSize === 'small' ? 'medium' : 'large')}><Plus size={14}/></button>}
-      </div>
+      <button type="button" className="live-favorite-size"
+        aria-label={'ขนาดแถบเครื่องมือโปรด ' + sizeNames[props.favoriteSize] + ' · เปลี่ยนเป็น' + sizeNames[nextSize]}
+        title={'เปลี่ยนเป็นขนาด' + sizeNames[nextSize]}
+        onClick={() => props.onResizeFavorites(nextSize)}>{sizeNames[props.favoriteSize]}</button>
       <div className="live-favorite-list">
         {props.favorites.map(kind => {
           const Icon = icons[kind] ?? groupIcons[groups.find(group => drawingGroups[group].tools.includes(kind as never)) ?? "shapes"];
